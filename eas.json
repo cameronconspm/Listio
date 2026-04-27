@@ -1,0 +1,38 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "ios": {
+        "autoIncrement": true
+      }
+    },
+    "app-store-review": {
+      "extends": "production"
+    },
+    "testflight-qa": {
+      "extends": "production",
+      "env": {
+        "EXPO_PUBLIC_ENABLE_QA_SETTINGS_TOOLS": "1"
+      }
+    },
+    "internal-no-iap": {
+      "extends": "production",
+      "env": {
+        "EXPO_PUBLIC_DISABLE_IOS_SUBSCRIPTION_GATE": "1"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

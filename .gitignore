@@ -31,7 +31,13 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+
+# Cursor local artifacts (not needed for app builds)
+.cursor/debug-*.log
+.cursor/plans/
+.cursor/settings.json
 
 # typescript
 *.tsbuildinfo

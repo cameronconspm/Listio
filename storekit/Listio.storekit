@@ -1,0 +1,61 @@
+{
+  "identifier": "LISTIO01",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {},
+  "subscriptionGroups": [
+    {
+      "id": "7F2A9B1C",
+      "localizations": [],
+      "name": "Listio Premium",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "2.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "A1B2C3D4",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Listio Premium — billed monthly",
+              "displayName": "Premium Monthly",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "listio_premium_monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Premium Monthly",
+          "subscriptionGroupID": "7F2A9B1C",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "30.00",
+          "familyShareable": false,
+          "groupNumber": 2,
+          "internalID": "E5F6A7B8",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Listio Premium — billed annually",
+              "displayName": "Premium Annual",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "listio_premium_annual",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Premium Annual",
+          "subscriptionGroupID": "7F2A9B1C",
+          "type": "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 2,
+    "minor": 0
+  }
+}

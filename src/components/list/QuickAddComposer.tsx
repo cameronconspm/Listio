@@ -30,14 +30,18 @@ import { AppConfirmationDialog } from '../ui/AppConfirmationDialog';
 import { useHaptics } from '../../hooks/useHaptics';
 import { parseItems, parseSingleEntry, parseBulkToItems, type ParsedItem } from '../../utils/parseItems';
 import { titleCaseWords } from '../../utils/titleCaseWords';
-import { UNITS, UNITS_ALPHABETICAL, type Unit } from '../../data/units';
+import { UNITS, type Unit } from '../../data/units';
 import { TextField } from '../ui/TextField';
-import { SelectorRow } from '../ui/SelectorRow';
 import { useRecentSuggestions } from '../../hooks/useRecentSuggestions';
 import type { ListItem, ZoneKey } from '../../types/models';
 import { ZONE_LABELS } from '../../data/zone';
 import { ListItemZonePickerPanel } from './ListItemZoneSheet';
 import { createQuickAddComposerStyles } from './quickAddComposerStyles';
+import { UnitSelectionList } from '../ui/UnitSelectionList';
+import { duration } from '../../ui/motion/tokens';
+import { parseListItemsFromText, categorizeItems } from '../../services/aiService';
+import type { ParsedListItem } from '../../types/api';
+import { AI_SMART_CATEGORIZATION_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDisclosure';
 
 export interface QuickAddComposerHandle {
   focus: () => void;
@@ -52,6 +56,19 @@ type QuickAddComposerProps = {
   onEdit?: (id: string, parsed: ParsedItem, zoneKey: ZoneKey) => Promise<void>;
   /** Store layout order for the section picker. */
   zoneOrderForPicker?: ZoneKey[];
+  /** Called after the sheet modal exit animation completes (see `BottomSheet` `onDismissed`). */
+  onSheetDismissed?: () => void;
+  /**
+   * Bulk-insert pre-categorized items from Smart Add. Called after the user confirms the
+   * "Add N items to your list?" alert; items already have `zone_key` + `category` resolved
+   * so the host must NOT re-run categorization (it would cost a second round-trip and could
+   * disagree with what the user just saw). When omitted, the sparkle toggle is hidden.
+   */
+  onBulkAddPreCategorized?: (items: ParsedListItem[]) => Promise<void>;
+  /** Store type passed to the AI parser for zone suggestions (e.g. 'kroger_style'). */
+  storeType?: string;
+  /** Zone labels (display strings) in store layout order, for AI zone suggestions. */
+  zoneLabelsInOrder?: string[];
 };
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -67,6 +84,10 @@ export const QuickAddComposer = forwardRef(
       editingItem = null,
       onEdit,
       zoneOrderForPicker,
+      onSheetDismissed,
+      onBulkAddPreCategorized,
+      storeType,
+      zoneLabelsInOrder,
     }: QuickAddComposerProps,
     ref: React.ForwardedRef<QuickAddComposerHandle>
   ) {
@@ -93,6 +114,21 @@ export const QuickAddComposer = forwardRef(
     const [editZoneKey, setEditZoneKey] = useState<ZoneKey>('other');
     const [zoneSheetVisible, setZoneSheetVisible] = useState(false);
     const [unitSheetVisible, setUnitSheetVisible] = useState(false);
+    /**
+     * Smart Add: AI-parses natural language ("a gallon of milk, two pounds of chicken")
+     * into structured rows. Only available when `onBulkAddPreCategorized` is wired and we
+     * aren't editing an existing item. Toggled by the sparkle icon next to the text field.
+     */
+    const [smartMode, setSmartMode] = useState(false);
+    const [smartBusy, setSmartBusy] = useState(false);
+    const smartParseAbortRef = useRef<{ cancelled: boolean } | null>(null);
+    const smartAvailable = !editingItem && !!onBulkAddPreCategorized;
+
+    /**
+     * Pre-warm token for the typing-time categorize call. Flipping `cancelled = true`
+     * discards the result if the user kept typing or dismissed before OpenAI returned.
+     */
+    const prewarmAbortRef = useRef<{ cancelled: boolean } | null>(null);
 
     const isFocused = useRef(false);
     const draftRef = useRef({
@@ -117,7 +153,12 @@ export const QuickAddComposer = forwardRef(
     useImperativeHandle(ref, () => ({ focus }), [focus]);
 
     const animateLayout = useCallback(() => {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      LayoutAnimation.configureNext({
+        duration: duration.fast,
+        create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+        delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      });
     }, []);
 
     const expandDetails = useCallback(() => {
@@ -139,10 +180,20 @@ export const QuickAddComposer = forwardRef(
       if (!visible) {
         setZoneSheetVisible(false);
         setUnitSheetVisible(false);
+        setSmartBusy(false);
+        if (smartParseAbortRef.current) {
+          smartParseAbortRef.current.cancelled = true;
+          smartParseAbortRef.current = null;
+        }
+        if (prewarmAbortRef.current) {
+          prewarmAbortRef.current.cancelled = true;
+          prewarmAbortRef.current = null;
+        }
         return;
       }
 
       if (editingItem) {
+        setSmartMode(false);
         const qty = editingItem.quantity_value ?? 1;
         const rawUnit = (editingItem.quantity_unit ?? 'ea').toString().toLowerCase();
         const u = UNITS.includes(rawUnit as (typeof UNITS)[number]) ? rawUnit : 'ea';
@@ -174,6 +225,59 @@ export const QuickAddComposer = forwardRef(
         setUnit(UNITS.includes(normUnit as (typeof UNITS)[number]) ? normUnit : 'ea');
       }
     }, []);
+
+    /**
+     * Typing-time pre-warm: when the user pauses typing a plausible single item name
+     * in add mode, speculatively categorize it in the background so the submit path
+     * can take the local-cache fast path (no AI wait, no "Other" flicker).
+     *
+     * Guarded to:
+     *   - only fire in add mode (not edit, not smart mode)
+     *   - skip inputs shorter than 3 chars (avoids wasting rate-limit budget on "ap")
+     *   - skip multi-item expressions ("milk, eggs") — multi-item path doesn't optimistic-insert
+     *   - debounce 600ms so each keystroke doesn't fire a call
+     *   - abort (discard result + ignore stale response) if the user keeps typing
+     *   - abort on composer dismiss via prewarmAbortRef in the visibility reset effect
+     *
+     * categorizeItems transparently short-circuits on local cache hits, so repeat
+     * pre-warms of the same word are free. Network calls are rate-limited server-side.
+     */
+    useEffect(() => {
+      if (!visible) return;
+      if (smartMode || editingItem) return;
+      const trimmed = text.trim();
+      if (trimmed.length < 3) return;
+      // Avoid pre-warming when the user typed a comma-separated multi-item entry —
+      // the multi-item submit path doesn't use the optimistic fast path anyway.
+      if (parseItems(text).length > 1) return;
+
+      const parsed = parseSingleEntry(text);
+      const name = parsed?.name?.trim();
+      if (!name || name.length < 3) return;
+
+      if (prewarmAbortRef.current) {
+        prewarmAbortRef.current.cancelled = true;
+      }
+      const token = { cancelled: false };
+      prewarmAbortRef.current = token;
+
+      const timeoutId = setTimeout(() => {
+        if (token.cancelled) return;
+        void (async () => {
+          try {
+            await categorizeItems([name], storeType, zoneLabelsInOrder);
+          } catch {
+            // Background only — if the warm call fails the submit path falls back
+            // to its existing optimistic-insert-under-'other' behavior.
+          }
+        })();
+      }, 600);
+
+      return () => {
+        clearTimeout(timeoutId);
+        token.cancelled = true;
+      };
+    }, [visible, text, smartMode, editingItem, storeType, zoneLabelsInOrder]);
 
     const handleTextChange = useCallback(
       (s: string) => {
@@ -242,7 +346,91 @@ export const QuickAddComposer = forwardRef(
       [onSubmit, zoneOverride, haptics, dismissWithoutSavingDraft]
     );
 
+    const performSmartBulkAdd = useCallback(
+      async (items: ParsedListItem[]) => {
+        if (!onBulkAddPreCategorized || items.length === 0) return;
+        setLoading(true);
+        setError(null);
+        try {
+          await onBulkAddPreCategorized(items);
+          dismissWithoutSavingDraft();
+          haptics.success();
+          setText('');
+          setQuantity(1);
+          setUnit('ea');
+          setNote('');
+          setBrandPreference('');
+          setDetailsExpanded(false);
+          setSmartMode(false);
+          draftRef.current = { text: '', quantity: 1, unit: 'ea', note: '', brandPreference: '' };
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Failed to add items');
+        } finally {
+          setLoading(false);
+        }
+      },
+      [onBulkAddPreCategorized, dismissWithoutSavingDraft, haptics]
+    );
+
+    const handleSmartParse = useCallback(async () => {
+      const trimmed = text.trim();
+      if (!trimmed) {
+        setError('Describe what you need to add');
+        return;
+      }
+      if (!onBulkAddPreCategorized) {
+        setError('Smart add is unavailable right now');
+        return;
+      }
+      setSmartBusy(true);
+      setError(null);
+      const abort = { cancelled: false };
+      smartParseAbortRef.current = abort;
+      try {
+        const parsed = await parseListItemsFromText(trimmed, storeType, zoneLabelsInOrder);
+        if (abort.cancelled) return;
+        if (parsed.length === 0) {
+          setError(
+            "Didn't catch any items — try rephrasing or tap the sparkle to go back to single-item mode."
+          );
+          return;
+        }
+        // Directly bulk-insert the pre-categorized rows. Single-item Add has no extra
+        // confirmation step either — the user has already tapped "Parse with AI" as an
+        // explicit confirmation of intent. Presenting a second Modal alert on top of
+        // the composer's Modal is unreliable on iOS (the alert silently fails to
+        // present), so we insert straight through `performSmartBulkAdd`.
+        await performSmartBulkAdd(parsed);
+      } catch (e) {
+        if (abort.cancelled) return;
+        setError(e instanceof Error ? e.message : 'Smart add failed. Try again.');
+      } finally {
+        if (!abort.cancelled) setSmartBusy(false);
+        if (smartParseAbortRef.current === abort) smartParseAbortRef.current = null;
+      }
+    }, [text, onBulkAddPreCategorized, storeType, zoneLabelsInOrder, performSmartBulkAdd]);
+
+    const toggleSmartMode = useCallback(() => {
+      if (!smartAvailable) return;
+      haptics.light();
+      setError(null);
+      animateLayout();
+      setSmartMode((v) => {
+        const next = !v;
+        if (!next && smartParseAbortRef.current) {
+          smartParseAbortRef.current.cancelled = true;
+          smartParseAbortRef.current = null;
+          setSmartBusy(false);
+        }
+        return next;
+      });
+    }, [smartAvailable, haptics, animateLayout]);
+
     const handleSubmit = useCallback(async () => {
+      if (smartMode) {
+        await handleSmartParse();
+        return;
+      }
       const trimmed = text.trim();
       if (!trimmed) {
         setError('Enter at least one item');
@@ -326,6 +514,8 @@ export const QuickAddComposer = forwardRef(
         await performSubmit([item]);
       }
     }, [
+      smartMode,
+      handleSmartParse,
       text,
       quantity,
       unit,
@@ -416,33 +606,84 @@ export const QuickAddComposer = forwardRef(
                   </View>
                 ) : null}
 
-                <TextInput
-                  ref={inputRef}
-                  value={text}
-                  onChangeText={handleTextChange}
-                  onFocus={handleFocus}
-                  onBlur={handleBlur}
-                  onSubmitEditing={editingItem ? handleSubmit : undefined}
-                  onKeyPress={handleKeyPress}
-                  placeholder={editingItem ? 'Item name' : 'e.g. milk, 2 apples, chicken'}
-                  placeholderTextColor={theme.textSecondary}
-                  multiline
-                  numberOfLines={editingItem ? undefined : 1}
-                  scrollEnabled={!!editingItem}
-                  blurOnSubmit={!!editingItem}
-                  returnKeyType="done"
-                  style={[
-                    theme.typography.headline,
-                    styles.itemInput,
-                    {
-                      color: theme.textPrimary,
-                      backgroundColor: theme.surface,
-                      borderColor: error ? theme.danger : theme.divider,
-                    },
-                  ]}
-                />
+                <View style={styles.inputRow}>
+                  <TextInput
+                    ref={inputRef}
+                    testID="quick-add-item-input"
+                    value={text}
+                    onChangeText={handleTextChange}
+                    onFocus={handleFocus}
+                    onBlur={handleBlur}
+                    onSubmitEditing={editingItem ? handleSubmit : undefined}
+                    onKeyPress={handleKeyPress}
+                    placeholder={
+                      editingItem
+                        ? 'Item name'
+                        : smartMode
+                          ? 'Describe what you need — e.g. a gallon of milk, two pounds of chicken, some avocados'
+                          : 'e.g. Chicken Breasts'
+                    }
+                    placeholderTextColor={theme.textSecondary}
+                    multiline
+                    numberOfLines={editingItem ? undefined : smartMode ? 4 : 1}
+                    scrollEnabled={!!editingItem || smartMode}
+                    blurOnSubmit={!!editingItem}
+                    returnKeyType={smartMode ? 'default' : 'done'}
+                    style={[
+                      theme.typography.body,
+                      styles.itemInput,
+                      smartMode && styles.itemInputSmart,
+                      {
+                        color: theme.textPrimary,
+                        backgroundColor: theme.surface,
+                        borderColor: error ? theme.danger : smartMode ? theme.accent : theme.divider,
+                        flex: 1,
+                      },
+                    ]}
+                  />
+                  {smartAvailable ? (
+                    <TouchableOpacity
+                      onPress={toggleSmartMode}
+                      disabled={smartBusy}
+                      style={[
+                        styles.sparkleBtn,
+                        {
+                          backgroundColor: smartMode ? theme.accent + '20' : theme.surface,
+                          borderColor: smartMode ? theme.accent : theme.divider,
+                          opacity: smartBusy ? 0.5 : 1,
+                        },
+                      ]}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={smartMode ? 'Turn off smart add' : 'Turn on smart add'}
+                      accessibilityState={{ selected: smartMode }}
+                      testID="quick-add-sparkle-toggle"
+                    >
+                      <Ionicons
+                        name="sparkles"
+                        size={18}
+                        color={smartMode ? theme.accent : theme.textSecondary}
+                      />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
 
-                {!editingItem && recentSuggestions.length > 0 ? (
+                {smartMode && !editingItem ? (
+                  <Text
+                    style={[
+                      theme.typography.footnote,
+                      {
+                        color: theme.textSecondary,
+                        marginTop: theme.spacing.sm,
+                        lineHeight: 18,
+                      },
+                    ]}
+                  >
+                    {AI_SMART_CATEGORIZATION_DISCLOSURE_LEAD}
+                  </Text>
+                ) : null}
+
+                {!editingItem && !smartMode && recentSuggestions.length > 0 ? (
                   <RNScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -475,6 +716,7 @@ export const QuickAddComposer = forwardRef(
                   </RNScrollView>
                 ) : null}
 
+                {smartMode ? null : (
                 <View style={styles.qtyRow}>
                   <Text style={[theme.typography.footnote, styles.qtyLabel, { color: theme.textSecondary }]}>
                     Qty
@@ -482,24 +724,24 @@ export const QuickAddComposer = forwardRef(
                   <View style={[styles.stepper, { backgroundColor: theme.background, borderColor: theme.divider }]}>
                     <TouchableOpacity
                       onPress={decrementQty}
-                      style={[styles.stepperBtn, { borderRightWidth: 1, borderRightColor: theme.divider }]}
+                      style={styles.stepperBtn}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       accessibilityRole="button"
                       accessibilityLabel="Decrease quantity"
                     >
-                      <Ionicons name="remove" size={20} color={theme.textPrimary} />
+                      <Ionicons name="remove" size={18} color={theme.textPrimary} />
                     </TouchableOpacity>
-                    <Text style={[theme.typography.headline, styles.stepperValue, { color: theme.textPrimary }]}>
+                    <Text style={[theme.typography.body, styles.stepperValue, { color: theme.textPrimary }]}>
                       {quantity}
                     </Text>
                     <TouchableOpacity
                       onPress={incrementQty}
-                      style={[styles.stepperBtn, { borderLeftWidth: 1, borderLeftColor: theme.divider }]}
+                      style={styles.stepperBtn}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       accessibilityRole="button"
                       accessibilityLabel="Increase quantity"
                     >
-                      <Ionicons name="add" size={20} color={theme.textPrimary} />
+                      <Ionicons name="add" size={18} color={theme.textPrimary} />
                     </TouchableOpacity>
                   </View>
                   <Pressable
@@ -519,8 +761,9 @@ export const QuickAddComposer = forwardRef(
                     <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
                   </Pressable>
                 </View>
+                )}
 
-                {!editingItem ? (
+                {!editingItem && !smartMode ? (
                   <TouchableOpacity
                     onPress={toggleDetails}
                     style={styles.addDetailsBtn}
@@ -539,7 +782,7 @@ export const QuickAddComposer = forwardRef(
                   </TouchableOpacity>
                 ) : null}
 
-                {showSecondaryFields ? (
+                {showSecondaryFields && !smartMode ? (
                   <View style={styles.secondaryBlock}>
                     <TextField
                       value={brandPreference}
@@ -577,14 +820,14 @@ export const QuickAddComposer = forwardRef(
         ]}
       >
         <PrimaryButton
-          title={editingItem ? 'Save' : 'Add item'}
+          title={editingItem ? 'Save' : smartMode ? 'Parse with AI' : 'Add item'}
           size="compact"
           onPress={() => {
-            if (!loading) haptics.light();
+            if (!loading && !smartBusy) haptics.light();
             handleSubmit();
           }}
-          disabled={loading}
-          loading={loading}
+          disabled={loading || smartBusy}
+          loading={loading || smartBusy}
         />
       </View>
     );
@@ -594,6 +837,7 @@ export const QuickAddComposer = forwardRef(
         <BottomSheet
           visible={visible}
           onClose={handleDismiss}
+          onDismissed={onSheetDismissed}
           onEnterAnimationStart={() => inputRef.current?.focus()}
           onExitAnimationStart={() => {
             inputRef.current?.blur();
@@ -605,30 +849,45 @@ export const QuickAddComposer = forwardRef(
           formHugContent
           formCompact={formCompact}
           surfaceVariant="solid"
+          presentationVariant="form"
           padContent={false}
+          testID="quick-add-composer-sheet"
         >
             <View style={[styles.keyboardAvoidingSheet, styles.sheetLayout]}>
               <View style={[styles.sheetHeader, { backgroundColor: theme.surface, zIndex: 2 }]}>
-                <Text style={[theme.typography.headline, { color: theme.textPrimary }]}>
-                  {editingItem ? 'Edit item' : 'Add item'}
-                </Text>
-                <Pressable
-                  style={({ pressed }) => [styles.zoneRow, pressed && { opacity: 0.75 }]}
-                  onPress={openZonePicker}
-                  accessibilityRole="button"
-                  accessibilityLabel="Change store section"
-                >
-                  <View style={styles.zoneRowLabels}>
-                    <Text style={[theme.typography.footnote, { color: theme.textSecondary }]}>Section</Text>
-                    <Text
-                      style={[theme.typography.body, { color: theme.textPrimary, marginTop: theme.spacing.xxs }]}
-                      numberOfLines={1}
-                    >
-                      {sectionPickerLabel}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
-                </Pressable>
+                <View style={styles.headerTopRow}>
+                  <Text style={[theme.typography.title3, { color: theme.textPrimary }]}>
+                    {editingItem ? 'Edit item' : 'Add item'}
+                  </Text>
+                  <Pressable
+                    onPress={handleDismiss}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel"
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={[theme.typography.body, { color: theme.accent }]}>Cancel</Text>
+                  </Pressable>
+                </View>
+                {smartMode ? null : (
+                  <Pressable
+                    style={({ pressed }) => [styles.zoneRow, pressed && { opacity: 0.75 }]}
+                    onPress={openZonePicker}
+                    accessibilityRole="button"
+                    accessibilityLabel="Change store section"
+                  >
+                    <View style={styles.zoneRowLabels}>
+                      <Text style={[theme.typography.footnote, { color: theme.textSecondary }]}>Section</Text>
+                      <Text
+                        style={[theme.typography.body, { color: theme.textPrimary, marginTop: theme.spacing.xs }]}
+                        numberOfLines={1}
+                      >
+                        {sectionPickerLabel}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+                  </Pressable>
+                )}
+                <View style={[styles.headerDivider, { backgroundColor: theme.divider }]} />
               </View>
 
               <ScrollView
@@ -696,29 +955,14 @@ export const QuickAddComposer = forwardRef(
                   >
                     <View style={{ gap: theme.spacing.md }}>
                       <Text style={[theme.typography.headline, { color: theme.textPrimary }]}>Unit</Text>
-                      <RNScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
-                      <View
-                        style={{
-                          borderRadius: theme.radius.card,
-                          overflow: 'hidden',
-                          backgroundColor: theme.surface,
+                      <UnitSelectionList
+                        value={displayUnit}
+                        onSelect={(selectedUnit) => {
+                          haptics.light();
+                          commitUnitFromSheet(selectedUnit);
+                          setUnitSheetVisible(false);
                         }}
-                      >
-                        {UNITS_ALPHABETICAL.map((u, i) => (
-                          <SelectorRow
-                            key={u}
-                            label={u}
-                            selected={displayUnit === u}
-                            showDivider={i > 0}
-                            onPress={() => {
-                              haptics.light();
-                              commitUnitFromSheet(u);
-                              setUnitSheetVisible(false);
-                            }}
-                          />
-                        ))}
-                      </View>
-                    </RNScrollView>
+                      />
                     </View>
                   </View>
                 </View>
