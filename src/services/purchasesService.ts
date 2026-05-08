@@ -193,7 +193,14 @@ export async function fetchPremiumEntitlementActive(): Promise<boolean> {
   return customerInfoHasPremium(info);
 }
 
-export async function syncPurchasesIdentity(appUserId: string | null): Promise<void> {
+/**
+ * Links the Supabase user to RevenueCat (`logIn`) and sets the reserved `$email` subscriber attribute
+ * when an address is known (email/password or identity `email` data, e.g. some Apple flows).
+ */
+export async function syncPurchasesIdentity(
+  appUserId: string | null,
+  accountEmail?: string | null
+): Promise<void> {
   if (!subscriptionPlatformEnforced()) return;
   if (isRevenueCatNativeLayerSkipped()) return;
   await ensurePurchasesConfigured();
@@ -203,11 +210,16 @@ export async function syncPurchasesIdentity(appUserId: string | null): Promise<v
       if (!(await Purchases.isAnonymous())) {
         await Purchases.logOut();
       }
+      await Purchases.setEmail(null);
       return;
     }
     await Purchases.logIn(appUserId);
+    const trimmed = typeof accountEmail === 'string' ? accountEmail.trim() : '';
+    if (trimmed.length > 0) {
+      await Purchases.setEmail(trimmed);
+    }
   } catch (e) {
-    logger.warnRelease('RevenueCat logIn/logOut failed', e);
+    logger.warnRelease('RevenueCat logIn/logOut/setEmail failed', e);
   }
 }
 

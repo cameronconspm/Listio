@@ -15,6 +15,7 @@ import {
   isSupabaseSyncRequiredButMisconfigured,
   signOutLocallyIfCorruptRefreshToken,
 } from './services/supabaseClient';
+import { resolveAuthAccountEmail } from './constants/officialTestAccount';
 import { consumeSupabaseAuthFromUrl } from './services/authDeepLink';
 import {
   fetchPremiumEntitlementActive,
@@ -237,9 +238,12 @@ function AppShell() {
       }
 
       setPurchasesIdentityReady(false);
-      const uid = await getUserId();
+      const { data: authData } = await supabase.auth.getUser();
       if (cancelled) return;
-      await syncPurchasesIdentity(uid);
+      const user = authData.user;
+      const uid = user?.id ?? null;
+      const accountEmail = resolveAuthAccountEmail(user ?? null);
+      await syncPurchasesIdentity(uid, accountEmail);
       if (!cancelled) setPurchasesIdentityReady(true);
     };
 
