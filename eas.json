@@ -14,6 +14,9 @@
     "production": {
       "ios": {
         "autoIncrement": true
+      },
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     },
     "app-store-review": {
