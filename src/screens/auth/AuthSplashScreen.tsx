@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, StyleSheet, Image, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -21,6 +21,7 @@ export function AuthSplashScreen() {
   const isDark = theme.colorScheme === 'dark';
   const gradientColors = isDark ? onboardingPageGradient.dark : onboardingPageGradient.light;
   const logoOpacity = useRef(new Animated.Value(1)).current;
+  const [showBrandedLogo, setShowBrandedLogo] = useState(false);
 
   const goToNextScreen = useCallback(
     (target: 'Login' | 'WelcomeIntro') => {
@@ -32,55 +33,60 @@ export function AuthSplashScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      const holdTimeouts: ReturnType<typeof setTimeout>[] = [];
       logoOpacity.setValue(1);
+      setShowBrandedLogo(false);
+
+      const clearTimers = () => {
+        holdTimeouts.forEach(clearTimeout);
+        holdTimeouts.length = 0;
+        logoOpacity.stopAnimation();
+      };
 
       /**
-       * Decide the next screen before kicking off the hold/fade. First-time users
-       * go straight to the welcome intro; returning users see the familiar
-       * branded logo → Login handoff.
+       * Resolve welcome-intro state first. First-time installs replace straight to
+       * WelcomeIntro with no logo hold. Returning users get the branded logo → Login
+       * handoff after the hold/fade.
        *
-       * If the AsyncStorage read stalls, default to Login so the auth flow
-       * never wedges on a missing flag.
+       * If the AsyncStorage read fails, default to Login so the auth flow never wedges.
        */
-      let targetRef: 'Login' | 'WelcomeIntro' = 'Login';
-      const targetPromise = hasSeenWelcomeIntro()
+      void hasSeenWelcomeIntro()
         .then((seen) => {
-          if (!seen) targetRef = 'WelcomeIntro';
+          if (cancelled) return;
+          if (!seen) {
+            goToNextScreen('WelcomeIntro');
+            return;
+          }
+          setShowBrandedLogo(true);
+          if (reduceMotion) {
+            const t = setTimeout(() => {
+              if (cancelled) return;
+              goToNextScreen('Login');
+            }, LOGO_HOLD_MS);
+            holdTimeouts.push(t);
+          } else {
+            const holdId = setTimeout(() => {
+              if (cancelled) return;
+              Animated.timing(logoOpacity, {
+                toValue: 0,
+                duration: LOGO_FADE_MS,
+                useNativeDriver: true,
+              }).start(({ finished }) => {
+                if (cancelled || !finished) return;
+                goToNextScreen('Login');
+              });
+            }, LOGO_HOLD_MS);
+            holdTimeouts.push(holdId);
+          }
         })
         .catch(() => {
-          /* default to Login — already captured */
+          if (cancelled) return;
+          goToNextScreen('Login');
         });
-
-      let clearHold: () => void = () => {};
-      if (reduceMotion) {
-        const t = setTimeout(() => {
-          if (cancelled) return;
-          void targetPromise.then(() => {
-            if (!cancelled) goToNextScreen(targetRef);
-          });
-        }, LOGO_HOLD_MS);
-        clearHold = () => clearTimeout(t);
-      } else {
-        const holdId = setTimeout(() => {
-          if (cancelled) return;
-          Animated.timing(logoOpacity, {
-            toValue: 0,
-            duration: LOGO_FADE_MS,
-            useNativeDriver: true,
-          }).start(({ finished }) => {
-            if (cancelled || !finished) return;
-            void targetPromise.then(() => {
-              if (!cancelled) goToNextScreen(targetRef);
-            });
-          });
-        }, LOGO_HOLD_MS);
-        clearHold = () => clearTimeout(holdId);
-      }
 
       return () => {
         cancelled = true;
-        logoOpacity.stopAnimation();
-        clearHold();
+        clearTimers();
       };
     }, [goToNextScreen, logoOpacity, reduceMotion])
   );
@@ -89,9 +95,11 @@ export function AuthSplashScreen() {
     <View style={styles.root}>
       <LinearGradient colors={[...gradientColors]} style={StyleSheet.absoluteFillObject} />
       <View style={styles.center}>
-        <Animated.View style={[styles.logoWrap, { opacity: logoOpacity }]} accessibilityRole="image" accessibilityLabel="Listio">
-          <Image source={require('../../../assets/icon.png')} style={styles.logo} resizeMode="contain" />
-        </Animated.View>
+        {showBrandedLogo ? (
+          <Animated.View style={[styles.logoWrap, { opacity: logoOpacity }]} accessibilityRole="image" accessibilityLabel="Listio">
+            <Image source={require('../../../assets/icon.png')} style={styles.logo} resizeMode="contain" />
+          </Animated.View>
+        ) : null}
       </View>
     </View>
   );

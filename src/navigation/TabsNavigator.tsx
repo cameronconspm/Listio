@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
+import { PlatformPressable } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { TabsParamList } from './types';
@@ -66,6 +67,7 @@ export function TabsNavigator() {
           return {
             title: 'Meals',
             tabBarLabel: 'Meals',
+            tabBarButton: (props) => <PlatformPressable {...props} />,
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="restaurant-outline" size={size ?? 24} color={color} />
             ),
@@ -82,6 +84,7 @@ export function TabsNavigator() {
           return {
             title: 'Recipes',
             tabBarLabel: 'Recipes',
+            tabBarButton: (props) => <PlatformPressable {...props} />,
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="book-outline" size={size ?? 24} color={color} />
             ),

@@ -5,6 +5,12 @@ import { AppActionSheet } from '../src/components/ui/AppActionSheet';
 
 const mockReact = React;
 const mockReactNative = ReactNative;
+let platformOS = 'android';
+
+Object.defineProperty(ReactNative.Platform, 'OS', {
+  configurable: true,
+  get: () => platformOS,
+});
 
 jest.mock('../src/components/ui/BottomSheet', () => ({
   BottomSheet: ({
@@ -31,6 +37,11 @@ jest.mock('../src/components/ui/BottomSheet', () => ({
 }));
 
 describe('AppActionSheet', () => {
+  beforeEach(() => {
+    platformOS = 'android';
+    jest.clearAllMocks();
+  });
+
   it('invokes onClose when backdrop is pressed', () => {
     const onClose = jest.fn();
     let tree!: ReactTestRenderer;
@@ -70,5 +81,40 @@ describe('AppActionSheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onAction).toHaveBeenCalledTimes(1);
     expect(calls).toEqual(['close', 'action']);
+  });
+
+  it('uses ActionSheetIOS for native iOS option lists', () => {
+    platformOS = 'ios';
+    const onClose = jest.fn();
+    const onAction = jest.fn();
+    const showActionSheetSpy = jest
+      .spyOn(ReactNative.ActionSheetIOS, 'showActionSheetWithOptions')
+      .mockImplementation((_options, callback) => callback(0));
+
+    act(() => {
+      create(
+        <AppActionSheet
+          visible
+          onClose={onClose}
+          title="Recipe"
+          actions={[
+            { label: 'Share recipe', onPress: onAction },
+            { label: 'Delete recipe', onPress: jest.fn(), destructive: true },
+          ]}
+        />
+      );
+    });
+
+    expect(showActionSheetSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Recipe',
+        options: ['Share recipe', 'Delete recipe', 'Cancel'],
+        cancelButtonIndex: 2,
+        destructiveButtonIndex: 1,
+      }),
+      expect.any(Function)
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledTimes(1);
   });
 });

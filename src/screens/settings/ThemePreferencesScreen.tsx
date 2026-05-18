@@ -1,6 +1,5 @@
-import React, { useCallback, useMemo } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useMemo } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   useTheme,
   useThemePreference,
@@ -11,19 +10,14 @@ import { ListSection } from '../../components/ui/ListSection';
 import { SegmentedPillControl } from '../../ui/components/SegmentedPillControl/SegmentedPillControl';
 import { useSettingsScrollHandler } from '../../navigation/NavigationChromeScrollContext';
 import { useSettingsScrollInsets } from './settingsScrollLayout';
-import { fetchUserPreferences, patchUserPreferences } from '../../services/userPreferencesService';
-import { isSyncEnabled } from '../../services/supabaseClient';
 import { spacing } from '../../design/spacing';
+import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 const THEME_LABEL: Record<ThemePreference, string> = {
   system: 'System',
   light: 'Light',
   dark: 'Dark',
 };
-
-function normalizeThemePreference(raw: unknown): ThemePreference {
-  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'system';
-}
 
 export function ThemePreferencesScreen() {
   const theme = useTheme();
@@ -41,39 +35,9 @@ export function ThemePreferencesScreen() {
     return 'Listio stays in light mode, even when your phone is set to dark.';
   }, [selectedTheme]);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!isSyncEnabled()) return;
-      let active = true;
-      void fetchUserPreferences()
-        .then((prefs) => {
-          if (!active) return;
-          setSelectedTheme(normalizeThemePreference(prefs.appearance?.selectedTheme));
-        })
-        .catch(() => undefined);
-      return () => {
-        active = false;
-      };
-    }, [setSelectedTheme])
-  );
-
-  const handleChange = async (next: ThemePreference) => {
-    const previous = selectedTheme;
-    setSelectedTheme(next);
-    if (!isSyncEnabled()) return;
-    try {
-      await patchUserPreferences({ appearance: { selectedTheme: next } });
-    } catch (e) {
-      setSelectedTheme(previous);
-      Alert.alert(
-        'Could not save theme',
-        e instanceof Error ? e.message : 'Please try again.'
-      );
-    }
-  };
-
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <SettingsPushedScreenHeader title="Theme" />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
@@ -97,9 +61,7 @@ export function ThemePreferencesScreen() {
                 { key: 'dark', label: THEME_LABEL.dark },
               ]}
               value={selectedTheme}
-              onChange={(value) => {
-                void handleChange(value);
-              }}
+              onChange={setSelectedTheme}
             />
             <Text
               style={[

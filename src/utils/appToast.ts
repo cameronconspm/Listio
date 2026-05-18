@@ -20,11 +20,11 @@ export function showInfo(message: string, title = 'Notice') {
   });
 }
 
-export function showSuccess(message: string, title = 'Success') {
+export function showSuccess(message: string, title?: string) {
   Toast.show({
     type: 'success',
-    text1: title,
-    text2: message,
+    text1: title ?? message,
+    text2: title ? message : undefined,
     visibilityTime: DEFAULT_MS,
   });
 }

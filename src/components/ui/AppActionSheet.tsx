@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { ActionSheetIOS, Platform, View, Text, StyleSheet, Pressable } from 'react-native';
 import { useTheme } from '../../design/ThemeContext';
 import { BottomSheet } from './BottomSheet';
 import { spacing } from '../../design/spacing';
@@ -24,6 +24,41 @@ type AppActionSheetProps = {
  */
 export function AppActionSheet({ visible, onClose, title, message, actions }: AppActionSheetProps) {
   const theme = useTheme();
+  const presentingRef = useRef(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    if (!visible) {
+      presentingRef.current = false;
+      return;
+    }
+    if (presentingRef.current) return;
+
+    presentingRef.current = true;
+    const cancelButtonIndex = actions.length;
+    const destructiveButtonIndex = actions.findIndex((action) => action.destructive);
+
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title,
+        message,
+        options: [...actions.map((action) => action.label), 'Cancel'],
+        cancelButtonIndex,
+        destructiveButtonIndex: destructiveButtonIndex >= 0 ? destructiveButtonIndex : undefined,
+        userInterfaceStyle: theme.colorScheme,
+      },
+      (buttonIndex) => {
+        presentingRef.current = false;
+        onClose();
+        if (buttonIndex === cancelButtonIndex) return;
+        actions[buttonIndex]?.onPress();
+      }
+    );
+  }, [actions, message, onClose, theme.colorScheme, title, visible]);
+
+  if (Platform.OS === 'ios') {
+    return null;
+  }
 
   return (
     <BottomSheet

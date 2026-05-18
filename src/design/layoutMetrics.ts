@@ -44,6 +44,19 @@ export function roundPx(n: number): number {
   return PixelRatio.roundToNearestPixel(n);
 }
 
+/** Non-typography dimensions (icons, fixed chrome) — same width curve as spacing/radius. */
+export function scaleLayoutPx(layoutScale: number, value: number): number {
+  return roundPx(value * layoutScale);
+}
+
+/**
+ * Arbitrary text sizes built from the same factor as `theme.typography` (so custom sizes stay
+ * consistent with the scaled type scale).
+ */
+export function scaleFontPx(fontScale: number, value: number): number {
+  return roundPx(value * fontScale);
+}
+
 function scaleTextStyle(style: TextStyle, fontScale: number): TextStyle {
   const next: TextStyle = { ...style };
   if (typeof next.fontSize === 'number') {

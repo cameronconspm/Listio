@@ -15,6 +15,7 @@ import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { Chevron } from './SettingsChevron';
 import { supabase, isSyncEnabled } from '../../services/supabaseClient';
 import { spacing } from '../../design/spacing';
+import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 export function ProfileScreen() {
   const theme = useTheme();
@@ -73,6 +74,7 @@ export function ProfileScreen() {
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <SettingsPushedScreenHeader title="Profile" />
       <KeyboardSafeForm style={styles.flex}>
         <ScrollView
           style={styles.scroll}

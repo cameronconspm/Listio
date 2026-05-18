@@ -10,6 +10,7 @@ import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog
 import { Chevron } from './SettingsChevron';
 import { useOnboardingControls } from '../../context/OnboardingControlsContext';
 import { spacing } from '../../design/spacing';
+import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 export function OnboardingScreen() {
   const onScroll = useSettingsScrollHandler();
@@ -20,6 +21,7 @@ export function OnboardingScreen() {
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <SettingsPushedScreenHeader title="Onboarding" />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[

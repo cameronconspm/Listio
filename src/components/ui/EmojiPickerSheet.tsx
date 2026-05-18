@@ -207,6 +207,7 @@ export function EmojiPickerSheet({
                 showSoftInputOnFocus
                 placeholder="Tap to add custom emoji"
                 placeholderTextColor={theme.textSecondary}
+                keyboardAppearance={theme.colorScheme}
                 style={[
                   theme.typography.body,
                   styles.emojiInput,

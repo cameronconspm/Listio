@@ -29,6 +29,7 @@ import Animated, {
 import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme, type AppTheme } from '../../design/ThemeContext';
+import { scaleFontPx, scaleLayoutPx } from '../../design/layoutMetrics';
 import { Button } from '../../components/ui/Button';
 import { onboardingPageGradient } from '../onboarding/onboardingTokens';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
@@ -40,10 +41,9 @@ import type { AuthStackParamList } from '../../navigation/types';
 const LISTIO_ICON = require('../../../assets/icon.png') as number;
 
 /**
- * Pre-auth first-launch welcome. An auto-advancing carousel highlights three
- * distinct feature stories — AI categorization, meal planning, and
- * aisle-order shop mode — each with its own visual and animation. The CTA
- * row below routes the user into create-account or sign-in. Shown once per
+ * Pre-auth first-launch welcome. A three-slide carousel previews List, Meals,
+ * and Recipes with faux in-app UI. Each slide’s animation runs twice per
+ * visit before auto-advance. CTAs route to sign-up or sign-in. Shown once per
  * install — see `welcomeIntroService`.
  */
 
@@ -62,87 +62,90 @@ export type WelcomeIntroScreenProps = {
 };
 
 /**
- * Shared beat lengths. Each card has its own choreography, but they all
- * follow the same ~520ms stagger so the three stories feel like variants
- * of a single idea.
+ * Each card’s intro uses `cycle` from 0→1 twice (two identical eased passes) before
+ * the carousel auto-advances. Inactive cards treat `cycle` as 1 so peeking shows the
+ * finished frame.
  */
-const STAGGER_MS = 520;
-const BEAT_MS = 420;
-const HOLD_MS = 1600;
-const CYCLE_MS = STAGGER_MS * 3 + HOLD_MS;
+const INTRO_SINGLE_PLAY_MS = 3000;
+const INTRO_DOUBLE_CYCLE_MS = INTRO_SINGLE_PLAY_MS * 2;
+const INTRO_CYCLE_RESET_DELAY_MS = 120;
+const INTRO_PLAY_EASING = Easing.inOut(Easing.cubic);
 
-/** Auto-advance to next feature card every N ms. Paused while the user is dragging. */
-const AUTO_ADVANCE_MS = 5200;
+/** Auto-advance after two full plays of the active card’s choreography. */
+const AUTO_ADVANCE_MS = INTRO_DOUBLE_CYCLE_MS + 900;
 /** After a user-initiated swipe, wait this long before resuming auto-advance so we never fight the user. */
 const AUTO_ADVANCE_RESUME_MS = 7000;
 
-type SortRow = {
-  emoji: string;
-  label: string;
-  aisle: string;
-  tint: string;
-  tintText: string;
-};
+/** Legacy tuning constants (fractions below are derived from prior STAGGER_MS/CYCLE_MS timings). */
+const STAGGER_MS = 400;
+const BEAT_MS = 360;
+const LEGACY_CYCLE_MS = STAGGER_MS * 4 + 1400;
+/** Normalized timeline length for one play (matches previous `CYCLE_MS`). */
+const CYCLE_MS = LEGACY_CYCLE_MS;
 
-type MealsDay = {
-  label: string;
-  /** Short meal label shown inside filled day cells. `null` means the day has no meal planned. */
-  meal: string | null;
-};
+type ListChip = { label: string; count?: string; active?: boolean };
 
-type ShopItem = {
-  label: string;
-  aisle: string;
-  tint: string;
-  tintText: string;
-  /** How far through the cycle (0-1) this item should flip to "checked". `null` means it stays unchecked. */
-  checkProgress: number | null;
-};
-
-const SORT_ROWS: SortRow[] = [
-  { emoji: '🥛', label: 'A gallon of milk', aisle: 'Dairy', tint: '#DCEEFB', tintText: '#0F4C81' },
-  { emoji: '🥕', label: 'Rainbow carrots', aisle: 'Produce', tint: '#E3F4DC', tintText: '#2F6B2F' },
-  { emoji: '🍞', label: 'Sourdough loaf', aisle: 'Bakery', tint: '#FBE8D1', tintText: '#8A4B10' },
+const LIST_CHIPS: ListChip[] = [
+  { label: 'All', count: '36', active: true },
+  { label: 'Produce', count: '9' },
+  { label: 'Dairy', count: '6' },
 ];
 
-const MEALS_DAYS: MealsDay[] = [
-  { label: 'M', meal: 'Pasta' },
-  { label: 'T', meal: null },
-  { label: 'W', meal: 'Salmon' },
-  { label: 'T', meal: null },
-  { label: 'F', meal: 'Tacos' },
-  { label: 'S', meal: null },
-  { label: 'S', meal: null },
+type ListZoneRow = {
+  label: string;
+  subtitle?: string;
+  qty: string;
+  rowIndex: number;
+};
+
+const LIST_ZONE_ROWS: ListZoneRow[] = [
+  { label: 'Avocados', subtitle: 'Salads & eggs', qty: '4 ea', rowIndex: 0 },
+  { label: 'Baby Carrots', qty: '1 lb', rowIndex: 1 },
+  { label: 'Berries', subtitle: 'Mix of colors', qty: '10 oz', rowIndex: 2 },
 ];
 
-/** Indexes of `MEALS_DAYS` that actually have a meal, animated in order of these entries. */
-const MEALS_POP_ORDER = [0, 2, 4];
+type MealsStripDay = {
+  dow: string;
+  dom: string;
+  selected: boolean;
+};
 
-const SHOP_ITEMS: ShopItem[] = [
-  {
-    label: 'Bananas · 5',
-    aisle: 'Produce',
-    tint: '#E3F4DC',
-    tintText: '#2F6B2F',
-    checkProgress: (STAGGER_MS * 0 + BEAT_MS) / CYCLE_MS,
-  },
-  {
-    label: 'Greek yogurt',
-    aisle: 'Dairy',
-    tint: '#DCEEFB',
-    tintText: '#0F4C81',
-    checkProgress: (STAGGER_MS * 1 + BEAT_MS) / CYCLE_MS,
-  },
-  {
-    label: 'Sourdough loaf',
-    aisle: 'Bakery',
-    tint: '#FBE8D1',
-    tintText: '#8A4B10',
-    checkProgress: null,
-  },
+const MEALS_STRIP_DAYS: MealsStripDay[] = [
+  { dow: 'Tue', dom: '12', selected: false },
+  { dow: 'Wed', dom: '13', selected: false },
+  { dow: 'Thu', dom: '14', selected: true },
+  { dow: 'Fri', dom: '15', selected: false },
+  { dow: 'Sat', dom: '16', selected: false },
 ];
 
-type CardKind = 'sort' | 'meals' | 'shop';
+type MealPlanRowData = {
+  slot: string;
+  title: string | null;
+  detail?: string;
+  isAddRow?: boolean;
+};
+
+const MEALS_PLAN_ROWS: MealPlanRowData[] = [
+  { slot: 'Breakfast', title: 'Greek yogurt power bowl', detail: '2 servings · Breakfast' },
+  { slot: 'Lunch', title: 'Sheet-pan lemon salmon', detail: '4 ingredients' },
+  { slot: 'Dessert', title: null, isAddRow: true },
+];
+
+/** Meal plan rows that animate in with a stagger (filled rows first, then “+ Add”). */
+const MEALS_ROW_ANIM_ORDER = [0, 1, 2];
+
+type RecipeIntroCard = {
+  title: string;
+  favorited: boolean;
+  meta: string[];
+};
+
+const RECIPE_INTRO_CARDS: RecipeIntroCard[] = [
+  { title: 'Berry banana smoothie', favorited: true, meta: ['2 servings', '4 ingredients', 'Snack'] },
+  { title: 'Whole wheat pancakes', favorited: false, meta: ['8 servings', '11 ingredients', 'Breakfast'] },
+];
+
+type CardKind = 'list' | 'meals' | 'recipes';
 
 type FeatureCardMeta = {
   id: CardKind;
@@ -153,22 +156,22 @@ type FeatureCardMeta = {
 
 const CARDS: FeatureCardMeta[] = [
   {
-    id: 'sort',
-    headerIcon: 'sparkles',
-    headerText: 'Sorting your list…',
-    caption: 'Type anything — Listio files it in the right aisle.',
+    id: 'list',
+    headerIcon: 'list',
+    headerText: 'Your list',
+    caption: 'Shop mode with sections and quantities—check things off just like your real list.',
   },
   {
     id: 'meals',
     headerIcon: 'calendar',
-    headerText: 'This week',
-    caption: 'Plan meals. Your list fills itself.',
+    headerText: 'Meals — This week',
+    caption: 'Sketch the week in seconds. Ingredients stay linked to your list.',
   },
   {
-    id: 'shop',
-    headerIcon: 'bag-check',
-    headerText: 'Shopping — aisle 2',
-    caption: 'Walk the store in order. Nothing missed.',
+    id: 'recipes',
+    headerIcon: 'book',
+    headerText: 'Recipes',
+    caption: 'Browse, favorite, and send ingredients to your list in one tap.',
   },
 ];
 
@@ -209,10 +212,17 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
       return;
     }
     cycle.value = 0;
+    const onePlay = withTiming(1, {
+      duration: INTRO_SINGLE_PLAY_MS,
+      easing: INTRO_PLAY_EASING,
+    });
+    const snapToStart = withTiming(0, { duration: 0 });
     cycle.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: CYCLE_MS, easing: Easing.inOut(Easing.cubic) }),
-        withDelay(120, withTiming(0, { duration: 0 }))
+        onePlay,
+        snapToStart,
+        onePlay,
+        withDelay(INTRO_CYCLE_RESET_DELAY_MS, snapToStart)
       ),
       -1,
       false
@@ -267,11 +277,19 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
    */
   const isCompactHeight = windowHeight < 720;
   const horizontalPadding = theme.spacing.lg;
+  const icon = useMemo(
+    () => ({
+      xs: scaleLayoutPx(theme.layoutScale, 12),
+      sm: scaleLayoutPx(theme.layoutScale, 14),
+      md: scaleLayoutPx(theme.layoutScale, 16),
+      lg: scaleLayoutPx(theme.layoutScale, 18),
+      xl: scaleLayoutPx(theme.layoutScale, 24),
+    }),
+    [theme.layoutScale],
+  );
   /**
-   * Each paging page spans the full ScrollView width (which is also the full
-   * window width because `heroWrap` is rendered full-bleed). The card inside
-   * the page is then centered via page-level horizontal padding so paging
-   * snaps cleanly to a perfectly-centered card regardless of page index.
+   * Each paging page spans the full ScrollView width (window width with `heroWrap` bleed).
+   * Preview chrome sits on the page gradient — no outer “frame” card.
    */
   const pageWidth = windowWidth;
 
@@ -307,8 +325,15 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
   );
 
   const styles = useMemo(
-    () => createStyles(theme, { insets, horizontalPadding, isCompactHeight }),
-    [theme, insets, horizontalPadding, isCompactHeight]
+    () =>
+      createStyles(theme, {
+        insets,
+        horizontalPadding,
+        isCompactHeight,
+        windowWidth,
+        windowHeight,
+      }),
+    [theme, insets, horizontalPadding, isCompactHeight, windowWidth, windowHeight],
   );
 
   return (
@@ -330,78 +355,89 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
               accessibilityLabel="Close intro preview"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="close" size={18} color={theme.textPrimary} />
+              <Ionicons name="close" size={icon.lg} color={theme.textPrimary} />
             </Pressable>
           ) : null}
         </View>
 
-        <View
-          style={styles.heroWrap}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
+        <ScrollView
+          style={styles.introScroll}
+          contentContainerStyle={styles.introScrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <ScrollView
-            ref={scrollRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onScrollBeginDrag={handleScrollBeginDrag}
-            onMomentumScrollEnd={handleMomentumScrollEnd}
-            scrollEventThrottle={16}
-            decelerationRate="fast"
+          <View
+            style={styles.heroWrap}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
           >
-            {CARDS.map((card, index) => (
-              <View key={card.id} style={[styles.heroPage, { width: pageWidth }]}>
-                <View style={styles.heroCard}>
+            <ScrollView
+              ref={scrollRef}
+              horizontal
+              nestedScrollEnabled
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onScrollBeginDrag={handleScrollBeginDrag}
+              onMomentumScrollEnd={handleMomentumScrollEnd}
+              scrollEventThrottle={16}
+              decelerationRate="fast"
+            >
+              {CARDS.map((card, index) => (
+                <View key={card.id} style={[styles.heroPage, { width: pageWidth }]}>
                   <View style={styles.heroHeader}>
-                    <Ionicons name={card.headerIcon} size={14} color={theme.accent} />
+                    <Ionicons name={card.headerIcon} size={icon.sm} color={theme.accent} />
                     <Text style={styles.heroHeaderText}>{card.headerText}</Text>
                   </View>
-                  <FeatureCardBody
-                    kind={card.id}
-                    isActive={index === activePage}
-                    cycle={cycle}
-                    styles={styles}
-                    theme={theme}
-                  />
+                  <View style={styles.heroPreviewPanel}>
+                    <FeatureCardBody
+                      kind={card.id}
+                      isActive={index === activePage}
+                      cycle={cycle}
+                      styles={styles}
+                      theme={theme}
+                      icons={icon}
+                    />
+                  </View>
                   <Text style={styles.caption}>{card.caption}</Text>
                 </View>
-              </View>
-            ))}
-          </ScrollView>
-          <View
-            style={styles.dotsRow}
-            accessibilityRole="tablist"
-            accessibilityLabel={`Feature ${activePage + 1} of ${CARDS.length}`}
-          >
-            {CARDS.map((card, index) => (
-              <View
-                key={card.id}
-                style={[styles.dot, index === activePage ? styles.dotActive : null]}
-              />
-            ))}
+              ))}
+            </ScrollView>
+            <View
+              style={styles.dotsRow}
+              accessibilityRole="tablist"
+              accessibilityLabel={`Feature ${activePage + 1} of ${CARDS.length}`}
+            >
+              {CARDS.map((card, index) => (
+                <View
+                  key={card.id}
+                  style={[styles.dot, index === activePage ? styles.dotActive : null]}
+                />
+              ))}
+            </View>
           </View>
-        </View>
 
-        <View style={styles.copyBlock}>
-          <Text style={styles.headline}>Shopping that plans itself.</Text>
-          <Text style={styles.sub}>
-            Plan meals, send recipes to your list, and shop aisle by aisle. Listio keeps it all
-            organized so nothing gets missed.
-          </Text>
-        </View>
+          <View style={styles.copyBlock}>
+            <Text style={styles.headline}>What if plan, cook, and shop lived in one app?</Text>
+            <Text style={styles.sub}>
+              Listio brings your list, meal week, and recipes together—sketch the week, send ingredients
+              from a recipe, then check things off while you shop without redoing the same work twice.
+            </Text>
+          </View>
+        </ScrollView>
 
-        <View style={styles.ctaWrap}>
-          <Button title="Create account" onPress={handleCreateAccount} />
-          <Pressable
-            onPress={handleAlreadyHaveAccount}
-            style={styles.secondary}
-            accessibilityRole="button"
-            accessibilityLabel="I already have an account"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.secondaryText}>I already have an account</Text>
-          </Pressable>
+        <View style={[styles.ctaDock, { paddingBottom: insets.bottom + theme.spacing.md }]}>
+          <View style={styles.ctaWrap}>
+            <Button title="Create account" onPress={handleCreateAccount} />
+            <Pressable
+              onPress={handleAlreadyHaveAccount}
+              style={styles.secondary}
+              accessibilityRole="button"
+              accessibilityLabel="I already have an account"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.secondaryText}>I already have an account</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </View>
@@ -412,90 +448,208 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
 
 type Styles = ReturnType<typeof createStyles>;
 
+type IntroIconSizes = {
+  xs: number;
+  sm: number;
+  md: number;
+  lg: number;
+  xl: number;
+};
+
 type CardBodyProps = {
   kind: CardKind;
   isActive: boolean;
   cycle: SharedValue<number>;
   styles: Styles;
   theme: AppTheme;
+  icons: IntroIconSizes;
 };
 
-function FeatureCardBody({ kind, isActive, cycle, styles, theme }: CardBodyProps) {
-  if (kind === 'sort') {
-    return <SortBody isActive={isActive} cycle={cycle} styles={styles} />;
+function FeatureCardBody({ kind, isActive, cycle, styles, theme, icons }: CardBodyProps) {
+  if (kind === 'list') {
+    return <ListBody isActive={isActive} cycle={cycle} styles={styles} theme={theme} icons={icons} />;
   }
   if (kind === 'meals') {
-    return <MealsBody isActive={isActive} cycle={cycle} styles={styles} theme={theme} />;
+    return <MealsBody isActive={isActive} cycle={cycle} styles={styles} theme={theme} icons={icons} />;
   }
-  return <ShopBody isActive={isActive} cycle={cycle} styles={styles} theme={theme} />;
+  return <RecipesBody isActive={isActive} cycle={cycle} styles={styles} theme={theme} icons={icons} />;
 }
 
-// --- Sort card -----------------------------------------------------------
+// --- List card -----------------------------------------------------------
 
-type SortBodyProps = { isActive: boolean; cycle: SharedValue<number>; styles: Styles };
+type ListBodyProps = {
+  isActive: boolean;
+  cycle: SharedValue<number>;
+  styles: Styles;
+  theme: AppTheme;
+  icons: IntroIconSizes;
+};
 
-function SortBody({ isActive, cycle, styles }: SortBodyProps) {
+function ListBody({ isActive, cycle, styles, theme, icons }: ListBodyProps) {
   return (
-    <View>
-      {SORT_ROWS.map((row, index) => (
-        <SortRowView
-          key={row.aisle}
+    <View style={styles.listBody}>
+      <View style={[styles.listSegmentRow, { borderColor: theme.divider }]}>
+        <View style={[styles.listSegmentSide, { backgroundColor: theme.background }]}>
+          <Text style={[styles.listSegmentSideText, { color: theme.textSecondary }]}>Plan</Text>
+        </View>
+        <View style={[styles.listSegmentSide, { backgroundColor: theme.accent }]}>
+          <Text style={[styles.listSegmentSideText, { color: theme.onAccent }]}>Shop</Text>
+        </View>
+      </View>
+      <View style={styles.listChipRow}>
+        {LIST_CHIPS.map((chip) => (
+          <View
+            key={chip.label}
+            style={[
+              styles.listChip,
+              chip.active
+                ? { backgroundColor: theme.accent + '22', borderColor: theme.accent }
+                : { backgroundColor: theme.background, borderColor: theme.divider },
+            ]}
+          >
+            <Text
+              style={[
+                styles.listChipText,
+                { color: chip.active ? theme.accent : theme.textPrimary },
+              ]}
+            >
+              {chip.label}
+              {chip.count ? (
+                <Text style={{ color: chip.active ? theme.accent : theme.textSecondary }}>
+                  {' '}
+                  {chip.count}
+                </Text>
+              ) : null}
+            </Text>
+          </View>
+        ))}
+      </View>
+      <Text style={[styles.listMetaLine, { color: theme.textSecondary }]}>
+        36 left · 8 sections · Next: Produce
+      </Text>
+      <View style={[styles.listZoneHeader, { borderColor: theme.accent + '55', backgroundColor: theme.accent + '10' }]}>
+        <Ionicons name="leaf-outline" size={icons.md} color={theme.accent} />
+        <Text style={[styles.listZoneTitle, { color: theme.accent }]}>Produce</Text>
+        <Text style={[styles.listZoneCount, { color: theme.textSecondary }]}>9 left</Text>
+        <Ionicons name="chevron-down" size={icons.md} color={theme.textSecondary} style={{ marginLeft: 'auto' }} />
+      </View>
+      {LIST_ZONE_ROWS.map((row, index) => (
+        <ListZoneRowView
+          key={row.label}
           row={row}
           index={index}
-          isLast={index === SORT_ROWS.length - 1}
+          isLast={index === LIST_ZONE_ROWS.length - 1}
           isActive={isActive}
           cycle={cycle}
           styles={styles}
+          theme={theme}
+          icons={icons}
         />
       ))}
     </View>
   );
 }
 
-type SortRowViewProps = {
-  row: SortRow;
+type ListZoneRowViewProps = {
+  row: ListZoneRow;
   index: number;
   isLast: boolean;
   isActive: boolean;
   cycle: SharedValue<number>;
   styles: Styles;
+  theme: AppTheme;
+  icons: IntroIconSizes;
 };
 
-function SortRowView({ row, index, isLast, isActive, cycle, styles }: SortRowViewProps) {
-  const rowEnterStart = (STAGGER_MS * index) / CYCLE_MS;
-  const rowEnterEnd = (STAGGER_MS * index + BEAT_MS) / CYCLE_MS;
-  const chipEnterStart = (STAGGER_MS * index + 220) / CYCLE_MS;
-  const chipEnterEnd = (STAGGER_MS * index + 220 + BEAT_MS) / CYCLE_MS;
+function ListZoneRowView({
+  row,
+  index,
+  isLast,
+  isActive,
+  cycle,
+  styles,
+  theme,
+  icons,
+}: ListZoneRowViewProps) {
+  const rowEnterStart = 0.16 + index * 0.07;
+  const rowEnterEnd = rowEnterStart + 0.1;
+  const checkStart = 0.44 + index * 0.1;
+  const checkEnd = checkStart + 0.09;
 
   const rowStyle = useAnimatedStyle(() => {
     if (!isActive) return { opacity: 1, transform: [{ translateY: 0 }] };
-    const p = cycle.value;
-    const t = interpolate(p, [rowEnterStart, rowEnterEnd], [0, 1], 'clamp');
+    const tt = cycle.value;
+    const t = interpolate(tt, [rowEnterStart, rowEnterEnd], [0, 1], 'clamp');
     return {
       opacity: t,
       transform: [{ translateY: interpolate(t, [0, 1], [8, 0]) }],
     };
   });
 
-  const chipStyle = useAnimatedStyle(() => {
-    if (!isActive) return { opacity: 1, transform: [{ scale: 1 }] };
-    const p = cycle.value;
-    const t = interpolate(p, [chipEnterStart, chipEnterEnd], [0, 1], 'clamp');
+  const ellipseStyle = useAnimatedStyle(() => {
+    const tt = !isActive ? 1 : cycle.value;
+    const ck = interpolate(tt, [checkStart, checkEnd], [0, 1], 'clamp');
+    return { opacity: interpolate(ck, [0, 0.35, 1], [1, 0.2, 0], 'clamp') };
+  });
+
+  const checkIconStyle = useAnimatedStyle(() => {
+    const tt = !isActive ? 1 : cycle.value;
+    const ck = interpolate(tt, [checkStart, checkEnd], [0, 1], 'clamp');
     return {
-      opacity: t,
-      transform: [{ scale: interpolate(t, [0, 1], [0.8, 1]) }],
+      opacity: interpolate(ck, [0, 0.45, 1], [0, 0.9, 1], 'clamp'),
+      transform: [{ scale: interpolate(ck, [0, 1], [0.65, 1], 'clamp') }],
+    };
+  });
+
+  const strikeStyle = useAnimatedStyle(() => {
+    if (!isActive) return { width: '100%' };
+    const tt = cycle.value;
+    const ck = interpolate(tt, [checkStart, checkEnd], [0, 1], 'clamp');
+    return { width: `${Math.round(ck * 100)}%` };
+  });
+
+  const titleColorStyle = useAnimatedStyle(() => {
+    const tt = !isActive ? 1 : cycle.value;
+    const ck = interpolate(tt, [checkStart, checkEnd], [0, 1], 'clamp');
+    return {
+      opacity: interpolate(ck, [0, 1], [1, 0.55], 'clamp'),
     };
   });
 
   return (
-    <Animated.View style={[styles.heroRow, isLast ? styles.heroRowLast : null, rowStyle]}>
-      <Text style={styles.heroEmoji}>{row.emoji}</Text>
-      <Text style={styles.heroLabel} numberOfLines={1}>
-        {row.label}
-      </Text>
-      <Animated.View style={[styles.heroChip, { backgroundColor: row.tint }, chipStyle]}>
-        <Text style={[styles.heroChipText, { color: row.tintText }]}>{row.aisle}</Text>
-      </Animated.View>
+    <Animated.View style={[styles.listItemRow, isLast ? styles.heroRowLast : null, rowStyle]}>
+      <View style={styles.listToggleCol}>
+        <Animated.View style={[styles.listToggleIconLayer, ellipseStyle]}>
+          <Ionicons name="ellipse-outline" size={icons.xl} color={theme.textSecondary} />
+        </Animated.View>
+        <Animated.View style={[styles.listToggleIconLayer, checkIconStyle]}>
+          <Ionicons name="checkmark-circle" size={icons.xl} color={theme.accent} />
+        </Animated.View>
+      </View>
+      <View style={styles.listItemTextCol}>
+        <View style={styles.shopLabelWrap}>
+          <Animated.View style={titleColorStyle}>
+            <Text style={[styles.listItemTitle, { color: theme.textPrimary }]} numberOfLines={1}>
+              {row.label}
+            </Text>
+          </Animated.View>
+          <Animated.View
+            style={[
+              styles.shopStrike,
+              { backgroundColor: theme.textSecondary },
+              strikeStyle,
+            ]}
+          />
+        </View>
+        {row.subtitle ? (
+          <Text style={[styles.listItemSub, { color: theme.textSecondary }]} numberOfLines={1}>
+            {row.subtitle}
+          </Text>
+        ) : null}
+        <View style={styles.listQtyPill}>
+          <Text style={[styles.listQtyPillText, { color: theme.textSecondary }]}>{row.qty}</Text>
+        </View>
+      </View>
     </Animated.View>
   );
 }
@@ -507,68 +661,173 @@ type MealsBodyProps = {
   cycle: SharedValue<number>;
   styles: Styles;
   theme: AppTheme;
+  icons: IntroIconSizes;
 };
 
-function MealsBody({ isActive, cycle, styles, theme }: MealsBodyProps) {
+function MealsBody({ isActive, cycle, styles, theme, icons }: MealsBodyProps) {
   return (
     <View style={styles.mealsBody}>
       <View style={styles.mealsStrip}>
-        {MEALS_DAYS.map((day, index) => (
-          <MealsDayCell
-            key={`${day.label}-${index}`}
+        {MEALS_STRIP_DAYS.map((day, index) => (
+          <MealsStripCell
+            key={`${day.dow}-${day.dom}`}
             day={day}
-            dayIndex={index}
+            index={index}
             isActive={isActive}
             cycle={cycle}
             styles={styles}
+            theme={theme}
           />
         ))}
       </View>
-      <MealsFooterChip isActive={isActive} cycle={cycle} styles={styles} theme={theme} />
+      <Text style={[styles.mealsWeekRange, { color: theme.textSecondary }]}>May 11–17 · 7 days</Text>
+      <View style={[styles.mealsDayCard, { backgroundColor: theme.surface, borderColor: theme.divider }]}>
+        <Text style={[styles.mealsDayCardTitle, { color: theme.textPrimary }]}>Thursday, May 14</Text>
+        {MEALS_PLAN_ROWS.map((row, index) => (
+          <MealPlanRowView
+            key={row.slot}
+            row={row}
+            animIndex={MEALS_ROW_ANIM_ORDER.indexOf(index)}
+            isLast={index === MEALS_PLAN_ROWS.length - 1}
+            isActive={isActive}
+            cycle={cycle}
+            styles={styles}
+            theme={theme}
+            icons={icons}
+          />
+        ))}
+      </View>
+      <MealsFooterChip isActive={isActive} cycle={cycle} styles={styles} theme={theme} icons={icons} />
     </View>
   );
 }
 
-type MealsDayCellProps = {
-  day: MealsDay;
-  dayIndex: number;
+type MealsStripCellProps = {
+  day: MealsStripDay;
+  index: number;
   isActive: boolean;
   cycle: SharedValue<number>;
   styles: Styles;
+  theme: AppTheme;
 };
 
-function MealsDayCell({ day, dayIndex, isActive, cycle, styles }: MealsDayCellProps) {
-  /**
-   * Day cells with meals pop in on their shared beat; empty days are just
-   * decorative placeholders that don't animate.
-   */
-  const popIndex = MEALS_POP_ORDER.indexOf(dayIndex);
-  const hasMeal = day.meal !== null;
-  const popStart = popIndex >= 0 ? (STAGGER_MS * popIndex) / CYCLE_MS : 0;
-  const popEnd = popIndex >= 0 ? (STAGGER_MS * popIndex + BEAT_MS) / CYCLE_MS : 0;
+function MealsStripCell({ day, index, isActive, cycle, styles, theme }: MealsStripCellProps) {
+  const enterStart = (STAGGER_MS * 0.15 * index) / CYCLE_MS;
+  const enterEnd = (STAGGER_MS * 0.15 * index + BEAT_MS * 0.45) / CYCLE_MS;
 
-  const mealStyle = useAnimatedStyle(() => {
-    if (!hasMeal) return { opacity: 0, transform: [{ scale: 0.8 }] };
-    if (!isActive) return { opacity: 1, transform: [{ scale: 1 }] };
-    const p = cycle.value;
-    const t = interpolate(p, [popStart, popEnd], [0, 1], 'clamp');
+  const cellStyle = useAnimatedStyle(() => {
+    if (!isActive) return { opacity: 1, transform: [{ translateY: 0 }] };
+    const tt = cycle.value;
+    const t = interpolate(tt, [enterStart, enterEnd], [0, 1], 'clamp');
     return {
-      opacity: t,
-      transform: [{ scale: interpolate(t, [0, 1], [0.6, 1]) }],
+      opacity: interpolate(t, [0, 1], [0.35, 1]),
+      transform: [{ translateY: interpolate(t, [0, 1], [4, 0]) }],
     };
   });
 
   return (
-    <View style={[styles.mealsCell, hasMeal ? styles.mealsCellFilled : null]}>
-      <Text style={styles.mealsDayLabel}>{day.label}</Text>
-      <Animated.View style={[styles.mealsMealWrap, mealStyle]}>
-        {day.meal ? (
-          <Text style={styles.mealsMealText} numberOfLines={1}>
-            {day.meal}
+    <Animated.View
+      style={[
+        styles.mealsStripCell,
+        day.selected ? { backgroundColor: theme.accent + '22', borderColor: theme.accent } : null,
+        !day.selected ? { borderColor: theme.divider, backgroundColor: theme.background } : null,
+        cellStyle,
+      ]}
+    >
+      <Text
+        style={[
+          styles.mealsStripDow,
+          { color: day.selected ? theme.accent : theme.textSecondary },
+        ]}
+      >
+        {day.dow}
+      </Text>
+      <Text
+        style={[
+          styles.mealsStripDom,
+          { color: day.selected ? theme.accent : theme.textPrimary },
+        ]}
+      >
+        {day.dom}
+      </Text>
+    </Animated.View>
+  );
+}
+
+type MealPlanRowViewProps = {
+  row: MealPlanRowData;
+  animIndex: number;
+  isLast: boolean;
+  isActive: boolean;
+  cycle: SharedValue<number>;
+  styles: Styles;
+  theme: AppTheme;
+  icons: IntroIconSizes;
+};
+
+function MealPlanRowView({
+  row,
+  animIndex,
+  isLast,
+  isActive,
+  cycle,
+  styles,
+  theme,
+  icons,
+}: MealPlanRowViewProps) {
+  const popStart = animIndex >= 0 ? (STAGGER_MS * animIndex) / CYCLE_MS : 0;
+  const popEnd = animIndex >= 0 ? (STAGGER_MS * animIndex + BEAT_MS) / CYCLE_MS : 0;
+
+  const rowStyle = useAnimatedStyle(() => {
+    if (!isActive) return { opacity: 1, transform: [{ translateY: 0 }] };
+    if (animIndex < 0) return { opacity: 1, transform: [{ translateY: 0 }] };
+    const tt = cycle.value;
+    const t = interpolate(tt, [popStart, popEnd], [0, 1], 'clamp');
+    return {
+      opacity: t,
+      transform: [{ translateY: interpolate(t, [0, 1], [6, 0]) }],
+    };
+  });
+
+  const addPulseStyle = useAnimatedStyle(() => {
+    if (!row.isAddRow) return { opacity: 1 };
+    if (!isActive) return { opacity: 1 };
+    const tt = cycle.value;
+    const pulseStart = (STAGGER_MS * 2.5) / CYCLE_MS;
+    const pulseEnd = (STAGGER_MS * 3 + BEAT_MS * 0.5) / CYCLE_MS;
+    const t = interpolate(tt, [pulseStart, pulseEnd], [0, 1], 'clamp');
+    return { opacity: interpolate(t, [0, 0.5, 1], [1, 0.55, 1]) };
+  });
+
+  if (row.isAddRow) {
+    return (
+      <Animated.View style={[styles.mealPlanRow, isLast ? styles.mealPlanRowLast : null, rowStyle]}>
+        <Text style={[styles.mealPlanSlot, { color: theme.textSecondary }]}>{row.slot}</Text>
+        <Text style={[styles.mealPlanEmpty, { color: theme.textSecondary }]}>Nothing planned</Text>
+        <Animated.View style={addPulseStyle}>
+          <View style={[styles.mealPlanAddBtn, { backgroundColor: theme.accent + '18' }]}>
+            <Text style={[styles.mealPlanAddBtnText, { color: theme.accent }]}>+ Add</Text>
+          </View>
+        </Animated.View>
+      </Animated.View>
+    );
+  }
+
+  return (
+    <Animated.View style={[styles.mealPlanRow, isLast ? styles.mealPlanRowLast : null, rowStyle]}>
+      <View style={styles.mealPlanRowMain}>
+        <Text style={[styles.mealPlanSlot, { color: theme.textSecondary }]}>{row.slot}</Text>
+        <Text style={[styles.mealPlanTitle, { color: theme.textPrimary }]} numberOfLines={1}>
+          {row.title}
+        </Text>
+        {row.detail ? (
+          <Text style={[styles.mealPlanDetail, { color: theme.textSecondary }]} numberOfLines={1}>
+            {row.detail}
           </Text>
         ) : null}
-      </Animated.View>
-    </View>
+      </View>
+      <Ionicons name="chevron-forward" size={icons.md} color={theme.textSecondary} />
+    </Animated.View>
   );
 }
 
@@ -577,17 +836,17 @@ type MealsFooterChipProps = {
   cycle: SharedValue<number>;
   styles: Styles;
   theme: AppTheme;
+  icons: IntroIconSizes;
 };
 
-function MealsFooterChip({ isActive, cycle, styles, theme }: MealsFooterChipProps) {
-  /** Appears after the last meal emoji has popped in. */
-  const chipStart = (STAGGER_MS * 3 + 60) / CYCLE_MS;
-  const chipEnd = (STAGGER_MS * 3 + 60 + BEAT_MS) / CYCLE_MS;
+function MealsFooterChip({ isActive, cycle, styles, theme, icons }: MealsFooterChipProps) {
+  const chipStart = (STAGGER_MS * MEALS_ROW_ANIM_ORDER.length + 40) / CYCLE_MS;
+  const chipEnd = (STAGGER_MS * MEALS_ROW_ANIM_ORDER.length + 40 + BEAT_MS) / CYCLE_MS;
 
   const chipStyle = useAnimatedStyle(() => {
     if (!isActive) return { opacity: 1, transform: [{ translateY: 0 }] };
-    const p = cycle.value;
-    const t = interpolate(p, [chipStart, chipEnd], [0, 1], 'clamp');
+    const tt = cycle.value;
+    const t = interpolate(tt, [chipStart, chipEnd], [0, 1], 'clamp');
     return {
       opacity: t,
       transform: [{ translateY: interpolate(t, [0, 1], [6, 0]) }],
@@ -596,127 +855,147 @@ function MealsFooterChip({ isActive, cycle, styles, theme }: MealsFooterChipProp
 
   return (
     <Animated.View style={[styles.mealsFooter, chipStyle]}>
-      <Ionicons name="sparkles" size={12} color={theme.accent} />
-      <Text style={styles.mealsFooterText}>19 ingredients added to your list</Text>
+      <Ionicons name="link" size={icons.xs} color={theme.accent} />
+      <Text style={styles.mealsFooterText}>Ingredients stay linked to your list</Text>
     </Animated.View>
   );
 }
 
-// --- Shop card -----------------------------------------------------------
+// --- Recipes card --------------------------------------------------------
 
-type ShopBodyProps = {
+type RecipesBodyProps = {
   isActive: boolean;
   cycle: SharedValue<number>;
   styles: Styles;
   theme: AppTheme;
+  icons: IntroIconSizes;
 };
 
-function ShopBody({ isActive, cycle, styles, theme }: ShopBodyProps) {
-  /**
-   * Progress bar fills alongside the item checks so the whole card reads as
-   * one coordinated "making progress down the aisle" beat.
-   */
-  const progressStyle = useAnimatedStyle(() => {
-    if (!isActive) return { width: '65%' };
-    const p = cycle.value;
-    const fillEnd = (STAGGER_MS * 2 + BEAT_MS) / CYCLE_MS;
-    const t = interpolate(p, [0, fillEnd], [0, 0.65], 'clamp');
-    return { width: `${Math.round(t * 100)}%` };
-  });
-
+function RecipesBody({ isActive, cycle, styles, theme, icons }: RecipesBodyProps) {
+  const chipIconGap = scaleLayoutPx(theme.layoutScale, 4);
   return (
-    <View style={styles.shopBody}>
-      <View style={styles.shopProgressTrack}>
-        <Animated.View style={[styles.shopProgressFill, { backgroundColor: theme.accent }, progressStyle]} />
+    <View style={styles.recipesBody}>
+      <View style={[styles.recipesSearch, { borderColor: theme.divider, backgroundColor: theme.background }]}>
+        <Ionicons name="search" size={icons.md} color={theme.textSecondary} />
+        <Text style={[styles.recipesSearchPlaceholder, { color: theme.textSecondary }]}>
+          Search by name or ingredient
+        </Text>
       </View>
-      <Text style={styles.shopProgressLabel}>2 of 3 picked up</Text>
-      {SHOP_ITEMS.map((item, index) => (
-        <ShopItemRow
-          key={item.label}
-          item={item}
+      <View style={styles.recipesChipRow}>
+        <View style={[styles.recipesFilterChip, { backgroundColor: theme.accent + '22', borderColor: theme.accent }]}>
+          <Text style={[styles.recipesFilterChipText, { color: theme.accent }]}>All</Text>
+        </View>
+        <View style={[styles.recipesFilterChip, { borderColor: theme.divider, backgroundColor: theme.background }]}>
+          <Ionicons name="heart" size={icons.xs} color={theme.textSecondary} style={{ marginRight: chipIconGap }} />
+          <Text style={[styles.recipesFilterChipText, { color: theme.textPrimary }]}>Favorites</Text>
+        </View>
+        <View style={[styles.recipesFilterChip, { borderColor: theme.divider, backgroundColor: theme.background }]}>
+          <Text style={[styles.recipesFilterChipText, { color: theme.textPrimary }]}>Snack</Text>
+        </View>
+      </View>
+      <Text style={[styles.recipesMeta, { color: theme.textSecondary }]}>8 recipes · Sort: Recently updated</Text>
+      {RECIPE_INTRO_CARDS.map((card, index) => (
+        <RecipeIntroCardView
+          key={card.title}
+          card={card}
           index={index}
-          isLast={index === SHOP_ITEMS.length - 1}
+          isLast={index === RECIPE_INTRO_CARDS.length - 1}
           isActive={isActive}
           cycle={cycle}
           styles={styles}
           theme={theme}
+          icons={icons}
         />
       ))}
     </View>
   );
 }
 
-type ShopItemRowProps = {
-  item: ShopItem;
+type RecipeIntroCardViewProps = {
+  card: RecipeIntroCard;
   index: number;
   isLast: boolean;
   isActive: boolean;
   cycle: SharedValue<number>;
   styles: Styles;
   theme: AppTheme;
+  icons: IntroIconSizes;
 };
 
-function ShopItemRow({ item, index, isLast, isActive, cycle, styles, theme }: ShopItemRowProps) {
-  const rowEnterStart = (STAGGER_MS * index) / CYCLE_MS;
-  const rowEnterEnd = (STAGGER_MS * index + BEAT_MS) / CYCLE_MS;
-  const checkAt = item.checkProgress;
-  /** The strike line grows after the row itself has settled. */
-  const strikeStart = checkAt ?? 0;
-  const strikeEnd = checkAt !== null ? checkAt + BEAT_MS / CYCLE_MS : 0;
+function RecipeIntroCardView({
+  card,
+  index,
+  isLast,
+  isActive,
+  cycle,
+  styles,
+  theme,
+  icons,
+}: RecipeIntroCardViewProps) {
+  const cardEnterStart = (STAGGER_MS * index) / CYCLE_MS;
+  const cardEnterEnd = (STAGGER_MS * index + BEAT_MS) / CYCLE_MS;
+  const metaStart = (STAGGER_MS * index + BEAT_MS * 0.55) / CYCLE_MS;
+  const metaEnd = (STAGGER_MS * index + BEAT_MS * 1.15) / CYCLE_MS;
 
-  const rowStyle = useAnimatedStyle(() => {
-    if (!isActive) return { opacity: 1, transform: [{ translateY: 0 }] };
-    const p = cycle.value;
-    const t = interpolate(p, [rowEnterStart, rowEnterEnd], [0, 1], 'clamp');
+  const cardStyle = useAnimatedStyle(() => {
+    if (!isActive) return { opacity: 1, transform: [{ translateY: 0 }, { scale: 1 }] };
+    const tt = cycle.value;
+    const t = interpolate(tt, [cardEnterStart, cardEnterEnd], [0, 1], 'clamp');
     return {
       opacity: t,
-      transform: [{ translateY: interpolate(t, [0, 1], [8, 0]) }],
+      transform: [
+        { translateY: interpolate(t, [0, 1], [10, 0]) },
+        { scale: interpolate(t, [0, 1], [0.96, 1]) },
+      ],
     };
   });
 
-  const checkStyle = useAnimatedStyle(() => {
-    if (checkAt === null) return { opacity: 0, transform: [{ scale: 0.6 }] };
-    if (!isActive) return { opacity: 1, transform: [{ scale: 1 }] };
-    const p = cycle.value;
-    const t = interpolate(p, [strikeStart, strikeEnd], [0, 1], 'clamp');
-    return {
-      opacity: t,
-      transform: [{ scale: interpolate(t, [0, 1], [0.6, 1]) }],
-    };
+  const metaStyle = useAnimatedStyle(() => {
+    if (!isActive) return { opacity: 1 };
+    const tt = cycle.value;
+    const t = interpolate(tt, [metaStart, metaEnd], [0, 1], 'clamp');
+    return { opacity: t };
   });
 
-  const strikeStyle = useAnimatedStyle(() => {
-    if (checkAt === null) return { width: '0%' };
-    if (!isActive) return { width: '100%' };
-    const p = cycle.value;
-    const t = interpolate(p, [strikeStart, strikeEnd], [0, 1], 'clamp');
-    return { width: `${Math.round(t * 100)}%` };
+  const heartStyle = useAnimatedStyle(() => {
+    if (!card.favorited) return { transform: [{ scale: 1 }] };
+    if (!isActive) return { transform: [{ scale: 1 }] };
+    const tt = cycle.value;
+    const h0 = (STAGGER_MS * 2.2) / CYCLE_MS;
+    const h1 = (STAGGER_MS * 2.2 + BEAT_MS * 0.45) / CYCLE_MS;
+    const s = interpolate(tt, [h0, h1], [1, 1.12], 'clamp');
+    return { transform: [{ scale: s }] };
   });
-
-  const labelColor = checkAt !== null ? theme.textSecondary : theme.textPrimary;
 
   return (
-    <Animated.View style={[styles.shopItemRow, isLast ? styles.heroRowLast : null, rowStyle]}>
-      <View style={styles.shopCheckbox}>
-        <Animated.View style={checkStyle}>
-          <Ionicons name="checkmark" size={14} color={theme.accent} />
-        </Animated.View>
-      </View>
-      <View style={styles.shopLabelWrap}>
-        <Text style={[styles.shopLabel, { color: labelColor }]} numberOfLines={1}>
-          {item.label}
+    <Animated.View
+      style={[
+        styles.recipeCard,
+        { borderColor: theme.divider, backgroundColor: theme.surface },
+        isLast ? styles.recipeCardLast : null,
+        cardStyle,
+      ]}
+    >
+      <View style={styles.recipeCardTop}>
+        <Text style={[styles.recipeCardTitle, { color: theme.textPrimary }]} numberOfLines={2}>
+          {card.title}
         </Text>
-        <Animated.View
-          style={[
-            styles.shopStrike,
-            { backgroundColor: theme.textSecondary },
-            strikeStyle,
-          ]}
-        />
+        <View style={styles.recipeCardActions}>
+          {card.favorited ? (
+            <Animated.View style={heartStyle}>
+              <Ionicons name="heart" size={icons.lg} color={theme.accent} />
+            </Animated.View>
+          ) : null}
+          <Ionicons name="ellipsis-horizontal" size={icons.lg} color={theme.textSecondary} />
+        </View>
       </View>
-      <View style={[styles.heroChip, { backgroundColor: item.tint }]}>
-        <Text style={[styles.heroChipText, { color: item.tintText }]}>{item.aisle}</Text>
-      </View>
+      <Animated.View style={[styles.recipeMetaRow, metaStyle]}>
+        {card.meta.map((m) => (
+          <View key={m} style={[styles.recipeMetaPill, { backgroundColor: theme.background }]}>
+            <Text style={[styles.recipeMetaPillText, { color: theme.textSecondary }]}>{m}</Text>
+          </View>
+        ))}
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -727,16 +1006,48 @@ type StyleArgs = {
   insets: { top: number; bottom: number };
   horizontalPadding: number;
   isCompactHeight: boolean;
+  windowWidth: number;
+  windowHeight: number;
 };
 
-function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHeight }: StyleArgs) {
+function createStyles(
+  theme: AppTheme,
+  { insets, horizontalPadding, isCompactHeight, windowWidth, windowHeight }: StyleArgs,
+) {
+  const lx = (v: number) => scaleLayoutPx(theme.layoutScale, v);
+  const fx = (v: number) => scaleFontPx(theme.fontScale, v);
+  /** Shorter phones: tighter preview so copy + hero fit above pinned CTAs without crowding. */
+  const introTight = windowHeight < 820;
+  const introVeryTight = windowHeight < 700;
+  const previewPanelPadding = introVeryTight
+    ? theme.spacing.xs
+    : introTight
+      ? theme.spacing.sm
+      : theme.spacing.md;
+  const heroWrapVertical = introVeryTight
+    ? theme.spacing.sm
+    : introTight
+      ? theme.spacing.md
+      : theme.spacing.lg;
+  const listBodyGap = introTight ? theme.spacing.xs : theme.spacing.sm;
+  const listRowPadY = introVeryTight ? theme.spacing.xs : theme.spacing.sm;
+  const copyLineMaxW = Math.min(lx(340), windowWidth - horizontalPadding * 2);
+  const mealsFooterMaxW = Math.min(lx(260), windowWidth - horizontalPadding * 2);
+
   return StyleSheet.create({
     root: { flex: 1 },
     container: {
       flex: 1,
       paddingTop: insets.top + (isCompactHeight ? theme.spacing.md : theme.spacing.lg),
-      paddingBottom: insets.bottom + theme.spacing.lg,
       paddingHorizontal: horizontalPadding,
+    },
+    introScroll: {
+      flex: 1,
+      minHeight: 0,
+    },
+    introScrollContent: {
+      flexGrow: 1,
+      paddingBottom: theme.spacing.md,
     },
     brandRow: {
       flexDirection: 'row',
@@ -749,9 +1060,9 @@ function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHei
       justifyContent: 'space-between',
     },
     closeButton: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
+      width: lx(32),
+      height: lx(32),
+      borderRadius: lx(16),
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: theme.surface,
@@ -759,9 +1070,9 @@ function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHei
       borderColor: theme.divider,
     },
     brandMark: {
-      width: 28,
-      height: 28,
-      borderRadius: 8,
+      width: lx(28),
+      height: lx(28),
+      borderRadius: lx(8),
       alignItems: 'center',
       justifyContent: 'center',
       overflow: 'hidden',
@@ -771,51 +1082,50 @@ function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHei
       height: '100%',
     },
     brandWordmark: {
-      fontSize: 18,
+      fontSize: fx(18),
       fontWeight: '700',
       letterSpacing: 0.2,
       color: theme.textPrimary,
     },
     heroWrap: {
-      flex: 1,
-      justifyContent: 'center',
-      paddingVertical: isCompactHeight ? theme.spacing.md : theme.spacing.lg,
+      paddingVertical: heroWrapVertical,
       marginHorizontal: -horizontalPadding,
     },
     heroPage: {
-      alignItems: 'center',
-      justifyContent: 'center',
+      alignItems: 'stretch',
+      justifyContent: 'flex-start',
       paddingHorizontal: horizontalPadding,
-    },
-    heroCard: {
-      width: '100%',
-      maxWidth: 360,
-      borderRadius: theme.radius.lg,
-      backgroundColor: theme.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.divider,
-      paddingVertical: theme.spacing.md,
-      paddingHorizontal: theme.spacing.md,
-      ...theme.shadows.floating,
+      paddingTop: theme.spacing.xs,
+      paddingBottom: theme.spacing.sm,
     },
     heroHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: theme.spacing.xs,
-      marginBottom: theme.spacing.sm,
+      marginBottom: introTight ? theme.spacing.xs : theme.spacing.sm,
     },
     heroHeaderText: {
-      fontSize: 12,
+      fontSize: fx(12),
       letterSpacing: 0.8,
       fontWeight: '600',
       textTransform: 'uppercase',
       color: theme.textSecondary,
     },
-    // Sort card rows — also reused by the Shop card's row frame.
+    /** Grey surface for the faux in-app preview only (not the full-bleed “window” chrome). */
+    heroPreviewPanel: {
+      width: '100%',
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.divider,
+      padding: previewPanelPadding,
+      overflow: 'hidden',
+    },
+    // Shared row chrome (shop list, legacy).
     heroRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: theme.spacing.sm,
+      paddingVertical: listRowPadY,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: theme.divider,
     },
@@ -823,24 +1133,24 @@ function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHei
       borderBottomWidth: 0,
     },
     heroEmoji: {
-      fontSize: 22,
-      width: 32,
+      fontSize: fx(22),
+      width: lx(32),
       textAlign: 'center',
     },
     heroLabel: {
       flex: 1,
       marginLeft: theme.spacing.sm,
       color: theme.textPrimary,
-      fontSize: 15,
+      fontSize: fx(15),
       fontWeight: '500',
     },
     heroChip: {
       paddingHorizontal: theme.spacing.sm,
-      paddingVertical: 4,
+      paddingVertical: lx(4),
       borderRadius: theme.radius.full,
     },
     heroChipText: {
-      fontSize: 11,
+      fontSize: fx(11),
       fontWeight: '700',
       letterSpacing: 0.4,
       textTransform: 'uppercase',
@@ -848,59 +1158,211 @@ function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHei
     caption: {
       textAlign: 'center',
       color: theme.textSecondary,
-      fontSize: 12,
-      marginTop: theme.spacing.md,
+      fontSize: fx(12),
+      marginTop: introTight ? theme.spacing.sm : theme.spacing.md,
       letterSpacing: 0.2,
+    },
+    // List card.
+    listBody: {
+      gap: listBodyGap,
+    },
+    listSegmentRow: {
+      flexDirection: 'row',
+      borderRadius: theme.radius.full,
+      overflow: 'hidden',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.divider,
+    },
+    listSegmentSide: {
+      flex: 1,
+      paddingVertical: introVeryTight ? lx(6) : lx(8),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.background,
+    },
+    listSegmentSideText: {
+      fontSize: fx(13),
+      fontWeight: '700',
+    },
+    listChipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: lx(6),
+    },
+    listChip: {
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: lx(5),
+      borderRadius: theme.radius.full,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
+    listChipText: {
+      fontSize: fx(12),
+      fontWeight: '600',
+    },
+    listMetaLine: {
+      fontSize: fx(11),
+      fontWeight: '600',
+      letterSpacing: 0.2,
+    },
+    listZoneHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.xs,
+      paddingVertical: listRowPadY,
+      paddingHorizontal: theme.spacing.sm,
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
+    listZoneTitle: {
+      fontSize: fx(12),
+      fontWeight: '800',
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+    },
+    listZoneCount: {
+      fontSize: fx(12),
+      fontWeight: '600',
+    },
+    listItemRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      paddingVertical: listRowPadY,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.divider,
+    },
+    listToggleCol: {
+      width: 44,
+      height: 44,
+      marginRight: theme.spacing.sm,
+      marginTop: lx(2),
+      position: 'relative',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    listToggleIconLayer: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    listItemTextCol: {
+      flex: 1,
+      minWidth: 0,
+      gap: lx(4),
+    },
+    listItemTitle: {
+      fontSize: fx(15),
+      fontWeight: '600',
+    },
+    listItemSub: {
+      fontSize: fx(12),
+      fontWeight: '500',
+    },
+    listQtyPill: {
+      alignSelf: 'flex-start',
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: lx(3),
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.background,
+    },
+    listQtyPillText: {
+      fontSize: fx(11),
+      fontWeight: '600',
     },
     // Meals card.
     mealsBody: {
-      paddingVertical: theme.spacing.xs,
+      gap: listBodyGap,
     },
     mealsStrip: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      gap: 4,
+      gap: lx(4),
     },
-    mealsCell: {
+    mealsStripCell: {
       flex: 1,
-      aspectRatio: 0.9,
-      borderRadius: 10,
+      borderRadius: lx(10),
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.divider,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 6,
-      backgroundColor: theme.background,
+      paddingVertical: lx(6),
+      minHeight: 44,
     },
-    mealsCellFilled: {
-      backgroundColor: theme.accent + '12',
-      borderColor: theme.accent + '33',
-    },
-    mealsDayLabel: {
-      fontSize: 10,
+    mealsStripDow: {
+      fontSize: fx(10),
       fontWeight: '700',
-      letterSpacing: 0.6,
-      color: theme.textSecondary,
+      letterSpacing: 0.4,
       textTransform: 'uppercase',
     },
-    mealsMealWrap: {
-      marginTop: 4,
-      minHeight: 16,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: 2,
-    },
-    mealsMealText: {
-      fontSize: 10,
+    mealsStripDom: {
+      fontSize: fx(13),
       fontWeight: '700',
-      color: theme.accent,
+      marginTop: lx(2),
+    },
+    mealsWeekRange: {
+      fontSize: fx(11),
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    mealsDayCard: {
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      paddingHorizontal: theme.spacing.sm,
+      paddingTop: theme.spacing.sm,
+      paddingBottom: theme.spacing.xs,
+    },
+    mealsDayCardTitle: {
+      fontSize: fx(17),
+      fontWeight: '700',
+      marginBottom: theme.spacing.xs,
+    },
+    mealPlanRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: listRowPadY,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.divider,
+    },
+    mealPlanRowLast: {
+      borderBottomWidth: 0,
+    },
+    mealPlanRowMain: {
+      flex: 1,
+    },
+    mealPlanSlot: {
+      fontSize: fx(11),
+      fontWeight: '700',
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+      marginBottom: lx(2),
+      width: lx(76),
+    },
+    mealPlanTitle: {
+      fontSize: fx(14),
+      fontWeight: '600',
+    },
+    mealPlanDetail: {
+      fontSize: fx(12),
+      marginTop: lx(2),
+    },
+    mealPlanEmpty: {
+      flex: 1,
+      fontSize: fx(13),
+      fontStyle: 'italic',
+    },
+    mealPlanAddBtn: {
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: lx(6),
+      borderRadius: theme.radius.full,
+    },
+    mealPlanAddBtnText: {
+      fontSize: fx(13),
+      fontWeight: '700',
     },
     mealsFooter: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: theme.spacing.xs,
-      marginTop: theme.spacing.md,
+      marginTop: theme.spacing.xs,
       paddingVertical: theme.spacing.xs,
       paddingHorizontal: theme.spacing.sm,
       alignSelf: 'center',
@@ -908,57 +1370,92 @@ function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHei
       backgroundColor: theme.accent + '12',
     },
     mealsFooterText: {
-      fontSize: 12,
+      fontSize: fx(11),
       fontWeight: '600',
       color: theme.accent,
+      textAlign: 'center',
+      maxWidth: mealsFooterMaxW,
     },
-    // Shop card.
-    shopBody: {
-      paddingTop: 2,
+    // Recipes card.
+    recipesBody: {
+      gap: listBodyGap,
     },
-    shopProgressTrack: {
-      width: '100%',
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: theme.divider,
-      overflow: 'hidden',
-    },
-    shopProgressFill: {
-      height: '100%',
-      borderRadius: 3,
-    },
-    shopProgressLabel: {
-      marginTop: 6,
-      fontSize: 11,
-      fontWeight: '600',
-      color: theme.textSecondary,
-      letterSpacing: 0.2,
-    },
-    shopItemRow: {
+    recipesSearch: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: theme.spacing.sm,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: theme.divider,
+      gap: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: introVeryTight ? lx(7) : lx(10),
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
     },
-    shopCheckbox: {
-      width: 22,
-      height: 22,
-      borderRadius: 6,
-      borderWidth: 1.5,
-      borderColor: theme.accent,
+    recipesSearchPlaceholder: {
+      flex: 1,
+      fontSize: fx(14),
+    },
+    recipesChipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: lx(6),
+    },
+    recipesFilterChip: {
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: lx(5),
+      borderRadius: theme.radius.full,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
+    recipesFilterChipText: {
+      fontSize: fx(12),
+      fontWeight: '600',
+    },
+    recipesMeta: {
+      fontSize: fx(11),
+      fontWeight: '600',
+    },
+    recipeCard: {
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: listRowPadY,
+    },
+    recipeCardLast: {
+      marginBottom: 0,
+    },
+    recipeCardTop: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: theme.spacing.sm,
+    },
+    recipeCardTitle: {
+      flex: 1,
+      fontSize: fx(15),
+      fontWeight: '700',
+    },
+    recipeCardActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.sm,
+    },
+    recipeMetaRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: lx(6),
+      marginTop: theme.spacing.sm,
+    },
+    recipeMetaPill: {
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: lx(4),
+      borderRadius: theme.radius.full,
+    },
+    recipeMetaPillText: {
+      fontSize: fx(11),
+      fontWeight: '600',
     },
     shopLabelWrap: {
-      flex: 1,
-      justifyContent: 'center',
       position: 'relative',
-    },
-    shopLabel: {
-      fontSize: 15,
-      fontWeight: '500',
+      alignSelf: 'stretch',
     },
     shopStrike: {
       position: 'absolute',
@@ -972,26 +1469,26 @@ function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHei
       flexDirection: 'row',
       justifyContent: 'center',
       alignItems: 'center',
-      marginTop: theme.spacing.sm,
-      gap: 6,
+      marginTop: introTight ? theme.spacing.xs : theme.spacing.sm,
+      gap: lx(6),
     },
     dot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
+      width: lx(6),
+      height: lx(6),
+      borderRadius: lx(3),
       backgroundColor: theme.divider,
     },
     dotActive: {
-      width: 18,
+      width: lx(18),
       backgroundColor: theme.accent,
     },
     copyBlock: {
       alignItems: 'center',
-      marginTop: isCompactHeight ? theme.spacing.md : theme.spacing.lg,
+      marginTop: introTight ? theme.spacing.sm : isCompactHeight ? theme.spacing.md : theme.spacing.lg,
     },
     headline: {
-      fontSize: isCompactHeight ? 26 : 30,
-      lineHeight: isCompactHeight ? 32 : 36,
+      fontSize: fx(isCompactHeight ? 26 : 30),
+      lineHeight: fx(isCompactHeight ? 32 : 36),
       fontWeight: '700',
       letterSpacing: -0.4,
       color: theme.textPrimary,
@@ -999,14 +1496,16 @@ function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHei
     },
     sub: {
       marginTop: theme.spacing.sm,
-      fontSize: 15,
-      lineHeight: 22,
+      fontSize: fx(15),
+      lineHeight: fx(22),
       color: theme.textSecondary,
       textAlign: 'center',
-      maxWidth: 340,
+      maxWidth: copyLineMaxW,
+    },
+    ctaDock: {
+      paddingTop: theme.spacing.sm,
     },
     ctaWrap: {
-      marginTop: isCompactHeight ? theme.spacing.md : theme.spacing.lg,
       gap: theme.spacing.sm,
     },
     secondary: {
@@ -1016,7 +1515,7 @@ function createStyles(theme: AppTheme, { insets, horizontalPadding, isCompactHei
       paddingVertical: theme.spacing.sm,
     },
     secondaryText: {
-      fontSize: 15,
+      fontSize: fx(15),
       fontWeight: '600',
       color: theme.accent,
     },

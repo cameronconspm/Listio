@@ -5,7 +5,7 @@ import * as local from './localDataService';
 import { normalize } from '../utils/normalize';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
 import { sanitizeMealCreate, sanitizeMealIngredientInput, sanitizeMealUpdate } from '../utils/sanitizeUserText';
-import type { Meal, MealIngredient, MealSlot, ZoneKey } from '../types/models';
+import type { Meal, MealIngredient, MealSlot, RecipeCategory, ZoneKey } from '../types/models';
 
 export async function getMeals(userId: string): Promise<Meal[]> {
   if (!isSyncEnabled()) return local.getMeals(userId);
@@ -21,6 +21,43 @@ export async function getMeals(userId: string): Promise<Meal[]> {
 }
 
 /** Fetch meals for a date range (inclusive). For planner week view. */
+export type RecipePlannerMeta = {
+  servings: number;
+  total_time_minutes?: number | null;
+  category?: RecipeCategory | null;
+};
+
+/** Load servings, time, and category for planner meta lines (e.g. meals tab). */
+export async function getRecipePlannerMetaByIds(recipeIds: string[]): Promise<Record<string, RecipePlannerMeta>> {
+  const ids = [...new Set(recipeIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return {};
+  if (!isSyncEnabled()) return local.getRecipePlannerMetaByIds(ids);
+
+  const householdId = await getCurrentHouseholdId();
+  const { data, error } = await supabase
+    .from('recipes')
+    .select('id, servings, total_time_minutes, category')
+    .eq('household_id', householdId)
+    .in('id', ids);
+
+  if (error || !data) return {};
+  const out: Record<string, RecipePlannerMeta> = {};
+  for (const row of data) {
+    const id = row.id as string;
+    const servingsRaw = row.servings as number | string | null | undefined;
+    const servings =
+      typeof servingsRaw === 'number' && !Number.isNaN(servingsRaw)
+        ? servingsRaw
+        : Number(servingsRaw) || 0;
+    out[id] = {
+      servings,
+      total_time_minutes: (row.total_time_minutes as number | null) ?? null,
+      category: (row.category as RecipeCategory | null) ?? null,
+    };
+  }
+  return out;
+}
+
 export async function getMealsByDateRange(
   userId: string,
   startDate: string,
@@ -48,6 +85,7 @@ export type MealWithIngredients = {
     meal_date: string;
     meal_slot: MealSlot;
     custom_slot_name: string | null;
+    recipe_id: string | null;
     recipe_url: string | null;
     notes: string | null;
   };
@@ -58,7 +96,7 @@ export async function getMealWithIngredients(mealId: string): Promise<MealWithIn
   if (!isSyncEnabled()) return local.getMealWithIngredients(mealId);
   const { data: meal, error: mealErr } = await supabase
     .from('meals')
-    .select('id, name, meal_date, meal_slot, custom_slot_name, recipe_url, notes')
+    .select('id, name, meal_date, meal_slot, custom_slot_name, recipe_id, recipe_url, notes')
     .eq('id', mealId)
     .single();
 
@@ -79,6 +117,7 @@ export async function getMealWithIngredients(mealId: string): Promise<MealWithIn
       meal_date: meal.meal_date as string,
       meal_slot: meal.meal_slot as MealSlot,
       custom_slot_name: meal.custom_slot_name as string | null,
+      recipe_id: (meal.recipe_id as string | null) ?? null,
       recipe_url: meal.recipe_url as string | null,
       notes: meal.notes as string | null,
     },
@@ -129,6 +168,7 @@ export interface UpdateMealInput {
   meal_date?: string;
   meal_slot?: MealSlot;
   custom_slot_name?: string | null;
+  recipe_id?: string | null;
   recipe_url?: string | null;
   notes?: string | null;
 }
@@ -143,6 +183,7 @@ export async function updateMeal(mealId: string, data: UpdateMealInput): Promise
   if (safe.custom_slot_name != null && safe.custom_slot_name !== '') {
     payload.custom_slot_name = safe.custom_slot_name;
   }
+  if (safe.recipe_id !== undefined) payload.recipe_id = safe.recipe_id;
   if (safe.recipe_url !== undefined) payload.recipe_url = safe.recipe_url;
   if (safe.notes !== undefined) payload.notes = safe.notes;
   if (Object.keys(payload).length === 0) return;
@@ -226,6 +267,7 @@ export async function copyMealToDates(
       meal_date,
       meal_slot: meal.meal_slot,
       custom_slot_name: meal.custom_slot_name,
+      recipe_id: meal.recipe_id,
       recipe_url: meal.recipe_url,
       notes: meal.notes,
     });

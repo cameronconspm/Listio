@@ -6,8 +6,8 @@
  * Uses GET (not HEAD): some hosts return errors or flaky behavior for HEAD behind CDNs.
  *
  * App Store Connect (manual): set Privacy Policy, Terms of Use (EULA), and Support URL
- * to these same live pages; add Review Notes with demo credentials if applicable
- * (see src/constants/officialTestAccount.ts — OFFICIAL_LISTIO_TEST_ACCOUNT_EMAIL).
+ * to these same live pages; paste Review Notes from src/constants/appStoreReviewNotes.ts
+ * (APP_STORE_REVIEW_NOTES — demo account, free tier, IAP paths).
  */
 const URLS = [
   { url: 'https://thelistioapp.com/privacy-policy', label: 'Privacy policy' },

@@ -68,13 +68,23 @@ export function noneReducedMotion(reduceMotion: boolean): WithTimingConfig {
  */
 export function createNativeStackScreenOptions(theme: {
   background: string;
+  textPrimary?: string;
 }): NativeStackNavigationOptions {
+  const titleColor = theme.textPrimary;
+
   return {
     animation: 'default',
     contentStyle: { backgroundColor: theme.background },
     headerStyle: { backgroundColor: theme.background },
     headerShadowVisible: false,
     fullScreenGestureEnabled: true,
+    ...(titleColor
+      ? {
+          headerTintColor: titleColor,
+          headerTitleStyle: { color: titleColor, fontSize: 17, fontWeight: '600' },
+          headerLargeTitleStyle: { color: titleColor },
+        }
+      : {}),
   };
 }
 
@@ -84,6 +94,7 @@ export function createNativeStackScreenOptions(theme: {
  */
 export function createTranslucentStackScreenOptions(theme: {
   background: string;
+  textPrimary?: string;
   colorScheme: ColorScheme;
 }): NativeStackNavigationOptions {
   const isDark = theme.colorScheme === 'dark';
@@ -97,6 +108,25 @@ export function createTranslucentStackScreenOptions(theme: {
     ...(Platform.OS === 'ios'
       ? {
           headerBlurEffect: isDark ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight',
+        }
+      : {}),
+  };
+}
+
+export function createChromePushedStackScreenOptions(theme: {
+  background: string;
+  textPrimary: string;
+  colorScheme: ColorScheme;
+}): NativeStackNavigationOptions {
+  return {
+    ...createNativeStackScreenOptions(theme),
+    headerShown: true,
+    headerTitleAlign: 'center',
+    headerBackButtonDisplayMode: 'minimal',
+    ...(Platform.OS === 'ios'
+      ? {
+          headerBlurEffect:
+            theme.colorScheme === 'dark' ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight',
         }
       : {}),
   };

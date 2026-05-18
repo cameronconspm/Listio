@@ -1,13 +1,13 @@
-import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Platform, ActivityIndicator } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useQuery, useQueryClient, useIsRestoring, keepPreviousData } from '@tanstack/react-query';
-import { useHeaderHeight } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MealsStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
+import { tabRootScrollPaddingTop } from '../../design/layout';
 import { useTabRootScrollOnScroll } from '../../navigation/NavigationChromeScrollContext';
 import { Screen } from '../../components/ui/Screen';
 import {
@@ -32,6 +32,8 @@ import { showError } from '../../utils/appToast';
 import { queryKeys } from '../../query/keys';
 import { fetchMealsRangeBundle, MEALS_RANGE_STALE_MS } from '../../query/mealsRangeBundle';
 import { fetchMealDetailBundle, MEAL_DETAIL_STALE_MS } from '../../query/mealDetailBundle';
+import { deleteMeal } from '../../services/mealService';
+import { invalidateMealsRange } from '../../query/invalidate';
 
 function getSlotKey(meal: Meal): string {
   if (meal.meal_slot === 'custom' && meal.custom_slot_name) {
@@ -48,9 +50,8 @@ export function MealsScreen() {
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const headerHeight = useHeaderHeight();
   /** Tight under header: schedule row sits close to week strip (no extra chrome gap). */
-  const scrollContentPaddingTop = headerHeight + theme.spacing.xxs;
+  const scrollContentPaddingTop = tabRootScrollPaddingTop(insets.top, theme.spacing);
   const onScrollChrome = useTabRootScrollOnScroll('MealsStack');
   const navigation = useNavigation<NativeStackNavigationProp<MealsStackParamList>>();
   const { config, setConfig } = useMealScheduleConfig();
@@ -77,7 +78,10 @@ export function MealsScreen() {
 
   const isRestoringCache = useIsRestoring();
 
-  const visibleDates = getScheduleDates(config.startDate, config.length);
+  const visibleDates = useMemo(
+    () => getScheduleDates(config.startDate, config.length),
+    [config.startDate, config.length]
+  );
   const rangeLabel =
     visibleDates.length > 0
       ? formatScheduleLabel(
@@ -92,7 +96,7 @@ export function MealsScreen() {
     if (clamped !== selectedDateString) {
       setSelectedDateString(clamped);
     }
-  }, [config.startDate, config.length, visibleDates, selectedDateString]);
+  }, [visibleDates, selectedDateString]);
 
   useEffect(() => {
     if (visibleDates.length === 0 || mealsPrefsHydrated.current) return;
@@ -149,6 +153,7 @@ export function MealsScreen() {
   const bundle = mealsQuery.data;
   const meals = React.useMemo(() => bundle?.meals ?? [], [bundle?.meals]);
   const ingredientCounts = bundle?.ingredientCounts ?? {};
+  const recipeMetaByRecipeId = bundle?.recipeMetaByRecipeId ?? {};
 
   const listInitialLoad =
     userReady &&
@@ -209,6 +214,21 @@ export function MealsScreen() {
     [navigation, selectedDateString]
   );
 
+  const handleDeleteMeal = useCallback(
+    async (meal: Meal) => {
+      try {
+        await deleteMeal(meal.id);
+        if (userId) {
+          queryClient.removeQueries({ queryKey: queryKeys.mealDetail(userId, meal.id) });
+          await invalidateMealsRange(queryClient, userId);
+        }
+      } catch {
+        showError('Could not delete meal.');
+      }
+    },
+    [queryClient, userId]
+  );
+
   const selectedDate =
     visibleDates.find((d) => toDateString(d) === selectedDateString) ?? visibleDates[0];
   const dateLabel = selectedDate ? formatDayLabel(selectedDate) : '';
@@ -216,6 +236,8 @@ export function MealsScreen() {
     () => mealsByDate.get(selectedDateString) ?? EMPTY_MEALS_BY_SLOT,
     [mealsByDate, selectedDateString]
   );
+
+  const showWeekStrip = visibleDates.length > 0;
 
   const handleScheduleSave = useCallback(
     (next: MealScheduleConfig) => {
@@ -225,25 +247,23 @@ export function MealsScreen() {
     [setConfig]
   );
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      header: () => (
-        <MealsScreenHeader
-          scheduleLabel={rangeLabel}
-          onSchedulePress={() => setScheduleSheetVisible(true)}
-          onPrev={goToPrevWindow}
-          onNext={goToNextWindow}
-        />
-      ),
-    });
-  }, [navigation, rangeLabel, goToPrevWindow, goToNextWindow]);
+  const headerChrome = (
+    <MealsScreenHeader
+      scheduleLabel={rangeLabel}
+      onSchedulePress={() => setScheduleSheetVisible(true)}
+      onPrev={goToPrevWindow}
+      onNext={goToNextWindow}
+    />
+  );
 
-  const showWeekStrip = visibleDates.length > 0;
   const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
 
   if (userId === undefined || listInitialLoad) {
     return (
       <Screen padded={false} safeTop={false} safeBottom={false}>
+        <View style={styles.headerOverlay} pointerEvents="box-none">
+          {headerChrome}
+        </View>
         <View style={[styles.loaderWrap, { paddingTop: scrollContentPaddingTop }]}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
@@ -253,14 +273,18 @@ export function MealsScreen() {
 
   return (
     <Screen padded={false} safeTop={false} safeBottom={false}>
+      <View style={styles.headerOverlay} pointerEvents="box-none">
+        {headerChrome}
+      </View>
       <View style={styles.container}>
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={[
             styles.scrollContent,
             {
+              flexGrow: 1,
               paddingTop: scrollContentPaddingTop,
-              paddingHorizontal: theme.spacing.lg,
+              paddingHorizontal: theme.spacing.md,
               paddingBottom: scrollBottomPad,
             },
           ]}
@@ -284,14 +308,22 @@ export function MealsScreen() {
               onSelectDate={setSelectedDateString}
             />
           ) : null}
-          <View style={[styles.planner, showWeekStrip && { paddingTop: theme.spacing.xs }]}>
+          <View
+            style={[
+              styles.planner,
+              { flex: 1, minHeight: 0 },
+              showWeekStrip && { paddingTop: theme.spacing.xs },
+            ]}
+          >
             <DaySection
               dateLabel={dateLabel}
               dateString={selectedDateString}
               mealsBySlot={mealsBySlot}
               ingredientCountByMealId={ingredientCounts}
+              recipeMetaByRecipeId={recipeMetaByRecipeId}
               onPressMeal={handlePressMeal}
               onPressAdd={handlePressAdd}
+              onDeleteMeal={handleDeleteMeal}
             />
           </View>
         </ScrollView>
@@ -311,6 +343,13 @@ export function MealsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  headerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
   /** overflow: visible so WeekStrip horizontal pill bleed can extend to screen edges. */
   scroll: { flex: 1, overflow: 'visible' },
   scrollContent: {},

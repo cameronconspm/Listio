@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
-import { StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
+import { tabRootHeaderHeight } from '../../design/layout';
 import { NavigationChromeSurface } from '../../ui/chrome/NavigationChromeSurface';
 import { ScheduleControl } from './ScheduleControl';
 
@@ -22,29 +23,37 @@ export function MealsScreenHeader({
   onNext,
 }: MealsScreenHeaderProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(
     () =>
       StyleSheet.create({
         safe: {
           backgroundColor: 'transparent',
+          height: tabRootHeaderHeight(insets.top, theme.spacing),
           paddingHorizontal: theme.spacing.md,
-          paddingTop: theme.spacing.sm,
+          paddingTop: insets.top + theme.spacing.sm,
           paddingBottom: theme.spacing.xs,
         },
+        row: {
+          height: 44,
+          justifyContent: 'center',
+        },
       }),
-    [theme],
+    [insets.top, theme],
   );
 
   return (
     <NavigationChromeSurface tabKey="MealsStack">
-      <SafeAreaView edges={['top']} style={styles.safe}>
-        <ScheduleControl
-          label={scheduleLabel}
-          onPress={onSchedulePress}
-          onPrev={onPrev}
-          onNext={onNext}
-        />
-      </SafeAreaView>
+      <View style={styles.safe}>
+        <View style={styles.row}>
+          <ScheduleControl
+            label={scheduleLabel}
+            onPress={onSchedulePress}
+            onPrev={onPrev}
+            onNext={onNext}
+          />
+        </View>
+      </View>
     </NavigationChromeSurface>
   );
 }

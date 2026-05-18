@@ -1,5 +1,7 @@
 import React from 'react';
-import Animated, { FadeInUp, useReducedMotion } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
+import { useReduceMotion } from '../../ui/motion/useReduceMotion';
+import { onboardingStepEnter } from './onboardingMotion';
 
 type Props = {
   children: React.ReactNode;
@@ -7,15 +9,11 @@ type Props = {
   stepKey: number;
 };
 
-/**
- * Subtle fade + upward motion for step content. Respects reduced motion.
- */
+/** Step-level enter — spring fade-up. Respects reduced motion. */
 export function OnboardingAnimatedStep({ children, stepKey }: Props) {
-  const reduced = useReducedMotion();
-  const entering = reduced ? undefined : FadeInUp.duration(380).delay(48);
-
+  const reduced = useReduceMotion();
   return (
-    <Animated.View key={stepKey} entering={entering}>
+    <Animated.View key={stepKey} entering={onboardingStepEnter(reduced)}>
       {children}
     </Animated.View>
   );

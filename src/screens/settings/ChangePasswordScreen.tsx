@@ -18,6 +18,7 @@ import { TextField } from '../../components/ui/TextField';
 import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { supabase, isSyncEnabled } from '../../services/supabaseClient';
 import { spacing } from '../../design/spacing';
+import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 export function ChangePasswordScreen() {
   const theme = useTheme();
@@ -112,6 +113,7 @@ export function ChangePasswordScreen() {
   if (!isSyncEnabled()) {
     return (
       <Screen padded safeTop={false} safeBottom={false}>
+        <SettingsPushedScreenHeader title="Change password" />
         <View
           style={[
             styles.center,
@@ -132,6 +134,7 @@ export function ChangePasswordScreen() {
   if (emailProvider === false) {
     return (
       <Screen padded safeTop={false} safeBottom={false}>
+        <SettingsPushedScreenHeader title="Change password" />
         <ScrollView
           contentContainerStyle={[
             styles.content,
@@ -156,6 +159,7 @@ export function ChangePasswordScreen() {
   if (emailProvider === null && isSyncEnabled()) {
     return (
       <Screen padded safeTop={false} safeBottom={false}>
+        <SettingsPushedScreenHeader title="Change password" />
         <View
           style={[
             styles.centered,
@@ -173,6 +177,7 @@ export function ChangePasswordScreen() {
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <SettingsPushedScreenHeader title="Change password" />
       <KeyboardSafeForm style={styles.flex}>
         <ScrollView
           style={styles.scroll}

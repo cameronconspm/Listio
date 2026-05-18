@@ -1,13 +1,13 @@
-import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
-import { StyleSheet, ScrollView, ActivityIndicator, Alert, Linking, Modal, Platform } from 'react-native';
-import { useHeaderHeight } from '@react-navigation/elements';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { StyleSheet, ScrollView, ActivityIndicator, Alert, Linking, Modal, Platform, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { SettingsStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
-import { tabScrollPaddingTopBelowHeader } from '../../design/layout';
+import { tabRootScrollPaddingTop } from '../../design/layout';
 import { Screen } from '../../components/ui/Screen';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { SettingsHubHeader } from '../../components/settings/SettingsHubHeader';
@@ -33,7 +33,10 @@ import {
 import { resolveAuthAccountEmail } from '../../constants/officialTestAccount';
 import { shouldShowQaSettingsTools } from '../../constants/qaSettingsTools';
 import { WelcomeIntroScreen } from '../auth/WelcomeIntroScreen';
-import { getPerfSnapshot, resetPerfSnapshot } from '../../utils/perf';
+import { resetPerfSnapshot } from '../../utils/perf';
+import { formatBuildHealthAlert, getBuildHealthSnapshot } from '../../utils/buildHealth';
+import { useAppReview } from '../../context/AppReviewContext';
+import { resetAppReviewState } from '../../services/appReviewService';
 import { spacing } from '../../design/spacing';
 import { SUPPORT_HELP_CENTER_URL } from '../../constants/legalUrls';
 
@@ -51,8 +54,8 @@ export function SettingsScreen() {
   const onScroll = useSettingsScrollHandler();
   const scrollInsets = useSettingsScrollInsets();
   const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
-  const headerHeight = useHeaderHeight();
-  const scrollPaddingTop = tabScrollPaddingTopBelowHeader(headerHeight, theme.spacing);
+  const insets = useSafeAreaInsets();
+  const scrollPaddingTop = tabRootScrollPaddingTop(insets.top, theme.spacing);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingDemo, setLoadingDemo] = useState(false);
   const [demoError, setDemoError] = useState<string | null>(null);
@@ -63,14 +66,11 @@ export function SettingsScreen() {
   const [introPreviewVisible, setIntroPreviewVisible] = useState(false);
 
   const showQaSettingsTools = shouldShowQaSettingsTools(accountEmail);
+  const { previewReviewPrompt } = useAppReview();
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      header: () => (
-        <SettingsHubHeader searchQuery={searchQuery} onSearchChange={setSearchQuery} />
-      ),
-    });
-  }, [navigation, searchQuery]);
+  const headerChrome = (
+    <SettingsHubHeader searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+  );
 
   const profileSubtitle =
     !isSyncEnabled()
@@ -168,6 +168,14 @@ export function SettingsScreen() {
           'Preview the first-launch welcome animation',
           ['intro', 'welcome', 'first launch', 'preview', 'animation']
         ),
+      demoReviewPrompt:
+        showQaSettingsTools &&
+        match('Demo', 'Preview App Store review', 'Apple’s native in-app rating prompt', [
+          'review',
+          'rating',
+          'app store',
+          'stars',
+        ]),
       demoDeleteData:
         showQaSettingsTools &&
         match(
@@ -178,6 +186,15 @@ export function SettingsScreen() {
             : 'Remove all lists, meals, and recipes stored on this device',
           ['delete', 'remove', 'wipe', 'erase']
         ),
+      buildHealth:
+        (__DEV__ || showQaSettingsTools) &&
+        match('Demo', 'Build health', 'Supabase project, RevenueCat, and Sentry status', [
+          'debug',
+          'health',
+          'sentry',
+          'supabase',
+          'revenuecat',
+        ]),
       session: isSyncEnabled() && match('Session', 'Log out', '', ['sign out', 'signout', 'logout', 'session']),
     };
   }, [searchQuery, profileSubtitle, showQaSettingsTools]);
@@ -199,10 +216,16 @@ export function SettingsScreen() {
       v.demoPaywall ||
       v.replayOnboarding ||
       v.demoReplayIntro ||
+      v.demoReviewPrompt ||
       v.demoDeleteData ||
+      v.buildHealth ||
       v.session
     );
   }, [searchQuery, hubVisibility]);
+
+  const handleShowBuildHealth = useCallback(() => {
+    Alert.alert('Build health', formatBuildHealthAlert(getBuildHealthSnapshot()));
+  }, []);
 
   const openHelpCenter = useCallback(() => {
     void Linking.openURL(SUPPORT_HELP_CENTER_URL).catch(() => {
@@ -366,14 +389,18 @@ export function SettingsScreen() {
   };
 
   return (
-    <Screen padded safeTop={false} safeBottom={false}>
+    <Screen padded={false} safeTop={false} safeBottom={false}>
+      <View style={styles.headerOverlay} pointerEvents="box-none">
+        {headerChrome}
+      </View>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: scrollPaddingTop,
+            paddingTop: scrollPaddingTop + theme.spacing.md,
             paddingBottom: scrollInsets.paddingBottom,
+            paddingHorizontal: theme.spacing.lg,
           },
           !hasHubSearchMatches && { flexGrow: 1 },
         ]}
@@ -498,7 +525,9 @@ export function SettingsScreen() {
               hubVisibility.demoPaywall ||
               hubVisibility.replayOnboarding ||
               hubVisibility.demoReplayIntro ||
-              hubVisibility.demoDeleteData) ? (
+              hubVisibility.demoReviewPrompt ||
+              hubVisibility.demoDeleteData ||
+              hubVisibility.buildHealth) ? (
               <ListSection title="Demo" titleVariant="small" glass={false} style={styles.section}>
                 {hubVisibility.demoLoad ? (
                   <ListRow
@@ -536,6 +565,7 @@ export function SettingsScreen() {
                     showSeparator={
                       hubVisibility.replayOnboarding ||
                       hubVisibility.demoReplayIntro ||
+                      hubVisibility.demoReviewPrompt ||
                       hubVisibility.demoDeleteData
                     }
                     fullWidthDivider
@@ -547,7 +577,11 @@ export function SettingsScreen() {
                     subtitle="See the welcome steps again"
                     onPress={() => navigation.navigate('Onboarding')}
                     rightAccessory={<Chevron />}
-                    showSeparator={hubVisibility.demoReplayIntro || hubVisibility.demoDeleteData}
+                    showSeparator={
+                      hubVisibility.demoReplayIntro ||
+                      hubVisibility.demoReviewPrompt ||
+                      hubVisibility.demoDeleteData
+                    }
                     fullWidthDivider
                   />
                 ) : null}
@@ -556,6 +590,21 @@ export function SettingsScreen() {
                     title="Replay intro"
                     subtitle="Preview the first-launch welcome animation"
                     onPress={() => setIntroPreviewVisible(true)}
+                    rightAccessory={<Chevron />}
+                    showSeparator={hubVisibility.demoReviewPrompt || hubVisibility.demoDeleteData}
+                    fullWidthDivider
+                  />
+                ) : null}
+                {hubVisibility.demoReviewPrompt ? (
+                  <ListRow
+                    title="Preview App Store review"
+                    subtitle="Apple’s native prompt (tap) · reset eligibility counters (long-press)"
+                    onPress={() => previewReviewPrompt()}
+                    onLongPress={() => {
+                      void resetAppReviewState().then(() => {
+                        Alert.alert('Done', 'Review eligibility counters cleared on this device.');
+                      });
+                    }}
                     rightAccessory={<Chevron />}
                     showSeparator={hubVisibility.demoDeleteData}
                     fullWidthDivider
@@ -576,16 +625,12 @@ export function SettingsScreen() {
                     subtitleStyle={{ color: theme.danger }}
                   />
                 ) : null}
-                {__DEV__ ? (
+                {hubVisibility.buildHealth ? (
                   <ListRow
-                    title="Dump perf snapshot"
-                    subtitle="Log render counts and timing samples to the console"
-                    onPress={() => {
-                      const snap = getPerfSnapshot();
-                      console.log('[perf] snapshot', JSON.stringify(snap, null, 2));
-                    }}
-                    rightAccessory={<Chevron />}
-                    showSeparator
+                    title="Build health"
+                    subtitle={`Supabase: ${getBuildHealthSnapshot().supabaseProjectRef}`}
+                    onPress={handleShowBuildHealth}
+                    showSeparator={__DEV__}
                     fullWidthDivider
                   />
                 ) : null}
@@ -658,6 +703,13 @@ export function SettingsScreen() {
 
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
+  headerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
   content: {},
   section: { marginBottom: spacing.lg },
 });

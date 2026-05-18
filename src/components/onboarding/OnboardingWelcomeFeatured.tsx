@@ -4,29 +4,34 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
-/** Stacked preview cards — List (Plan/Shop), Meals, Recipes. */
+import { OnboardingStagger } from './OnboardingStagger';
+import { OnboardingValueChip } from './OnboardingValueChip';
+
+type PreviewCard = {
+  icon: keyof typeof Ionicons.glyphMap;
+  tab: string;
+  valueChip: string;
+  highlight: React.ReactNode;
+  detail: string;
+  zIndex: number;
+  marginBottom: number;
+};
+
+/** Animated stacked previews — List, Meals, Recipes with value chips. */
 export function OnboardingWelcomeFeatured() {
   const theme = useTheme();
 
-  return (
-    <View style={styles.stack}>
-      <View style={[styles.overlap, { marginBottom: -14, zIndex: 3 }]}>
-        <View
-          style={[
-            styles.mini,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.divider,
-            },
-            theme.shadows.floating,
-          ]}
-        >
-          <View style={styles.cardHeader}>
-            <Ionicons name="list" size={16} color={theme.accent} />
-            <Text style={[theme.typography.caption1, { color: theme.textSecondary, marginLeft: theme.spacing.xs }]}>List</Text>
-          </View>
+  const cards: PreviewCard[] = [
+    {
+      icon: 'list',
+      tab: 'List',
+      valueChip: 'Plan → Shop',
+      zIndex: 3,
+      marginBottom: -18,
+      highlight: (
+        <>
           <View style={[styles.segment, { backgroundColor: theme.background }]}>
-            <View style={[styles.segmentPill, { backgroundColor: theme.surface }]}>
+            <View style={[styles.segmentPill, { backgroundColor: theme.surface }, theme.shadows.floating]}>
               <Text style={[theme.typography.caption2, { color: theme.accent, fontWeight: '700' }]}>Plan</Text>
             </View>
             <Text style={[theme.typography.caption2, { color: theme.textSecondary, fontWeight: '600', marginLeft: theme.spacing.sm }]}>
@@ -34,30 +39,24 @@ export function OnboardingWelcomeFeatured() {
             </Text>
           </View>
           <View style={[styles.pill, { backgroundColor: theme.accent + '18', marginTop: theme.spacing.sm }]}>
-            <Text style={[theme.typography.caption2, { color: theme.accent, fontWeight: '600' }]}>Produce</Text>
+            <Text style={[theme.typography.caption2, { color: theme.accent, fontWeight: '600' }]}>Produce · 9 left</Text>
           </View>
-          <Text style={[theme.typography.footnote, { color: theme.textPrimary, marginTop: theme.spacing.sm }]}>
-            Kale · <Text style={{ fontWeight: '600' }}>2</Text> bunches
+          <Text style={[theme.typography.footnote, { color: theme.textPrimary, marginTop: theme.spacing.sm, fontWeight: '600' }]}>
+            Kale · 2 bunches
           </Text>
           <Text style={[theme.typography.caption1, { color: theme.textSecondary, marginTop: theme.spacing.xxs }]}>Bananas · 5</Text>
-        </View>
-      </View>
-
-      <View style={[styles.overlap, { marginBottom: -14, zIndex: 2 }]}>
-        <View
-          style={[
-            styles.mini,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.divider,
-            },
-            theme.shadows.elevated,
-          ]}
-        >
-          <View style={styles.cardHeader}>
-            <Ionicons name="restaurant-outline" size={16} color={theme.accent} />
-            <Text style={[theme.typography.caption1, { color: theme.textSecondary, marginLeft: theme.spacing.xs }]}>Meals</Text>
-          </View>
+        </>
+      ),
+      detail: 'One list for planning and checking off in the store.',
+    },
+    {
+      icon: 'restaurant-outline',
+      tab: 'Meals',
+      valueChip: 'Week at a glance',
+      zIndex: 2,
+      marginBottom: -18,
+      highlight: (
+        <>
           <View style={styles.mealRow}>
             <View style={[styles.dot, { backgroundColor: theme.accent }]} />
             <Text style={[theme.typography.footnote, { color: theme.textPrimary, flex: 1 }]} numberOfLines={1}>
@@ -70,48 +69,99 @@ export function OnboardingWelcomeFeatured() {
               Wed · Pasta night
             </Text>
           </View>
-        </View>
-      </View>
+        </>
+      ),
+      detail: 'Sketch the week, then send ingredients to your list.',
+    },
+    {
+      icon: 'book-outline',
+      tab: 'Recipes',
+      valueChip: 'No retyping',
+      zIndex: 1,
+      marginBottom: 0,
+      highlight: (
+        <Text style={[theme.typography.footnote, { color: theme.textPrimary }]} numberOfLines={2}>
+          Miso soup — tap <Text style={{ fontWeight: '700', color: theme.accent }}>Add to list</Text> for every ingredient
+        </Text>
+      ),
+      detail: 'Save dishes you cook often and pull them into Plan in one tap.',
+    },
+  ];
 
-      <View style={{ zIndex: 1 }}>
-        <View
-          style={[
-            styles.mini,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.divider,
-            },
-            theme.shadows.card,
-          ]}
-        >
-          <View style={styles.cardHeader}>
-            <Ionicons name="book-outline" size={15} color={theme.accent} />
-            <Text style={[theme.typography.caption1, { color: theme.textSecondary, marginLeft: theme.spacing.xs }]}>Recipes</Text>
+  return (
+    <View style={styles.stack}>
+      {cards.map((card, i) => (
+        <OnboardingStagger key={card.tab} index={i + 1}>
+          <View style={{ marginBottom: card.marginBottom, zIndex: card.zIndex }}>
+            <View
+              style={[
+                styles.mini,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: card.zIndex === 3 ? theme.accent + '35' : theme.divider,
+                },
+                card.zIndex === 3 ? theme.shadows.floating : card.zIndex === 2 ? theme.shadows.elevated : theme.shadows.card,
+              ]}
+            >
+              <View style={styles.cardTop}>
+                <View style={styles.cardHeader}>
+                  <View style={[styles.iconBadge, { backgroundColor: theme.accent + '18' }]}>
+                    <Ionicons name={card.icon} size={16} color={theme.accent} />
+                  </View>
+                  <Text style={[theme.typography.subhead, { color: theme.textPrimary, fontWeight: '700', marginLeft: theme.spacing.sm }]}>
+                    {card.tab}
+                  </Text>
+                </View>
+                <OnboardingValueChip icon="sparkles" label={card.valueChip} />
+              </View>
+              {card.highlight}
+              <Text style={[theme.typography.caption1, { color: theme.textSecondary, marginTop: theme.spacing.sm, lineHeight: 18 }]}>
+                {card.detail}
+              </Text>
+            </View>
           </View>
-          <Text style={[theme.typography.footnote, { color: theme.textPrimary }]} numberOfLines={2}>
-            Miso soup — tap <Text style={{ fontWeight: '600', color: theme.accent }}>Add to list</Text> for ingredients
+        </OnboardingStagger>
+      ))}
+      <OnboardingStagger index={4}>
+        <View style={[styles.flowHint, { borderColor: theme.divider, backgroundColor: theme.accent + '0c' }]}>
+          <Ionicons name="git-merge-outline" size={16} color={theme.accent} />
+          <Text style={[theme.typography.caption1, { color: theme.textSecondary, marginLeft: theme.spacing.sm, flex: 1, lineHeight: 18 }]}>
+            Recipes and meals feed the same list — you never copy ingredients twice.
           </Text>
         </View>
-      </View>
+      </OnboardingStagger>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   stack: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     paddingBottom: spacing.xs,
   },
-  overlap: {},
   mini: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.md,
   },
+  cardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    flex: 1,
+  },
+  iconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   segment: {
     flexDirection: 'row',
@@ -141,5 +191,13 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     marginRight: spacing.sm,
+  },
+  flowHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
   },
 });

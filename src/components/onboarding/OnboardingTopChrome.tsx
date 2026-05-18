@@ -13,11 +13,16 @@ type Props = {
   stepIndex: number;
   totalSteps: number;
   topInset: number;
+  /** When false, no progress track is shown (spacing preserved). */
+  showProgress: boolean;
 };
 
-export function OnboardingTopChrome({ stepIndex, totalSteps, topInset }: Props) {
+export function OnboardingTopChrome({ stepIndex, totalSteps, topInset, showProgress }: Props) {
   const theme = useTheme();
-  const onboardingLayout = useMemo(() => createOnboardingLayout(theme.spacing), [theme]);
+  const onboardingLayout = useMemo(
+    () => createOnboardingLayout(theme.spacing, theme.layoutScale),
+    [theme],
+  );
   const reduced = useReducedMotion();
   const trackW = useSharedValue(0);
   const progress = useSharedValue((stepIndex + 1) / totalSteps);
@@ -46,28 +51,32 @@ export function OnboardingTopChrome({ stepIndex, totalSteps, topInset }: Props) 
         },
       ]}
     >
-      <View
-        style={[
-          styles.track,
-          {
-            height: onboardingLayout.progressTrackHeight,
-            backgroundColor: theme.colorScheme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(60,60,67,0.08)',
-          },
-        ]}
-        onLayout={onTrackLayout}
-      >
-        <Animated.View
+      {showProgress ? (
+        <View
           style={[
-            styles.fill,
+            styles.track,
             {
               height: onboardingLayout.progressTrackHeight,
-              backgroundColor: theme.accent,
-              opacity: 0.92,
+              backgroundColor: theme.colorScheme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(60,60,67,0.08)',
             },
-            fillStyle,
           ]}
-        />
-      </View>
+          onLayout={onTrackLayout}
+        >
+          <Animated.View
+            style={[
+              styles.fill,
+              {
+                height: onboardingLayout.progressTrackHeight,
+                backgroundColor: theme.accent,
+                opacity: 0.92,
+              },
+              fillStyle,
+            ]}
+          />
+        </View>
+      ) : (
+        <View style={{ height: onboardingLayout.progressTrackHeight }} />
+      )}
     </View>
   );
 }

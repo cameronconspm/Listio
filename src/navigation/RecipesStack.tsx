@@ -5,35 +5,31 @@ import { RecipesScreen } from '../screens/recipes/RecipesScreen';
 import { RecipeDetailsScreen } from '../screens/recipes/RecipeDetailsScreen';
 import { RecipeEditScreen } from '../screens/recipes/RecipeEditScreen';
 import { useTheme } from '../design/ThemeContext';
-import { createTranslucentStackScreenOptions } from '../ui/motion/navigation';
-import { ChromeStackHeaderBackground } from '../ui/chrome/ChromeStackHeaderBackground';
+import { createChromePushedStackScreenOptions } from '../ui/motion/navigation';
 
 const Stack = createNativeStackNavigator<RecipesStackParamList>();
 
 export function RecipesStack() {
   const theme = useTheme();
-  const base = createTranslucentStackScreenOptions(theme);
+  const pushed = createChromePushedStackScreenOptions(theme);
 
   return (
     <Stack.Navigator
       screenOptions={{
-        ...base,
-        headerShown: true,
-        headerBackButtonDisplayMode: 'minimal',
+        ...pushed,
       }}
     >
       <Stack.Screen
         name="RecipesList"
         component={RecipesScreen}
-        options={{ headerShown: true }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="RecipeDetails"
         component={RecipeDetailsScreen}
         options={{
           title: 'Recipe',
-          headerBackground: () => <ChromeStackHeaderBackground />,
-          headerBlurEffect: 'none',
+          headerShown: false,
         }}
       />
       <Stack.Screen
@@ -41,8 +37,7 @@ export function RecipesStack() {
         component={RecipeEditScreen}
         options={({ route }) => ({
           title: route.params?.recipeId ? 'Edit recipe' : 'New recipe',
-          headerBackground: () => <ChromeStackHeaderBackground />,
-          headerBlurEffect: 'none',
+          headerShown: false,
         })}
       />
     </Stack.Navigator>

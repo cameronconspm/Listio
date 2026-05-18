@@ -39,8 +39,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: spacing.xxs,
-    paddingBottom: spacing.xxs,
+    minHeight: 44,
   },
   chevron: {
     minWidth: 44,

@@ -17,10 +17,12 @@ import { spacing } from '../../design/spacing';
 /** Apple HIG-style minimum along the short edge; pill height matches for a clear touch target. */
 const ICON_SIZE = 56;
 /** Horizontal inset inside the pill (each side). Tight but readable. */
-const FAB_INSET_H = 12;
+const FAB_INSET_H = 10;
 const ICON_SLOT_W = 28;
 /** Space between + and label (matches expanded labelStyle marginLeft). */
 const ICON_LABEL_GAP = spacing.xs;
+/** Standard width for simple add actions so List / Recipes / similar tabs match visually. */
+const DEFAULT_ADD_PILL_WIDTH = 128;
 /** Extra width so glyph edges / rounding don’t clip (pt). */
 const LABEL_WIDTH_BUFFER = 8;
 /**
@@ -84,12 +86,13 @@ export function FloatingAddButton({
     const maxPill = Math.max(ICON_SIZE, windowWidth - anchorGutter);
     /** +2: sub-pixel / rounding slack between measure-only Text and on-screen pill. */
     const contentW = FAB_INSET_H * 2 + ICON_SLOT_W + ICON_LABEL_GAP + intrinsicLabelW + 2;
-    let w = Math.min(maxPill, Math.max(ICON_SIZE, contentW));
+    const minExpandedW = contextualZoneLabel ? ICON_SIZE : DEFAULT_ADD_PILL_WIDTH;
+    let w = Math.min(maxPill, Math.max(minExpandedW, contentW));
     if (maxExpandedWidthPx != null) {
       w = Math.min(w, maxExpandedWidthPx);
     }
     return w;
-  }, [windowWidth, intrinsicLabelW, maxExpandedWidthPx, theme.spacing.md, theme.spacing.xs]);
+  }, [windowWidth, intrinsicLabelW, contextualZoneLabel, maxExpandedWidthPx, theme.spacing.md, theme.spacing.xs]);
 
   const effectiveLabelMaxWidth = useMemo(() => {
     if (labelMaxWidthProp != null) return labelMaxWidthProp;

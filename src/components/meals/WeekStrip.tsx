@@ -19,7 +19,7 @@ export function WeekStrip({ dates, selectedDateString, onSelectDate }: WeekStrip
       StyleSheet.create({
         scrollContent: {
           paddingTop: theme.spacing.xxs,
-          paddingHorizontal: theme.spacing.lg,
+          paddingHorizontal: theme.spacing.md,
           paddingBottom: theme.spacing.xs,
         },
         dayChip: {
@@ -36,17 +36,20 @@ export function WeekStrip({ dates, selectedDateString, onSelectDate }: WeekStrip
 
   const selectedIndex = dates.findIndex((d) => toDateString(d) === selectedDateString);
 
+  /** Rough chip stride for scroll-to-selected (short weekday + date label). */
+  const chipScrollStride = theme.spacing.md * 4 + theme.spacing.sm;
+
   useEffect(() => {
     if (selectedIndex >= 0 && scrollRef.current) {
       scrollRef.current.scrollTo({
-        x: Math.max(0, selectedIndex * 70 - 80),
+        x: Math.max(0, selectedIndex * chipScrollStride - theme.spacing.xl),
         animated: true,
       });
     }
-  }, [selectedIndex]);
+  }, [chipScrollStride, selectedIndex, theme.spacing.xl]);
 
   return (
-    <View style={horizontalScrollInsetBleed(theme.spacing.lg)}>
+    <View style={horizontalScrollInsetBleed(theme.spacing.md)}>
       <ScrollView
         ref={scrollRef}
         horizontal

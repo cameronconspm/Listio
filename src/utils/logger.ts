@@ -14,4 +14,12 @@ export function reportAppError(error: unknown, context?: Record<string, unknown>
   const message = error instanceof Error ? error.message : String(error);
   const stack = error instanceof Error ? error.stack : undefined;
   console.error('[Listio]', 'reportAppError', message, context ?? {}, stack ?? '');
+  try {
+    // Lazy import avoids pulling Sentry into tests that mock logger only.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { captureException } = require('../services/sentryService') as typeof import('../services/sentryService');
+    captureException(error, context);
+  } catch {
+    /* Sentry optional */
+  }
 }

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useLayoutEffect, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,13 +12,12 @@ import {
 import { useQuery, useQueryClient, keepPreviousData, useIsRestoring } from '@tanstack/react-query';
 import { createAnimatedComponent } from 'react-native-reanimated';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { useHeaderHeight } from '@react-navigation/elements';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RecipesStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
-import { tabScrollPaddingTopBelowHeader } from '../../design/layout';
+import { tabRootScrollPaddingTop } from '../../design/layout';
 import { useNavigationChromeScroll } from '../../navigation/NavigationChromeScrollContext';
 import { FAB_CLEARANCE, useFabExpandScrollHandler } from '../../hooks/useFabExpandScrollHandler';
 import { RecipeCard } from '../../components/recipes/RecipeCard';
@@ -98,9 +97,8 @@ const FILTERED_EMPTY_MESSAGES: Record<string, string> = {
 export function RecipesScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
-  const headerHeight = useHeaderHeight();
-  const scrollContentPaddingTop = tabScrollPaddingTopBelowHeader(headerHeight, theme.spacing);
   const insets = useSafeAreaInsets();
+  const scrollContentPaddingTop = tabRootScrollPaddingTop(insets.top, theme.spacing);
   const { scrollY } = useNavigationChromeScroll();
   const recipesScrollShared = scrollY.RecipesStack;
   const { fabExpandProgress, listScrollHandler } = useFabExpandScrollHandler(recipesScrollShared);
@@ -249,17 +247,13 @@ export function RecipesScreen() {
     [queryClient]
   );
 
-  useLayoutEffect(() => {
-    const simpleHeader = listInitialLoad || trueEmpty;
-    navigation.setOptions({
-      header: () =>
-        simpleHeader ? (
-          <SimpleTabHeader tabKey="RecipesStack" />
-        ) : (
-          <RecipesHeader searchQuery={searchQuery} onSearchChange={setSearchQuery} />
-        ),
-    });
-  }, [navigation, listInitialLoad, trueEmpty, searchQuery]);
+  const simpleHeader = listInitialLoad || trueEmpty;
+
+  const headerChrome = simpleHeader ? (
+    <SimpleTabHeader tabKey="RecipesStack" />
+  ) : (
+    <RecipesHeader searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -335,6 +329,13 @@ export function RecipesScreen() {
     () =>
       StyleSheet.create({
         list: { flex: 1, overflow: 'visible' },
+        headerOverlay: {
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+        },
         paddedBody: {
           flex: 1,
           paddingHorizontal: theme.spacing.md,
@@ -372,6 +373,16 @@ export function RecipesScreen() {
   const fabBottom = tabBarHeight + Math.max(insets.bottom, theme.spacing.sm) + theme.spacing.sm;
   const listContentBottomPad = fabBottom + FAB_CLEARANCE + theme.spacing.sm;
 
+  const recipeFabEl = (
+    <FloatingAddButton
+      onPress={() => navigation.navigate('RecipeEdit', {})}
+      expandProgress={fabExpandProgress}
+      bottom={fabBottom}
+      addLabel="Add Recipe"
+      accessibilityHint="Opens the recipe editor"
+    />
+  );
+
   const listHeader = useMemo(
     () => (
       <View>
@@ -407,6 +418,9 @@ export function RecipesScreen() {
   if (userId === undefined || listInitialLoad) {
     return (
       <Screen padded={false} safeTop={false} safeBottom={false}>
+        <View style={styles.headerOverlay} pointerEvents="box-none">
+          {headerChrome}
+        </View>
         <View style={[styles.centeredLoader, { paddingTop: scrollContentPaddingTop }]}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
@@ -417,6 +431,9 @@ export function RecipesScreen() {
   if (trueEmpty) {
     return (
       <Screen padded={false} safeTop={false} safeBottom={false}>
+        <View style={styles.headerOverlay} pointerEvents="box-none">
+          {headerChrome}
+        </View>
         <View style={[styles.paddedBody, { paddingTop: scrollContentPaddingTop }]}>
         <RecipeSortSheet
           visible={sortSheetVisible}
@@ -430,10 +447,10 @@ export function RecipesScreen() {
           message="Save your go-to meals and reuse them any time."
           glass={false}
         >
-          <PrimaryButton
-            title="Create your first recipe"
-            onPress={() => navigation.navigate('RecipeEdit', {})}
-          />
+            <PrimaryButton
+              title="Create your first recipe"
+              onPress={() => navigation.navigate('RecipeEdit', {})}
+            />
         </EmptyState>
         <AppConfirmationDialog
           visible={!!deleteTargetId}
@@ -453,6 +470,9 @@ export function RecipesScreen() {
   if (filteredEmpty) {
     return (
       <Screen padded={false} safeTop={false} safeBottom={false}>
+        <View style={styles.headerOverlay} pointerEvents="box-none">
+          {headerChrome}
+        </View>
         <View style={[styles.paddedBody, { paddingTop: scrollContentPaddingTop }]}>
         <RecipeFilterRow filter={filter} onFilterChange={setFilter} />
         <View style={styles.sortRow}>
@@ -496,13 +516,7 @@ export function RecipesScreen() {
             { label: 'Delete', destructive: true, onPress: confirmDelete },
           ]}
         />
-        <FloatingAddButton
-          onPress={() => navigation.navigate('RecipeEdit', {})}
-          expandProgress={fabExpandProgress}
-          bottom={fabBottom}
-          addLabel="Add Recipe"
-          accessibilityHint="Opens the recipe editor"
-        />
+        {recipeFabEl}
         </View>
       </Screen>
     );
@@ -510,6 +524,9 @@ export function RecipesScreen() {
 
   return (
     <Screen padded={false} safeTop={false} safeBottom={false}>
+      <View style={styles.headerOverlay} pointerEvents="box-none">
+        {headerChrome}
+      </View>
       {sortSheetMounted ? (
         <RecipeSortSheet
           visible={sortSheetVisible}
@@ -581,13 +598,7 @@ export function RecipesScreen() {
           ]}
         />
       ) : null}
-      <FloatingAddButton
-        onPress={() => navigation.navigate('RecipeEdit', {})}
-        expandProgress={fabExpandProgress}
-        bottom={fabBottom}
-        addLabel="Add Recipe"
-        accessibilityHint="Opens the recipe editor"
-      />
+      {recipeFabEl}
     </Screen>
   );
 }

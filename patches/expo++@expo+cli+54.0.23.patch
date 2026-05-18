@@ -1,0 +1,16 @@
+diff --git a/node_modules/expo/node_modules/@expo/cli/build/src/start/platforms/ios/devicectl.js b/node_modules/expo/node_modules/@expo/cli/build/src/start/platforms/ios/devicectl.js
+index b91e3d8..5cda75b 100644
+--- a/node_modules/expo/node_modules/@expo/cli/build/src/start/platforms/ios/devicectl.js
++++ b/node_modules/expo/node_modules/@expo/cli/build/src/start/platforms/ios/devicectl.js
+@@ -183,7 +183,10 @@ async function getConnectedAppleDevicesAsync() {
+     ]);
+     debug(devices.stdout);
+     const devicesJson = await _jsonfile().default.readAsync(tmpPath);
+-    if ((devicesJson == null ? void 0 : (_devicesJson_info = devicesJson.info) == null ? void 0 : _devicesJson_info.jsonVersion) !== 2) {
++    const jsonVersion = devicesJson == null ? void 0 : (_devicesJson_info = devicesJson.info) == null ? void 0 : _devicesJson_info.jsonVersion;
++    // Xcode 26 devicectl reports JSON version 3 with the same device list shape.
++    // The structure is still validated below, so only warn for missing or older schemas.
++    if (typeof jsonVersion !== 'number' || jsonVersion < 2) {
+         _log.warn('Unexpected devicectl JSON version output from devicectl. Connecting to physical Apple devices may not work as expected.');
+     }
+     assertDevicesJson(devicesJson);

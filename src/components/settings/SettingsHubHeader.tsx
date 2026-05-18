@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
+import { tabRootHeaderHeight } from '../../design/layout';
 import { NavigationChromeSurface } from '../../ui/chrome/NavigationChromeSurface';
 import { RecipeSearchBar } from '../recipes/RecipeSearchBar';
 
@@ -13,28 +14,30 @@ type SettingsHubHeaderProps = {
 /** Profile tab root: search bar only — layout matches `RecipesHeader`. */
 export function SettingsHubHeader({ searchQuery, onSearchChange }: SettingsHubHeaderProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(
     () =>
       StyleSheet.create({
         safe: {
           backgroundColor: 'transparent',
+          height: tabRootHeaderHeight(insets.top, theme.spacing),
           paddingHorizontal: theme.spacing.md,
-          paddingTop: theme.spacing.sm,
+          paddingTop: insets.top + theme.spacing.sm,
           paddingBottom: theme.spacing.xs,
         },
         row: {
-          minHeight: 44,
+          height: 44,
           justifyContent: 'center',
           alignItems: 'stretch',
           width: '100%',
         },
       }),
-    [theme],
+    [insets.top, theme],
   );
 
   return (
     <NavigationChromeSurface tabKey="ProfileStack">
-      <SafeAreaView edges={['top']} style={styles.safe}>
+      <View style={styles.safe}>
         <View style={styles.row}>
           <RecipeSearchBar
             value={searchQuery}
@@ -43,7 +46,7 @@ export function SettingsHubHeader({ searchQuery, onSearchChange }: SettingsHubHe
             placeholder="Search settings"
           />
         </View>
-      </SafeAreaView>
+      </View>
     </NavigationChromeSurface>
   );
 }

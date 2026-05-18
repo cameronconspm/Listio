@@ -63,6 +63,18 @@ export async function deleteListItemsInZone(_userId: string, zoneKey: ZoneKey): 
   if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not delete that section.'));
 }
 
+/** Removes every checked item for the current household (Shop run finished). */
+export async function deleteCheckedListItems(_userId: string): Promise<void> {
+  if (!isSyncEnabled()) return local.deleteCheckedListItems(_userId);
+  const householdId = await getCurrentHouseholdId();
+  const { error } = await supabase
+    .from('list_items')
+    .delete()
+    .eq('household_id', householdId)
+    .eq('is_checked', true);
+  if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not remove checked items.'));
+}
+
 export interface ListItemUpdate {
   name?: string;
   normalized_name?: string;

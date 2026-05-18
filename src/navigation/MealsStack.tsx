@@ -5,21 +5,18 @@ import { MealDetailsScreen } from '../screens/meals/MealDetailsScreen';
 import { MealEditScreen } from '../screens/meals/MealEditScreen';
 import type { MealsStackParamList } from './types';
 import { useTheme } from '../design/ThemeContext';
-import { createTranslucentStackScreenOptions } from '../ui/motion/navigation';
-import { ChromeStackHeaderBackground } from '../ui/chrome/ChromeStackHeaderBackground';
+import { createChromePushedStackScreenOptions } from '../ui/motion/navigation';
 
 const Stack = createNativeStackNavigator<MealsStackParamList>();
 
 export function MealsStack() {
   const theme = useTheme();
-  const base = createTranslucentStackScreenOptions(theme);
+  const pushed = createChromePushedStackScreenOptions(theme);
 
   return (
     <Stack.Navigator
       screenOptions={{
-        ...base,
-        headerShown: true,
-        headerBackButtonDisplayMode: 'minimal',
+        ...pushed,
       }}
     >
       <Stack.Screen
@@ -27,6 +24,7 @@ export function MealsStack() {
         component={MealsScreen}
         options={{
           title: 'Meals',
+          headerShown: false,
           headerLargeTitle: false,
         }}
       />
@@ -35,8 +33,7 @@ export function MealsStack() {
         component={MealDetailsScreen}
         options={{
           title: 'Meal',
-          headerBackground: () => <ChromeStackHeaderBackground />,
-          headerBlurEffect: 'none',
+          headerShown: false,
         }}
       />
       <Stack.Screen
@@ -44,8 +41,7 @@ export function MealsStack() {
         component={MealEditScreen}
         options={({ route }) => ({
           title: route.params?.mealId ? 'Edit meal' : 'Add meal',
-          headerBackground: () => <ChromeStackHeaderBackground />,
-          headerBlurEffect: 'none',
+          headerShown: false,
         })}
       />
     </Stack.Navigator>

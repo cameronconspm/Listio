@@ -32,6 +32,7 @@ import type {
   MealIngredient,
   MealSlot,
   Recipe,
+  RecipeCategory,
   RecipeIngredient,
   StoreProfile,
   StoreType,
@@ -85,6 +86,7 @@ interface UpdateMealInput {
   meal_date?: string;
   meal_slot?: MealSlot;
   custom_slot_name?: string | null;
+  recipe_id?: string | null;
   recipe_url?: string | null;
   notes?: string | null;
 }
@@ -105,6 +107,7 @@ interface MealWithIngredients {
     meal_date: string;
     meal_slot: MealSlot;
     custom_slot_name: string | null;
+    recipe_id: string | null;
     recipe_url: string | null;
     notes: string | null;
   };
@@ -188,6 +191,13 @@ export async function deleteListItemsInZone(userId: string, zoneKey: ZoneKey): P
   const items = await loadListItems();
   await saveListItems(
     items.filter((i) => !(i.user_id === userId && inLocalHousehold(i) && i.zone_key === zoneKey))
+  );
+}
+
+export async function deleteCheckedListItems(userId: string): Promise<void> {
+  const items = await loadListItems();
+  await saveListItems(
+    items.filter((i) => !(i.user_id === userId && inLocalHousehold(i) && Boolean(i.is_checked)))
   );
 }
 
@@ -332,6 +342,7 @@ export async function getMealWithIngredients(mealId: string): Promise<MealWithIn
       meal_date: meal.meal_date ?? '',
       meal_slot: (meal.meal_slot as MealSlot) ?? 'dinner',
       custom_slot_name: meal.custom_slot_name ?? null,
+      recipe_id: meal.recipe_id ?? null,
       recipe_url: meal.recipe_url ?? null,
       notes: meal.notes ?? null,
     },
@@ -384,6 +395,7 @@ export async function updateMeal(mealId: string, data: UpdateMealInput): Promise
     ...(safe.meal_date !== undefined && { meal_date: safe.meal_date }),
     ...(safe.meal_slot !== undefined && { meal_slot: safe.meal_slot }),
     ...(safe.custom_slot_name != null && { custom_slot_name: safe.custom_slot_name }),
+    ...(safe.recipe_id !== undefined && { recipe_id: safe.recipe_id }),
     ...(safe.recipe_url !== undefined && { recipe_url: safe.recipe_url }),
     ...(safe.notes !== undefined && { notes: safe.notes }),
     updated_at: now(),
@@ -529,6 +541,27 @@ export type GetRecipesOptions = {
   filter?: RecipeFilter;
   sort?: RecipeSortKey;
 };
+
+/** Servings, duration, and category for meal planner rows (keyed by recipe id). */
+export async function getRecipePlannerMetaByIds(recipeIds: string[]): Promise<
+  Record<string, { servings: number; total_time_minutes?: number | null; category?: RecipeCategory | null }>
+> {
+  const want = new Set(recipeIds.filter(Boolean));
+  if (want.size === 0) return {};
+  const recipes = await loadRecipes();
+  const out: Record<string, { servings: number; total_time_minutes?: number | null; category?: RecipeCategory | null }> =
+    {};
+  for (const r of recipes) {
+    if (want.has(r.id)) {
+      out[r.id] = {
+        servings: r.servings,
+        total_time_minutes: r.total_time_minutes,
+        category: r.category ?? null,
+      };
+    }
+  }
+  return out;
+}
 
 export async function getRecipes(userId: string, options?: GetRecipesOptions): Promise<Recipe[]> {
   const recipes = await loadRecipes();

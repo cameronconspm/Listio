@@ -27,6 +27,7 @@ import { logNotificationMetric } from '../../services/notificationAnalyticsServi
 import { OnboardingShoppingRhythmFeatured } from '../../components/onboarding/OnboardingShoppingRhythmFeatured';
 import type { ShoppingTimeBucket } from '../../services/notificationTimeUtils';
 import { spacing } from '../../design/spacing';
+import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 function notificationsMasterOn(
   n: NonNullable<ReturnType<typeof mergeNotificationDefaults>>
@@ -208,6 +209,7 @@ export function NotificationsScreen() {
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <SettingsPushedScreenHeader title="Notifications" />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[

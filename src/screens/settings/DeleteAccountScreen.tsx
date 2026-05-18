@@ -13,6 +13,7 @@ import { isSyncEnabled } from '../../services/supabaseClient';
 import { clearPersistedQueryCache } from '../../query/reactQueryPersistence';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
+import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 export function DeleteAccountScreen() {
   const onScroll = useSettingsScrollHandler();
@@ -55,6 +56,7 @@ export function DeleteAccountScreen() {
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <SettingsPushedScreenHeader title="Delete account" />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
@@ -102,6 +104,7 @@ export function DeleteAccountScreen() {
               onChangeText={setConfirmText}
               placeholder="DELETE"
               placeholderTextColor={theme.textSecondary}
+              keyboardAppearance={theme.colorScheme}
               autoCapitalize="characters"
               autoCorrect={false}
             />

@@ -12,6 +12,7 @@ import { ListRow } from '../../components/ui/ListRow';
 import { Chevron } from './SettingsChevron';
 import { spacing } from '../../design/spacing';
 import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../../constants/legalUrls';
+import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 export function PrivacyTermsScreen() {
   const onScroll = useSettingsScrollHandler();
@@ -27,6 +28,7 @@ export function PrivacyTermsScreen() {
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <SettingsPushedScreenHeader title="Privacy & terms" />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[

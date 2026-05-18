@@ -1,5 +1,5 @@
 # Set your project ref after `supabase link --project-ref <ref>` (matches EXPO_PUBLIC_SUPABASE_URL).
-project_id = "your-project-ref"
+project_id = "sgeahsvaznfyauikbbsh"
 
 # Kong JWT verification was returning 401 Invalid JWT while Auth /user + JWT iss matched the app.
 # Authorization is still required and validated inside the function (getUser + 401 on failure).
@@ -23,4 +23,12 @@ verify_jwt = false
 
 # Same JWT gateway behavior as categorize-items; validated in-function via Authorization + getUser().
 [functions.parse-recipe]
+verify_jwt = false
+
+# RevenueCat entitlement mirror; Authorization Bearer validated in function.
+[functions.revenuecat-webhook]
+verify_jwt = false
+
+# RevenueCat REST mirror refresh for signed-in users; JWT validated in function.
+[functions.sync-subscription-entitlement]
 verify_jwt = false

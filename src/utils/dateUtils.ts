@@ -185,6 +185,36 @@ export function expandMealDatesFromWeekdaySchedule(args: WeekdayScheduleArgs): s
   return results.sort();
 }
 
+export type MealRepeatMode = 'never' | 'daily' | 'weekly' | 'weekdays';
+
+/** User-facing repeat presets for the meal planner (Add meal). */
+export function expandMealRepeatDates(mode: MealRepeatMode, mealDateYmd: string): string[] {
+  const trimmed = mealDateYmd.trim();
+  if (!trimmed || !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return [];
+  if (mode === 'never') return [trimmed];
+  if (mode === 'daily') {
+    return getConsecutiveDateStrings(trimmed, 14);
+  }
+  if (mode === 'weekly') {
+    return expandMealDatesFromWeekdaySchedule({
+      fromDate: new Date(),
+      selectedWeekdays: defaultWeekdaySelectionFromDate(trimmed),
+      recurring: true,
+      recurringWeeks: 4,
+    });
+  }
+  if (mode === 'weekdays') {
+    const weekdays = [true, true, true, true, true, false, false];
+    return expandMealDatesFromWeekdaySchedule({
+      fromDate: new Date(),
+      selectedWeekdays: weekdays,
+      recurring: true,
+      recurringWeeks: 2,
+    });
+  }
+  return [trimmed];
+}
+
 /** Get consecutive date strings (YYYY-MM-DD) starting from startDate for `count` days. */
 export function getConsecutiveDateStrings(startDate: string, count: number): string[] {
   const start = parseYmdLocal(startDate);

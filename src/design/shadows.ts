@@ -65,6 +65,21 @@ const depthFloating: ViewStyle = Platform.select({
   default: {},
 }) as ViewStyle;
 
+/**
+ * Bottom-docked chrome (quick-add strip, sheet footers): soft shadow below the control so
+ * it reads above page background / scroll content without matching full “floating” dialogs.
+ */
+const depthChrome: ViewStyle = Platform.select({
+  ios: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.09,
+    shadowRadius: 11,
+  },
+  android: { elevation: 5 },
+  default: {},
+}) as ViewStyle;
+
 /** Very subtle thumb shadow for toggles. */
 const depthThumb: ViewStyle = Platform.select({
   ios: {
@@ -88,6 +103,8 @@ export const shadows = {
   elevated: depthElevated,
   /** Tier 3: FAB, sheets, dialogs */
   floating: depthFloating,
+  /** Bottom quick actions / add chrome — separates from content beneath */
+  chrome: depthChrome,
   /** Toggle thumb only */
   thumb: depthThumb,
 } as const;

@@ -15,10 +15,13 @@ import { spacing } from '../../design/spacing';
 
 type Props = {
   style?: StyleProp<ViewStyle>;
+  /** Smaller link text (e.g. onboarding legal footer). */
+  compact?: boolean;
 };
 
-export function SubscriptionLegalLinks({ style }: Props) {
+export function SubscriptionLegalLinks({ style, compact }: Props) {
   const theme = useTheme();
+  const linkTypo = compact ? theme.typography.caption2 : theme.typography.footnote;
 
   const open = useCallback((url: string) => {
     void Linking.openURL(url).catch(() => {
@@ -34,18 +37,16 @@ export function SubscriptionLegalLinks({ style }: Props) {
         accessibilityLabel="Privacy policy"
         hitSlop={8}
       >
-        <Text style={[theme.typography.footnote, { color: theme.accent }]}>Privacy policy</Text>
+        <Text style={[linkTypo, { color: theme.accent }]}>Privacy policy</Text>
       </Pressable>
-      <Text style={[theme.typography.footnote, { color: theme.textSecondary, marginHorizontal: spacing.xs }]}>
-        ·
-      </Text>
+      <Text style={[linkTypo, { color: theme.textSecondary, marginHorizontal: spacing.xs }]}>·</Text>
       <Pressable
         onPress={() => open(TERMS_OF_USE_URL)}
         accessibilityRole="link"
         accessibilityLabel="Terms of use"
         hitSlop={8}
       >
-        <Text style={[theme.typography.footnote, { color: theme.accent }]}>Terms of use</Text>
+        <Text style={[linkTypo, { color: theme.accent }]}>Terms of use</Text>
       </Pressable>
     </View>
   );

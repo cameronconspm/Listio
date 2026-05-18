@@ -5,6 +5,9 @@ import { LogBox } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import App from './src/App';
+import { initSentry, wrapWithSentry } from './src/services/sentryService';
+
+initSentry();
 
 // Keep the native launch screen visible until React renders the first frame.
 // Hiding happens in src/App.tsx after the root tree mounts. This prevents the
@@ -37,4 +40,4 @@ if (!RN.SafeAreaView) {
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);
 // It also ensures that whether you load the app in Expo Go or in a native build,
 // the environment is set up appropriately
-registerRootComponent(App);
+registerRootComponent(wrapWithSentry(App));

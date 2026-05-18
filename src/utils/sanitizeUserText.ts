@@ -166,6 +166,7 @@ export function sanitizeMealUpdate(data: {
   meal_date?: string;
   meal_slot?: MealSlot;
   custom_slot_name?: string | null;
+  recipe_id?: string | null;
   recipe_url?: string | null;
   notes?: string | null;
 }) {
@@ -174,6 +175,7 @@ export function sanitizeMealUpdate(data: {
   if (data.custom_slot_name != null && data.custom_slot_name !== '') {
     out.custom_slot_name = clampStr(data.custom_slot_name, MAX_CUSTOM_SLOT_NAME);
   }
+  if (data.recipe_id !== undefined) out.recipe_id = data.recipe_id;
   if (data.recipe_url !== undefined) out.recipe_url = clampNullable(data.recipe_url, MAX_MEAL_URL);
   if (data.notes !== undefined) out.notes = clampNullable(data.notes, MAX_MEAL_NOTES);
   return out;

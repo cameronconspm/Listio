@@ -3,6 +3,26 @@ import { spacing as baseSpacing } from './spacing';
 /** Same shape as base `spacing` and `theme.spacing` (scaled). */
 export type ThemeSpacing = typeof baseSpacing;
 
+export const TAB_ROOT_HEADER_ROW_HEIGHT = 44;
+
+/**
+ * Explicit tab-root chrome height. Native-stack custom header measurement can
+ * change during first mount; tab roots use this fixed geometry for stable layout.
+ */
+export function tabRootHeaderHeight(
+  safeAreaTop: number,
+  spacing: ThemeSpacing,
+): number {
+  return safeAreaTop + spacing.sm + TAB_ROOT_HEADER_ROW_HEIGHT + spacing.xs;
+}
+
+export function tabRootScrollPaddingTop(
+  safeAreaTop: number,
+  spacing: ThemeSpacing,
+): number {
+  return tabRootHeaderHeight(safeAreaTop, spacing) + spacing.xxs;
+}
+
 /**
  * Top padding below the native stack’s translucent header for tab empty states and list roots.
  * Matches Store / Recipes / List / Meals list bodies (`headerHeight + spacing.xxs`).

@@ -7,6 +7,7 @@ import { useHaptics } from '../../hooks/useHaptics';
 import type { Recipe, RecipeCategory } from '../../types/models';
 import { formatRecipeDurationMinutes } from '../../utils/formatRecipeDuration';
 import { RecipeMetaPills } from './RecipeMetaPills';
+import { NativeContextMenu } from '../ui/NativeContextMenu';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
 
@@ -129,6 +130,31 @@ function RecipeCardInner({ recipe, ingredientCount, onPress, onFavorite, onEdit,
               {isFavorite ? (
                 <Ionicons name="heart" size={18} color={theme.accent} style={styles.favoriteIcon} />
               ) : null}
+              <NativeContextMenu
+                title={recipe.name}
+                isAnchoredToRight
+                accessibilityLabel="Recipe options"
+                actions={[
+                  {
+                    id: 'favorite',
+                    label: isFavorite ? 'Remove from favorites' : 'Favorite recipe',
+                    systemImage: isFavorite ? 'heart.slash' : 'heart',
+                    onPress: onFavorite,
+                  },
+                  { id: 'edit', label: 'Edit recipe', systemImage: 'pencil', onPress: onEdit },
+                  {
+                    id: 'delete',
+                    label: 'Delete recipe',
+                    systemImage: 'trash',
+                    destructive: true,
+                    onPress: onDelete,
+                  },
+                ]}
+              >
+                <View style={styles.menuButton}>
+                  <Ionicons name="ellipsis-horizontal" size={20} color={theme.textSecondary} />
+                </View>
+              </NativeContextMenu>
             </View>
             <View style={styles.pillsWrap}>
               <RecipeMetaPills labels={pillLabels} />
@@ -161,6 +187,14 @@ const styles = StyleSheet.create({
   },
   favoriteIcon: {
     marginLeft: spacing.sm,
+  },
+  menuButton: {
+    width: MIN_TOUCH_TARGET,
+    height: MIN_TOUCH_TARGET,
+    marginTop: -10,
+    marginRight: -10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   pillsWrap: {
     marginTop: spacing.sm,

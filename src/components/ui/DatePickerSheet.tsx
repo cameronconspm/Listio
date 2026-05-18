@@ -68,6 +68,7 @@ export function DatePickerSheet({
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             onChange={handleChange}
             accentColor={theme.accent}
+            themeVariant={theme.colorScheme}
           />
         </View>
         <PrimaryButton title="Apply" onPress={handleApply} flat style={styles.applyBtn} />

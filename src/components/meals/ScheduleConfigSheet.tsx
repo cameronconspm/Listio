@@ -4,7 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
 import { BottomSheet } from '../ui/BottomSheet';
-import { AppDateField } from '../ui/AppDateField';
 import { AppSelectField } from '../ui/AppSelectField';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { SelectorRow } from '../ui/SelectorRow';
@@ -12,8 +11,18 @@ import { useHaptics } from '../../hooks/useHaptics';
 import type { MealScheduleConfig } from '../../hooks/useMealScheduleConfig';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
+import { getWeekdayIndexMonSun, parseYmdLocal, toDateString } from '../../utils/dateUtils';
 
 const LENGTH_OPTIONS: MealScheduleConfig['length'][] = [1, 2, 3, 4, 5, 6, 7];
+const WEEKDAY_OPTIONS = [
+  { label: 'Monday', weekdayIndex: 0 },
+  { label: 'Tuesday', weekdayIndex: 1 },
+  { label: 'Wednesday', weekdayIndex: 2 },
+  { label: 'Thursday', weekdayIndex: 3 },
+  { label: 'Friday', weekdayIndex: 4 },
+  { label: 'Saturday', weekdayIndex: 5 },
+  { label: 'Sunday', weekdayIndex: 6 },
+] as const;
 
 const ROW_LABEL_W = 88;
 const MIN_TOUCH = 44;
@@ -21,6 +30,14 @@ const fieldFlush = { marginBottom: 0, flex: 1, minWidth: 0 } as const;
 
 function lengthLabel(n: MealScheduleConfig['length']) {
   return `${n} ${n === 1 ? 'day' : 'days'}`;
+}
+
+function startDateForWeekday(currentStartDate: string, targetWeekdayIndex: number): string {
+  const current = parseYmdLocal(currentStartDate);
+  const next = new Date(current);
+  const diff = (targetWeekdayIndex - getWeekdayIndexMonSun(current) + 7) % 7;
+  next.setDate(current.getDate() + diff);
+  return toDateString(next);
 }
 
 type ScheduleConfigSheetProps = {
@@ -39,28 +56,31 @@ export function ScheduleConfigSheet({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const haptics = useHaptics();
-  const [startDate, setStartDate] = useState(config.startDate);
+  const [startWeekday, setStartWeekday] = useState(() =>
+    getWeekdayIndexMonSun(parseYmdLocal(config.startDate))
+  );
   const [length, setLength] = useState<MealScheduleConfig['length']>(config.length);
   /** Inline list — same pattern as meal type in Add to meals (no second modal / anchored menu). */
   const [lengthPickerOpen, setLengthPickerOpen] = useState(false);
+  const [weekdayPickerOpen, setWeekdayPickerOpen] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      setStartDate(config.startDate);
+      setStartWeekday(getWeekdayIndexMonSun(parseYmdLocal(config.startDate)));
       setLength(config.length);
       setLengthPickerOpen(false);
+      setWeekdayPickerOpen(false);
     }
   }, [visible, config.startDate, config.length]);
 
   const handleApply = () => {
-    const trimmed = startDate.trim();
-    if (!trimmed || !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return;
     const len = Math.min(7, Math.max(1, length)) as MealScheduleConfig['length'];
-    onSave({ startDate: trimmed, length: len });
+    onSave({ startDate: startDateForWeekday(config.startDate, startWeekday), length: len });
     onClose();
   };
 
-  const dateInvalid = !startDate.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(startDate.trim());
+  const startWeekdayLabel =
+    WEEKDAY_OPTIONS.find((option) => option.weekdayIndex === startWeekday)?.label ?? 'Select';
 
   return (
     <BottomSheet
@@ -73,7 +93,45 @@ export function ScheduleConfigSheet({
       formCompact
       compactHeader
     >
-      {lengthPickerOpen ? (
+      {weekdayPickerOpen ? (
+        <>
+          <View style={styles.pickerNav}>
+            <TouchableOpacity
+              onPress={() => setWeekdayPickerOpen(false)}
+              style={styles.navSide}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+            >
+              <Ionicons name="chevron-back" size={28} color={theme.accent} />
+            </TouchableOpacity>
+            <Text style={[theme.typography.title3, styles.pickerTitle, { color: theme.textPrimary }]}>
+              Start day
+            </Text>
+            <View style={styles.navSide} />
+          </View>
+
+          <View style={[styles.actionsCard, { backgroundColor: theme.surface }]}>
+            {WEEKDAY_OPTIONS.map((option, i) => {
+              const selected = startWeekday === option.weekdayIndex;
+              return (
+                <SelectorRow
+                  key={option.weekdayIndex}
+                  label={option.label}
+                  selected={selected}
+                  onPress={() => {
+                    haptics.light();
+                    setStartWeekday(option.weekdayIndex);
+                    setWeekdayPickerOpen(false);
+                  }}
+                  showDivider={i > 0}
+                />
+              );
+            })}
+          </View>
+          <View style={{ height: Math.max(insets.bottom, theme.spacing.md) }} />
+        </>
+      ) : lengthPickerOpen ? (
         <>
           <View style={styles.pickerNav}>
             <TouchableOpacity
@@ -133,11 +191,12 @@ export function ScheduleConfigSheet({
           >
             <View style={styles.groupRow}>
               <Text style={[theme.typography.footnote, styles.rowLabel, { color: theme.textSecondary }]}>
-                Start date
+                Start day
               </Text>
-              <AppDateField
-                value={startDate}
-                onChange={setStartDate}
+              <AppSelectField
+                value={startWeekdayLabel}
+                onPress={() => setWeekdayPickerOpen(true)}
+                placeholder="Select"
                 embedded
                 containerStyle={fieldFlush}
               />
@@ -160,7 +219,6 @@ export function ScheduleConfigSheet({
           <PrimaryButton
             title="Apply"
             onPress={handleApply}
-            disabled={dateInvalid}
             flat
             style={{
               ...styles.confirmBtn,

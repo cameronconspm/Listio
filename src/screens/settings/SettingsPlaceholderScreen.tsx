@@ -8,6 +8,7 @@ import { Screen } from '../../components/ui/Screen';
 import { useSettingsScrollInsets } from './settingsScrollLayout';
 import { ListSection } from '../../components/ui/ListSection';
 import { spacing } from '../../design/spacing';
+import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 type SettingsPlaceholderScreenProps = {
   route: RouteProp<SettingsStackParamList, 'SettingsPlaceholder'>;
@@ -25,6 +26,7 @@ export function SettingsPlaceholderScreen({ route }: SettingsPlaceholderScreenPr
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <SettingsPushedScreenHeader title={title} />
       <View
         style={[
           styles.content,

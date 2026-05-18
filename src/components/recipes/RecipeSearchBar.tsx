@@ -6,12 +6,18 @@ import { GlassView } from '../ui/GlassView';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
 
+/** Same 44pt row minimum as recipe/meal editor single-line fields and unit control. */
+const SEARCH_BAR_ROW_MIN_HEIGHT = 44;
+
 type RecipeSearchBarProps = {
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
   /** When true, removes bottom margin (e.g. when used in header). */
   compact?: boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  inputRef?: React.Ref<TextInput>;
 };
 
 /**
@@ -23,6 +29,9 @@ export function RecipeSearchBar({
   onChangeText,
   placeholder = 'Search by name or ingredient',
   compact = false,
+  onFocus,
+  onBlur,
+  inputRef,
 }: RecipeSearchBarProps) {
   const theme = useTheme();
 
@@ -37,14 +46,20 @@ export function RecipeSearchBar({
             style={styles.compactIcon}
           />
           <TextInput
+            ref={inputRef}
             value={value}
             onChangeText={onChangeText}
+            onFocus={onFocus}
+            onBlur={onBlur}
             placeholder={placeholder}
             placeholderTextColor={theme.textSecondary}
             style={[theme.typography.body, styles.compactInput, { color: theme.textPrimary }]}
+            textAlign="left"
+            textAlignVertical="center"
             autoCapitalize="none"
             autoCorrect={false}
             clearButtonMode="while-editing"
+            keyboardAppearance={theme.colorScheme}
             returnKeyType="search"
           />
         </View>
@@ -64,14 +79,20 @@ export function RecipeSearchBar({
     >
       <Ionicons name="search-outline" size={20} color={theme.textSecondary} style={styles.icon} />
       <TextInput
+        ref={inputRef}
         value={value}
         onChangeText={onChangeText}
+        onFocus={onFocus}
+        onBlur={onBlur}
         placeholder={placeholder}
         placeholderTextColor={theme.textSecondary}
         style={[theme.typography.body, styles.input, { color: theme.textPrimary }]}
+        textAlign="left"
+        textAlignVertical="center"
         autoCapitalize="none"
         autoCorrect={false}
         clearButtonMode="while-editing"
+        keyboardAppearance={theme.colorScheme}
         returnKeyType="search"
       />
     </View>
@@ -101,7 +122,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 44,
+    minHeight: SEARCH_BAR_ROW_MIN_HEIGHT,
     borderRadius: radius.full,
     borderWidth: StyleSheet.hairlineWidth,
     paddingLeft: spacing.md,
@@ -113,7 +134,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    minHeight: 44,
+    minHeight: SEARCH_BAR_ROW_MIN_HEIGHT,
     paddingVertical: spacing.sm,
     paddingRight: spacing.xs,
   },

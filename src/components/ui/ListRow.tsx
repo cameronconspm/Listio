@@ -14,6 +14,7 @@ type ListRowProps = {
   subtitle?: string;
   rightAccessory?: React.ReactNode;
   onPress?: () => void;
+  onLongPress?: () => void;
   showSeparator?: boolean;
   /** When true, separator spans full width (grouped card context). Default: inset separator. */
   fullWidthDivider?: boolean;
@@ -30,6 +31,7 @@ export function ListRow({
   subtitle,
   rightAccessory,
   onPress,
+  onLongPress,
   showSeparator = true,
   fullWidthDivider = false,
   compact = false,
@@ -116,6 +118,7 @@ export function ListRow({
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
         onPress={onPress}
+        onLongPress={onLongPress}
         style={[
           styles.row,
           compact && styles.rowCompact,

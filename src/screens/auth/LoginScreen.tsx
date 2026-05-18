@@ -31,7 +31,10 @@ export function LoginScreen(_props: Props) {
 
   const isDark = theme.colorScheme === 'dark';
   const gradientColors = isDark ? onboardingPageGradient.dark : onboardingPageGradient.light;
-  const onboardingLayout = useMemo(() => createOnboardingLayout(theme.spacing), [theme]);
+  const onboardingLayout = useMemo(
+    () => createOnboardingLayout(theme.spacing, theme.layoutScale),
+    [theme],
+  );
 
   const styles = useMemo(
     () =>

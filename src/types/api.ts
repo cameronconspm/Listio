@@ -8,6 +8,7 @@ export interface CategorizeItemsRequest {
 
 export interface CategorizeItemResult {
   input: string;
+  /** Stable user-phrase key (trim + lowercase whitespace). Not a catalog rewrite — use for cache + DB `normalized_name`, not replacing what the user typed in `name`. */
   normalized_name: string;
   category: string;
   zone_key: string;

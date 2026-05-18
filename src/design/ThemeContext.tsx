@@ -1,5 +1,13 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { Dimensions, useColorScheme, useWindowDimensions } from 'react-native';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { Appearance, AppState, Dimensions, useWindowDimensions } from 'react-native';
 import { getTheme, type ColorScheme } from './theme';
 import {
   computeLayoutMetrics,
@@ -11,8 +19,13 @@ import {
 } from './layoutMetrics';
 import type { SemanticTokenKey } from './tokens';
 import { logger } from '../utils/logger';
+import {
+  hydrateThemePreference,
+  persistThemePreference,
+  type ThemePreference,
+} from '../services/themePreferenceService';
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+export type { ThemePreference } from '../services/themePreferenceService';
 
 export type AppTheme = ReturnType<typeof getTheme> &
   LayoutMetrics & {
@@ -31,8 +44,8 @@ const ThemePreferenceContext = createContext<{
   setSelectedTheme: (theme: ThemePreference) => void;
 } | null>(null);
 
-function normalizeThemePreference(raw: unknown): ThemePreference {
-  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'system';
+function readOsColorScheme(): ColorScheme {
+  return Appearance.getColorScheme() === 'dark' ? 'dark' : 'light';
 }
 
 function buildTheme(scheme: ColorScheme, windowWidth: number): Theme {
@@ -50,71 +63,91 @@ function buildTheme(scheme: ColorScheme, windowWidth: number): Theme {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const systemColorScheme = useColorScheme() ?? 'light';
-  const [selectedTheme, setSelectedTheme] = useState<ThemePreference>('system');
-  const colorScheme = selectedTheme === 'system' ? systemColorScheme : selectedTheme;
+  const [selectedTheme, setSelectedThemeState] = useState<ThemePreference>('system');
+  const [osColorScheme, setOsColorScheme] = useState<ColorScheme>(readOsColorScheme);
+  const colorScheme: ColorScheme =
+    selectedTheme === 'system' ? osColorScheme : selectedTheme;
   const { width } = useWindowDimensions();
   const theme = useMemo(
     () => buildTheme(colorScheme, width),
     [colorScheme, width],
   );
+
+  const setSelectedTheme = useCallback((next: ThemePreference) => {
+    setSelectedThemeState(next);
+    void persistThemePreference(next);
+  }, []);
+
   const prefValue = useMemo(
     () => ({ selectedTheme, setSelectedTheme }),
-    [selectedTheme],
+    [selectedTheme, setSelectedTheme],
   );
+
+  const syncOsAppearance = useCallback(() => {
+    if (selectedTheme === 'system') {
+      Appearance.setColorScheme(null);
+    }
+    setOsColorScheme(readOsColorScheme());
+  }, [selectedTheme]);
+
+  /** After the UIWindow exists — avoid touching Appearance before native window is ready. */
+  useLayoutEffect(() => {
+    syncOsAppearance();
+  }, [syncOsAppearance]);
+
+  useEffect(() => {
+    const appearanceSub = Appearance.addChangeListener(({ colorScheme: next }) => {
+      setOsColorScheme(next === 'dark' ? 'dark' : 'light');
+    });
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && selectedTheme === 'system') {
+        syncOsAppearance();
+      }
+    });
+    return () => {
+      appearanceSub.remove();
+      appStateSub.remove();
+    };
+  }, [selectedTheme, syncOsAppearance]);
 
   useEffect(() => {
     let cancelled = false;
     let unsubscribe: (() => void) | undefined;
 
-    const bootstrap = async () => {
-      try {
-        // Lazy require avoids initializing Supabase in tests / screens that only need theme tokens.
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { fetchUserPreferences } = require('../services/userPreferencesService') as typeof import(
-          '../services/userPreferencesService'
-        );
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { isSyncEnabled, supabase } = require('../services/supabaseClient') as typeof import(
-          '../services/supabaseClient'
-        );
-
-        if (cancelled) return;
-        if (!isSyncEnabled()) {
-          setSelectedTheme('system');
-          return;
-        }
-
-        const load = async () => {
-          const prefs = await fetchUserPreferences();
-          if (!cancelled) {
-            setSelectedTheme(normalizeThemePreference(prefs.appearance?.selectedTheme));
-          }
-        };
-
-        void load().catch((e) => {
+    const load = () => {
+      void hydrateThemePreference()
+        .then((pref) => {
+          if (!cancelled) setSelectedThemeState(pref);
+        })
+        .catch((e) => {
           logger.warn('ThemeProvider: could not load appearance preference', e);
         });
+    };
 
+    load();
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { isSyncEnabled, supabase } = require('../services/supabaseClient') as typeof import(
+        '../services/supabaseClient'
+      );
+      if (isSyncEnabled()) {
         const {
           data: { subscription },
         } = supabase.auth.onAuthStateChange((_event, session) => {
           if (!session?.user) {
-            setSelectedTheme('system');
+            void hydrateThemePreference().then((pref) => {
+              if (!cancelled) setSelectedThemeState(pref);
+            });
             return;
           }
-          void load().catch((e) => {
-            logger.warn('ThemeProvider: could not load appearance preference', e);
-          });
+          load();
         });
         unsubscribe = () => subscription.unsubscribe();
-      } catch (e) {
-        if (cancelled) return;
-        logger.warn('ThemeProvider: could not initialize appearance preference', e);
       }
-    };
-
-    void bootstrap();
+    } catch (e) {
+      logger.warn('ThemeProvider: could not subscribe to auth for appearance', e);
+    }
 
     return () => {
       cancelled = true;

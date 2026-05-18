@@ -1,5 +1,4 @@
 import React from 'react';
-import { Platform } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import type { SettingsStackParamList } from './types';
@@ -15,8 +14,7 @@ import { PrivacyTermsScreen } from '../screens/settings/PrivacyTermsScreen';
 import { DeleteAccountScreen } from '../screens/settings/DeleteAccountScreen';
 import { SettingsPlaceholderScreen } from '../screens/settings/SettingsPlaceholderScreen';
 import { HeaderIconButton } from '../components/ui/HeaderIconButton';
-import { createTranslucentStackScreenOptions } from '../ui/motion/navigation';
-import { SettingsStackHeaderChrome } from '../ui/chrome/SettingsStackHeaderChrome';
+import { createChromePushedStackScreenOptions } from '../ui/motion/navigation';
 import { SettingsStackPresentationContext } from './NavigationChromeScrollContext';
 
 const Stack = createNativeStackNavigator<SettingsStackParamList>();
@@ -25,7 +23,7 @@ const headerOptions = (theme: AppTheme) => ({
   headerTitleAlign: 'center' as const,
   headerBackButtonDisplayMode: 'minimal' as const,
   headerTintColor: theme.textPrimary,
-  headerTitleStyle: { fontWeight: '600' as const, fontSize: 17 },
+  headerTitleStyle: { color: theme.textPrimary, fontWeight: '600' as const, fontSize: 17 },
 });
 
 export type SettingsStackProps = {
@@ -35,16 +33,14 @@ export type SettingsStackProps = {
 
 export function SettingsStack({ hubPresentation = 'modal' }: SettingsStackProps) {
   const theme = useTheme();
-  const translucent = createTranslucentStackScreenOptions(theme);
+  const pushed = createChromePushedStackScreenOptions(theme);
 
   return (
     <SettingsStackPresentationContext.Provider value={hubPresentation}>
       <Stack.Navigator
         screenOptions={{
-          ...translucent,
+          ...pushed,
           ...headerOptions(theme),
-          headerBackground: () => <SettingsStackHeaderChrome />,
-          ...(Platform.OS === 'ios' ? { headerBlurEffect: undefined } : {}),
         }}
       >
         <Stack.Screen
@@ -52,7 +48,7 @@ export function SettingsStack({ hubPresentation = 'modal' }: SettingsStackProps)
           component={SettingsScreen}
           options={({ navigation }) => ({
             title: hubPresentation === 'tab' ? '' : 'Settings',
-            headerShown: true,
+            headerShown: hubPresentation !== 'tab',
             headerLeft:
               hubPresentation === 'tab'
                 ? undefined
@@ -68,38 +64,77 @@ export function SettingsStack({ hubPresentation = 'modal' }: SettingsStackProps)
                   ),
           })}
         />
-      <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
-      <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Change password' }} />
-      <Stack.Screen name="Plan" component={PlanScreen} options={{ title: 'Plan' }} />
+      <Stack.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          title: 'Profile',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="ChangePassword"
+        component={ChangePasswordScreen}
+        options={{
+          title: 'Change password',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="Plan"
+        component={PlanScreen}
+        options={{
+          title: 'Plan',
+          headerShown: false,
+        }}
+      />
       <Stack.Screen
         name="Notifications"
         component={NotificationsScreen}
-        options={{ title: 'Notifications' }}
+        options={{
+          title: 'Notifications',
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="ThemePreferences"
         component={ThemePreferencesScreen}
-        options={{ title: 'Theme' }}
+        options={{
+          title: 'Theme',
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="Onboarding"
         component={OnboardingScreen}
-        options={{ title: 'Onboarding' }}
+        options={{
+          title: 'Onboarding',
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="PrivacyTerms"
         component={PrivacyTermsScreen}
-        options={{ title: 'Privacy & terms' }}
+        options={{
+          title: 'Privacy & terms',
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="DeleteAccount"
         component={DeleteAccountScreen}
-        options={{ title: 'Delete account' }}
+        options={{
+          title: 'Delete account',
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="SettingsPlaceholder"
         component={SettingsPlaceholderScreen}
-        options={({ route }) => ({ title: route.params?.title ?? 'Settings' })}
+        options={({ route }) => ({
+          title: route.params?.title ?? 'Settings',
+          headerShown: false,
+        })}
       />
       </Stack.Navigator>
     </SettingsStackPresentationContext.Provider>

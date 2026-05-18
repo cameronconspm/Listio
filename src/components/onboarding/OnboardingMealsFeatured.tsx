@@ -22,8 +22,10 @@ export function OnboardingMealsFeatured() {
       ]}
     >
       <View style={styles.mockHeader}>
-        <Ionicons name="restaurant-outline" size={18} color={theme.accent} />
-        <Text style={[theme.typography.subhead, { color: theme.textPrimary, marginLeft: theme.spacing.sm, fontWeight: '600' }]}>
+        <View style={[styles.iconBadge, { backgroundColor: theme.accent + '16' }]}>
+          <Ionicons name="restaurant-outline" size={18} color={theme.accent} />
+        </View>
+        <Text style={[theme.typography.subhead, { color: theme.textPrimary, marginLeft: theme.spacing.sm, fontWeight: '700' }]}>
           Meals
         </Text>
       </View>
@@ -87,6 +89,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.md,
+  },
+  iconBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   weekRow: {
     flexDirection: 'row',

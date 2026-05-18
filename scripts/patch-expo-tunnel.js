@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 /**
  * Patches @expo/cli to use NGROK_AUTHTOKEN env var when set.
- * Run after npm install to enable tunnel with your own ngrok account.
+ * Invoked from package.json `postinstall` together with patch-package.
+ *
+ * patch-package: applies patches/ (e.g. expo/@expo/cli for tunnel). Re-apply after
+ * upgrading expo or @expo/cli — if postinstall fails, run `npx patch-package` and
+ * regenerate the patch if the upstream file changed.
+ *
  * See .env.example for NGROK_AUTHTOKEN usage.
  */
 const path = require('path');

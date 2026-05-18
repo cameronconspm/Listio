@@ -39,14 +39,14 @@ export async function buildListInsertsFromRecipeIngredients(
   const zoneLabelsInOrder = categorize?.zoneLabelsInOrder;
 
   let results: { normalized_name: string; category: string; zone_key: string }[];
+  const { categorizeItems, phraseKeyForCategorize } = await import('../services/aiService');
   try {
-    const { categorizeItems } = await import('../services/aiService');
     const res = await categorizeItems(names, storeType, zoneLabelsInOrder);
     results = res.results;
   } catch {
     results = names.map((name) => ({
       normalized_name: normalize(name),
-      category: '',
+      category: 'other',
       zone_key: 'other',
     }));
   }
@@ -54,7 +54,7 @@ export async function buildListInsertsFromRecipeIngredients(
   if (results.length !== names.length) {
     results = names.map((name) => ({
       normalized_name: normalize(name),
-      category: '',
+      category: 'other',
       zone_key: 'other',
     }));
   }
@@ -63,15 +63,17 @@ export async function buildListInsertsFromRecipeIngredients(
 
   return rows.map((row, i) => {
     const r = results[i];
+    const displayName = row.name.trim();
+    const stableKey = phraseKeyForCategorize(row.name);
     let qty: number | null = row.quantity_value != null ? Number(row.quantity_value) : null;
     if (qty != null && scaleFactor !== 1) {
       qty = Math.round(qty * scaleFactor * 100) / 100;
     }
     return {
       user_id: userId,
-      name: r.normalized_name,
-      normalized_name: r.normalized_name,
-      category: r.category ?? '',
+      name: displayName || stableKey,
+      normalized_name: stableKey,
+      category: r.category ?? 'other',
       zone_key: coerceZoneKey(r.zone_key),
       quantity_value: qty,
       quantity_unit: row.quantity_unit,
