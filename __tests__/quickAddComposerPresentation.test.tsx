@@ -1,7 +1,19 @@
 import React from 'react';
 import * as ReactNative from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+
+jest.mock('../src/services/purchasesService', () => ({
+  shouldEnforceIosSubscriptionGate: () => false,
+  fetchPremiumEntitlementActive: jest.fn(async () => true),
+}));
+
+jest.mock('../src/context/contextualPaywallRef', () => ({
+  ensurePremiumViaContextualPaywall: jest.fn(async () => true),
+}));
+
+// eslint-disable-next-line import/first -- mocks must register before QuickAddComposer loads paywall deps
 import { QuickAddComposer } from '../src/components/list/QuickAddComposer';
+// eslint-disable-next-line import/first
 import { UnitSelectionList } from '../src/components/ui/UnitSelectionList';
 
 const mockReact = React;
@@ -74,7 +86,11 @@ jest.mock('../src/hooks/useRecentSuggestions', () => ({
 
 jest.mock('../src/components/list/ListItemZoneSheet', () => ({
   ListItemZonePickerPanel: () => {
-    return mockReact.createElement(mockReactNative.Text, { testID: 'mock-zone-picker' }, 'Zone picker');
+    return mockReact.createElement(
+      mockReactNative.Text,
+      { testID: 'mock-zone-picker' },
+      'Zone picker'
+    );
   },
 }));
 
@@ -108,7 +124,7 @@ describe('QuickAddComposer presentation behavior', () => {
     expect(tree.root.findByProps({ accessibilityLabel: 'Hide optional details' })).toBeTruthy();
   });
 
-  it('does not keep unit and zone overlays open together', () => {
+  it('opens field dropdowns without leaving the composer form', () => {
     let tree!: ReactTestRenderer;
     act(() => {
       tree = create(
@@ -120,6 +136,7 @@ describe('QuickAddComposer presentation behavior', () => {
       tree.root.findByProps({ accessibilityLabel: 'Change unit' }).props.onPress();
     });
     expect(tree.root.findAllByType(UnitSelectionList)).toHaveLength(1);
+    expect(tree.root.findByProps({ accessibilityLabel: 'Change store section' })).toBeTruthy();
 
     act(() => {
       tree.root.findByProps({ accessibilityLabel: 'Change store section' }).props.onPress();
@@ -200,7 +217,9 @@ describe('QuickAddComposer presentation behavior', () => {
     });
 
     expect(tree.root.findByProps({ accessibilityLabel: 'Add item' })).toBeTruthy();
-    expect(tree.root.findAllByProps({ accessibilityLabel: 'Decrease quantity' }).length).toBeGreaterThan(0);
+    expect(
+      tree.root.findAllByProps({ accessibilityLabel: 'Decrease quantity' }).length
+    ).toBeGreaterThan(0);
 
     act(() => {
       tree.root.findByProps({ testID: 'quick-add-sparkle-toggle' }).props.onPress();
@@ -208,7 +227,9 @@ describe('QuickAddComposer presentation behavior', () => {
 
     expect(tree.root.findByProps({ accessibilityLabel: 'Parse with AI' })).toBeTruthy();
     expect(tree.root.findAllByProps({ accessibilityLabel: 'Decrease quantity' })).toHaveLength(0);
-    expect(tree.root.findAllByProps({ accessibilityLabel: 'Change store section' })).toHaveLength(0);
+    expect(tree.root.findAllByProps({ accessibilityLabel: 'Change store section' })).toHaveLength(
+      0
+    );
   });
 
   describe('typing-time pre-warm', () => {
@@ -236,6 +257,7 @@ describe('QuickAddComposer presentation behavior', () => {
     });
 
     it('fires categorizeItems once after 600ms pause on a plausible item name', async () => {
+      const uncachedName = 'zz obscure prewarm token xyz789';
       let tree!: ReactTestRenderer;
       act(() => {
         tree = create(
@@ -250,7 +272,7 @@ describe('QuickAddComposer presentation behavior', () => {
       });
 
       act(() => {
-        tree.root.findByProps({ testID: 'quick-add-item-input' }).props.onChangeText('milk');
+        tree.root.findByProps({ testID: 'quick-add-item-input' }).props.onChangeText(uncachedName);
       });
 
       act(() => {
@@ -264,14 +286,18 @@ describe('QuickAddComposer presentation behavior', () => {
       });
 
       expect(getCategorizeMock()).toHaveBeenCalledTimes(1);
-      expect(getCategorizeMock()).toHaveBeenCalledWith(['milk'], 'generic', ['Produce']);
+      expect(getCategorizeMock()).toHaveBeenCalledWith([uncachedName], 'generic', ['Produce']);
     });
 
     it('does not fire for inputs shorter than 3 characters', async () => {
       let tree!: ReactTestRenderer;
       act(() => {
         tree = create(
-          <QuickAddComposer visible onDismiss={jest.fn()} onSubmit={jest.fn(async () => undefined)} />
+          <QuickAddComposer
+            visible
+            onDismiss={jest.fn()}
+            onSubmit={jest.fn(async () => undefined)}
+          />
         );
       });
 
@@ -291,7 +317,11 @@ describe('QuickAddComposer presentation behavior', () => {
       let tree!: ReactTestRenderer;
       act(() => {
         tree = create(
-          <QuickAddComposer visible onDismiss={jest.fn()} onSubmit={jest.fn(async () => undefined)} />
+          <QuickAddComposer
+            visible
+            onDismiss={jest.fn()}
+            onSubmit={jest.fn(async () => undefined)}
+          />
         );
       });
 
@@ -378,7 +408,9 @@ describe('QuickAddComposer presentation behavior', () => {
       });
 
       act(() => {
-        tree.root.findByProps({ testID: 'quick-add-item-input' }).props.onChangeText('cheddar cheese');
+        tree.root
+          .findByProps({ testID: 'quick-add-item-input' })
+          .props.onChangeText('cheddar cheese');
       });
 
       await act(async () => {
@@ -393,12 +425,18 @@ describe('QuickAddComposer presentation behavior', () => {
       let tree!: ReactTestRenderer;
       act(() => {
         tree = create(
-          <QuickAddComposer visible onDismiss={jest.fn()} onSubmit={jest.fn(async () => undefined)} />
+          <QuickAddComposer
+            visible
+            onDismiss={jest.fn()}
+            onSubmit={jest.fn(async () => undefined)}
+          />
         );
       });
 
       act(() => {
-        tree.root.findByProps({ testID: 'quick-add-item-input' }).props.onChangeText('milk, eggs, bread');
+        tree.root
+          .findByProps({ testID: 'quick-add-item-input' })
+          .props.onChangeText('milk, eggs, bread');
       });
 
       await act(async () => {
