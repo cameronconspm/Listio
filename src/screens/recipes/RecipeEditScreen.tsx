@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,9 +6,10 @@ import {
   ScrollView,
   TouchableOpacity,
   Keyboard,
-  Platform,
   ActivityIndicator,
   Linking,
+  type NativeSyntheticEvent,
+  type TextInputContentSizeChangeEventData,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -16,30 +17,42 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RecipesStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
-import { useScrollContentInsetTop } from '../../ui/chrome/useScrollContentInsetTop';
 import { Screen } from '../../components/ui/Screen';
+import { PushedScreenHeader } from '../../components/ui/PushedScreenHeader';
 import { KeyboardSafeForm } from '../../components/ui/KeyboardSafeForm';
 import { ListSection } from '../../components/ui/ListSection';
-import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { SecondaryButton } from '../../components/ui/SecondaryButton';
 import { TextField } from '../../components/ui/TextField';
-import { AppSelectField } from '../../components/ui/AppSelectField';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { UnitDropdown } from '../../components/ui/UnitDropdown';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
-import { RecipeCategorySheet, RECIPE_CATEGORY_LABELS } from '../../components/recipes/RecipeCategorySheet';
+import { RECIPE_CATEGORY_LABELS } from '../../components/recipes/RecipeCategorySheet';
 import type { RecipeCategory } from '../../types/models';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getUserId } from '../../services/supabaseClient';
 import { queryKeys } from '../../query/keys';
 import { fetchRecipeDetailBundle, RECIPE_DETAIL_STALE_MS } from '../../query/recipeDetailBundle';
-import { createRecipe, setRecipeIngredients, updateRecipe } from '../../services/recipeService';
+import { createRecipe, getRecipes, setRecipeIngredients, updateRecipe } from '../../services/recipeService';
+import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
+import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { titleCaseWords } from '../../utils/titleCaseWords';
 import { showError, showSuccess } from '../../utils/appToast';
-import { MAX_RECIPE_AI_INPUT, MAX_RECIPE_INSTRUCTIONS } from '../../constants/textLimits';
+import { MAX_RECIPE_AI_INPUT, MAX_RECIPE_INSTRUCTIONS, clampStr } from '../../constants/textLimits';
 import { spacing } from '../../design/spacing';
 import { AI_RECIPE_IMPORT_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDisclosure';
 import { PRIVACY_POLICY_URL } from '../../constants/legalUrls';
+import { parseRecipeInstructionSteps } from '../../utils/parseRecipeInstructionSteps';
+import { mapParsedRecipeDraftToForm } from './recipeAiImport';
+import { ensurePremiumViaContextualPaywall } from '../../context/contextualPaywallRef';
+import { notifyMeaningfulListOrRecipeAction } from '../../services/engagementPaywallTriggers';
+import { notifyRecipeSavedForMilestones } from '../../firstLaunchTour/milestoneUnlockFlow';
+import {
+  RecipeAiImportOverlay,
+  type RecipeAiImportMode,
+  type RecipeAiImportPhase,
+} from '../../components/recipes/RecipeAiImportOverlay';
+import { useReduceMotion } from '../../ui/motion/useReduceMotion';
+import { useHaptics } from '../../hooks/useHaptics';
 
 type Route = RouteProp<RecipesStackParamList, 'RecipeEdit'>;
 
@@ -58,35 +71,89 @@ const defaultIngredient: IngredientRow = {
 };
 
 const MIN_TOUCH_TARGET = 44;
-type EntryMode = 'manual' | 'ai';
+
+type SmartImportTab = 'link' | 'paste';
+
+const CATEGORY_CHIP_ORDER: { key: RecipeCategory | null; label: string }[] = [
+  { key: 'breakfast', label: RECIPE_CATEGORY_LABELS.breakfast },
+  { key: 'lunch', label: RECIPE_CATEGORY_LABELS.lunch },
+  { key: 'dinner', label: RECIPE_CATEGORY_LABELS.dinner },
+  { key: 'snack', label: RECIPE_CATEGORY_LABELS.snack },
+  { key: 'dessert', label: RECIPE_CATEGORY_LABELS.dessert },
+  { key: 'other', label: RECIPE_CATEGORY_LABELS.other },
+  { key: null, label: 'None' },
+];
+
+type StepRow = { id: string; text: string };
+
+function newStepId(): string {
+  return `step_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function emptyStepRow(): StepRow {
+  return { id: newStepId(), text: '' };
+}
+
+/** Single-line visual minimum until content measurement expands the field (matches touch target + TextField center math). */
+const STEP_FIELD_MIN_HEIGHT = MIN_TOUCH_TARGET;
+
+function instructionsFromSteps(rows: StepRow[]): string {
+  return rows
+    .map((r) => r.text.trim())
+    .filter((t) => t.length > 0)
+    .join('\n');
+}
 
 export function RecipeEditScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
+  const { isPremium } = usePremiumEntitlement();
   const insets = useSafeAreaInsets();
-  const scrollContentInsetTop = useScrollContentInsetTop();
   const navigation = useNavigation<NativeStackNavigationProp<RecipesStackParamList>>();
   const route = useRoute<Route>();
   const recipeId = route.params?.recipeId;
   const isNew = !recipeId;
+  const headerTitle = isNew ? 'New recipe' : 'Edit recipe';
 
   const [name, setName] = useState('');
   const [servings, setServings] = useState('4');
   const [category, setCategory] = useState<RecipeCategory | null>(null);
-  const [categorySheetVisible, setCategorySheetVisible] = useState(false);
   const [recipeUrl, setRecipeUrl] = useState('');
   const [notes, setNotes] = useState('');
-  const [instructions, setInstructions] = useState('');
+  const [steps, setSteps] = useState<StepRow[]>(() => [emptyStepRow()]);
+  const [stepHeights, setStepHeights] = useState<Record<string, number>>({});
   const [totalTimeMinutes, setTotalTimeMinutes] = useState('');
   const [ingredients, setIngredients] = useState<IngredientRow[]>([{ ...defaultIngredient }]);
   const [saving, setSaving] = useState(false);
-  const [entryMode, setEntryMode] = useState<EntryMode>('manual');
-  const [aiRecipeText, setAiRecipeText] = useState('');
-  const [isParsingAi, setIsParsingAi] = useState(false);
-  const [aiParseStatus, setAiParseStatus] = useState<string | null>(null);
+
+  const [smartImportTab, setSmartImportTab] = useState<SmartImportTab>('link');
+  const [importLinkUrl, setImportLinkUrl] = useState('');
+  const [importPasteText, setImportPasteText] = useState('');
+  const [aiImportOverlay, setAiImportOverlay] = useState<{
+    phase: RecipeAiImportPhase;
+    mode: RecipeAiImportMode;
+    errorMessage?: string;
+  } | null>(null);
   const [errorDialog, setErrorDialog] = useState<{ title: string; message: string } | null>(null);
+  const reduceMotion = useReduceMotion();
+  const haptics = useHaptics();
 
   const lastHydratedRecipeIdRef = useRef<string | null>(null);
+
+  const applyParsedDraft = useCallback((mapped: ReturnType<typeof mapParsedRecipeDraftToForm>) => {
+    setName(mapped.name);
+    setServings(mapped.servings.trim() ? mapped.servings : '4');
+    setTotalTimeMinutes(mapped.totalTimeMinutes);
+    setCategory(mapped.category);
+    const parsedSteps = parseRecipeInstructionSteps(mapped.instructions);
+    setSteps(
+      parsedSteps.length > 0 ? parsedSteps.map((text) => ({ id: newStepId(), text })) : [emptyStepRow()]
+    );
+    setStepHeights({});
+    setNotes(mapped.notes);
+    setRecipeUrl(mapped.recipeUrl);
+    setIngredients(mapped.ingredients.length > 0 ? mapped.ingredients : [{ ...defaultIngredient }]);
+  }, []);
 
   const detailQuery = useQuery({
     queryKey: queryKeys.recipeDetail(recipeId ?? ''),
@@ -109,7 +176,11 @@ export function RecipeEditScreen() {
     setCategory(recipe.category ?? null);
     setRecipeUrl(recipe.recipe_url ?? '');
     setNotes(recipe.notes ?? '');
-    setInstructions(recipe.instructions ?? '');
+    const parsedSteps = parseRecipeInstructionSteps(recipe.instructions);
+    setSteps(
+      parsedSteps.length > 0 ? parsedSteps.map((text) => ({ id: newStepId(), text })) : [emptyStepRow()]
+    );
+    setStepHeights({});
     setTotalTimeMinutes(
       recipe.total_time_minutes != null && recipe.total_time_minutes > 0
         ? String(recipe.total_time_minutes)
@@ -138,7 +209,10 @@ export function RecipeEditScreen() {
   };
 
   const removeIngredient = (idx: number) => {
-    setIngredients((prev) => prev.filter((_, i) => i !== idx));
+    setIngredients((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      return next.length > 0 ? next : [{ ...defaultIngredient }];
+    });
   };
 
   const updateIngredient = (idx: number, field: keyof IngredientRow, value: string) => {
@@ -149,6 +223,42 @@ export function RecipeEditScreen() {
     });
   };
 
+  const addStep = () => {
+    const row = emptyStepRow();
+    setSteps((prev) => [...prev, row]);
+  };
+
+  const removeStep = (id: string) => {
+    setSteps((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      return next.length > 0 ? next : [emptyStepRow()];
+    });
+    setStepHeights((prev) => {
+      const { [id]: _, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const updateStep = (id: string, value: string) => {
+    setSteps((prev) => prev.map((r) => (r.id === id ? { ...r, text: value } : r)));
+  };
+
+  const onStepContentSizeChange = useCallback(
+    (stepId: string, text: string) => (e: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
+      let ch = e.nativeEvent.contentSize.height;
+      // iOS: empty multiline TextInputs often report a huge intrinsic height; cap so the row stays short.
+      if (!text.trim()) {
+        ch = Math.min(ch, 32);
+      } else {
+        ch = Math.min(ch, 2000);
+      }
+      const pad = 14;
+      const next = Math.min(360, Math.max(STEP_FIELD_MIN_HEIGHT, Math.ceil(ch + pad)));
+      setStepHeights((prev) => (prev[stepId] === next ? prev : { ...prev, [stepId]: next }));
+    },
+    []
+  );
+
   const handleSave = async () => {
     Keyboard.dismiss();
 
@@ -156,6 +266,11 @@ export function RecipeEditScreen() {
     if (!userId) {
       setErrorDialog({ title: 'Error', message: 'You must be signed in to save a recipe.' });
       return;
+    }
+
+    let instructions = instructionsFromSteps(steps);
+    if (instructions.length > MAX_RECIPE_INSTRUCTIONS) {
+      instructions = clampStr(instructions, MAX_RECIPE_INSTRUCTIONS);
     }
 
     setSaving(true);
@@ -187,6 +302,13 @@ export function RecipeEditScreen() {
       }
 
       if (isNew) {
+        const existingRecipes = isPremium ? [] : await getRecipes(userId);
+        const allowed = await ensureFreeTierCapacity('recipe', existingRecipes.length, 1, isPremium);
+        if (!allowed) {
+          setSaving(false);
+          return;
+        }
+
         const r = await createRecipe(userId, {
           name: recipeTitle,
           servings: parseInt(servings, 10) || 4,
@@ -198,7 +320,8 @@ export function RecipeEditScreen() {
         });
         await setRecipeIngredients(r.id, ings);
         void queryClient.invalidateQueries({ queryKey: queryKeys.recipesScreenRoot(userId) });
-        showSuccess('Recipe created.');
+        notifyMeaningfulListOrRecipeAction();
+        notifyRecipeSavedForMilestones();
         navigation.replace('RecipeDetails', { recipeId: r.id });
       } else {
         await updateRecipe(recipeId!, {
@@ -224,48 +347,102 @@ export function RecipeEditScreen() {
     }
   };
 
-  const handleParseAiRecipe = async () => {
-    const raw = aiRecipeText.trim();
+  const handleImportFromLink = async () => {
+    const raw = importLinkUrl.trim();
     if (!raw) {
-      setErrorDialog({ title: 'Missing recipe text', message: 'Paste recipe text first, then parse.' });
+      setErrorDialog({ title: 'Missing URL', message: 'Paste a link first, then tap Import.' });
       return;
     }
 
-    setIsParsingAi(true);
-    setAiParseStatus(null);
+    const allowed = await ensurePremiumViaContextualPaywall('recipe_url');
+    if (!allowed) return;
+
+    setAiImportOverlay({ phase: 'parsing', mode: 'link' });
     try {
-      const [{ parseRecipeFromText }, { mapParsedRecipeDraftToForm }] = await Promise.all([
+      const [{ parseRecipeFromUrl }, { mapParsedRecipeDraftToForm: mapDraft }] = await Promise.all([
         import('../../services/aiService'),
         import('./recipeAiImport'),
       ]);
-      const { recipe, cache_hit } = await parseRecipeFromText(raw);
-      const mapped = mapParsedRecipeDraftToForm(recipe);
-      setName(mapped.name);
-      setServings(mapped.servings.trim() ? mapped.servings : '4');
-      setTotalTimeMinutes(mapped.totalTimeMinutes);
-      setCategory(mapped.category);
-      setInstructions(mapped.instructions);
-      setNotes(mapped.notes);
-      setRecipeUrl(mapped.recipeUrl);
-      setIngredients(mapped.ingredients.length > 0 ? mapped.ingredients : [{ ...defaultIngredient }]);
-      setEntryMode('manual');
-      setAiParseStatus(
-        cache_hit ? 'Recipe parsed from cache. Review and tap Create recipe.' : 'Recipe parsed. Review and tap Create recipe.'
-      );
+      const { recipe } = await parseRecipeFromUrl(raw);
+      const mapped = mapDraft(recipe);
+      applyParsedDraft(mapped);
+      setAiImportOverlay({ phase: 'success', mode: 'link' });
+      haptics.success();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not import from that link. Try again.';
+      setAiImportOverlay({ phase: 'failure', mode: 'link', errorMessage: message });
+    }
+  };
+
+  const handleExtractFromPaste = async () => {
+    const raw = importPasteText.trim();
+    if (!raw) {
+      setErrorDialog({ title: 'Missing recipe text', message: 'Paste recipe text first, then tap Extract.' });
+      return;
+    }
+
+    const allowed = await ensurePremiumViaContextualPaywall('recipe_paste');
+    if (!allowed) return;
+
+    setAiImportOverlay({ phase: 'parsing', mode: 'paste' });
+    try {
+      const [{ parseRecipeFromText }, { mapParsedRecipeDraftToForm: mapDraft }] = await Promise.all([
+        import('../../services/aiService'),
+        import('./recipeAiImport'),
+      ]);
+      const { recipe } = await parseRecipeFromText(raw);
+      const mapped = mapDraft(recipe);
+      applyParsedDraft(mapped);
+      setAiImportOverlay({ phase: 'success', mode: 'paste' });
+      haptics.success();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not parse recipe text. Try again.';
-      setErrorDialog({ title: 'Could not parse recipe', message });
-    } finally {
-      setIsParsingAi(false);
+      setAiImportOverlay({ phase: 'failure', mode: 'paste', errorMessage: message });
     }
   };
 
   const editLoadBlocking = !isNew && detailQuery.isPending && !detailQuery.data;
 
+  const savePill = (
+    <TouchableOpacity
+      onPress={handleSave}
+      disabled={saving || !name.trim()}
+      style={[
+        styles.savePill,
+        {
+          backgroundColor: name.trim() ? theme.accent : theme.surface,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: name.trim() ? theme.accent : theme.divider,
+          opacity: saving ? 0.85 : 1,
+        },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={isNew ? 'Create recipe' : 'Save recipe'}
+      accessibilityState={{ disabled: saving || !name.trim() }}
+    >
+      {saving ? (
+        <ActivityIndicator color={theme.onAccent} size="small" />
+      ) : (
+        <Text
+          style={[
+            theme.typography.subhead,
+            {
+              color: name.trim() ? theme.onAccent : theme.textSecondary,
+              fontWeight: '600',
+            },
+          ]}
+        >
+          Save
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
+
   if (editLoadBlocking) {
     return (
       <Screen padded safeTop={false} safeBottom={false}>
-        <View style={[styles.centeredLoader, { paddingTop: scrollContentInsetTop }]}>
+        <PushedScreenHeader title={headerTitle} onBack={() => navigation.goBack()} />
+        <View style={styles.centeredLoader}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
       </Screen>
@@ -274,84 +451,89 @@ export function RecipeEditScreen() {
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <PushedScreenHeader title={headerTitle} onBack={() => navigation.goBack()} rightAccessory={savePill} />
       <KeyboardSafeForm style={styles.keyboard}>
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={[
             styles.content,
             {
-              paddingTop: scrollContentInsetTop,
               paddingBottom: insets.bottom + theme.spacing.xxl,
             },
           ]}
-          contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? 'never' : undefined}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
           {isNew ? (
-            <ListSection title="Entry mode" titleVariant="small" glass={false} style={styles.modeSection}>
+            <ListSection title="Smart import" titleVariant="small" glass={false} style={styles.smartImportSection}>
               <SegmentedControl
                 segments={[
-                  { key: 'manual', label: 'Manual' },
-                  { key: 'ai', label: 'AI Paste' },
+                  { key: 'link', label: 'Paste link' },
+                  { key: 'paste', label: 'Paste recipe' },
                 ]}
-                value={entryMode}
+                value={smartImportTab}
                 onChange={(value) => {
-                  setEntryMode(value);
-                  setAiParseStatus(null);
+                  setSmartImportTab(value);
                 }}
               />
-            </ListSection>
-          ) : null}
-
-          {isNew && entryMode === 'ai' ? (
-            <ListSection title="AI recipe import" titleVariant="small" glass={false} style={styles.aiSection}>
-              <TextField
-                label="Paste full recipe text"
-                value={aiRecipeText}
-                onChangeText={setAiRecipeText}
-                placeholder={'Recipe title\n\nIngredients:\n- 2 eggs\n...\n\nInstructions:\n1. ...'}
-                multiline
-                maxLength={MAX_RECIPE_AI_INPUT}
-                scrollEnabled
-                textAlignVertical="top"
-                style={styles.aiTextInput}
-                containerStyle={styles.aiTextField}
-              />
-              <SecondaryButton
-                title="Parse with AI"
-                onPress={handleParseAiRecipe}
-                loading={isParsingAi}
-                disabled={!aiRecipeText.trim()}
-                style={styles.aiParseBtn}
-              />
-              <Text
-                style={[
-                  theme.typography.footnote,
-                  { color: theme.textSecondary, lineHeight: 20, marginTop: theme.spacing.sm },
-                ]}
-              >
-                {AI_RECIPE_IMPORT_DISCLOSURE_LEAD}{' '}
-                <Text
-                  onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
-                  style={{ color: theme.accent }}
-                  accessibilityRole="link"
-                  accessibilityLabel="Open privacy policy"
-                >
-                  Privacy policy
-                </Text>
-                .
-              </Text>
-              {aiParseStatus ? (
-                <Text
-                  style={[
-                    theme.typography.footnote,
-                    { color: theme.textSecondary, marginTop: theme.spacing.xs },
-                  ]}
-                >
-                  {aiParseStatus}
-                </Text>
-              ) : null}
+              {smartImportTab === 'link' ? (
+                <View style={styles.smartImportBody}>
+                  <TextField
+                    label="Recipe URL"
+                    value={importLinkUrl}
+                    onChangeText={setImportLinkUrl}
+                    placeholder="https://..."
+                    autoCapitalize="none"
+                    keyboardType="url"
+                    containerStyle={styles.smartImportField}
+                    style={styles.compactLineInput}
+                  />
+                  <SecondaryButton
+                    title="Import"
+                    onPress={handleImportFromLink}
+                    disabled={!importLinkUrl.trim() || aiImportOverlay != null}
+                    style={styles.smartImportAction}
+                  />
+                </View>
+              ) : (
+                <View style={styles.smartImportBody}>
+                  <TextField
+                    label="Paste full recipe text"
+                    value={importPasteText}
+                    onChangeText={setImportPasteText}
+                    placeholder={'Recipe title\n\nIngredients:\n- 2 eggs\n...\n\nInstructions:\n1. ...'}
+                    multiline
+                    maxLength={MAX_RECIPE_AI_INPUT}
+                    scrollEnabled
+                    textAlignVertical="top"
+                    style={styles.pasteTextInput}
+                    containerStyle={styles.smartImportField}
+                  />
+                  <SecondaryButton
+                    title="Extract"
+                    onPress={handleExtractFromPaste}
+                    disabled={!importPasteText.trim() || aiImportOverlay != null}
+                    style={styles.smartImportAction}
+                  />
+                  <Text
+                    style={[
+                      theme.typography.footnote,
+                      { color: theme.textSecondary, lineHeight: 20, marginTop: theme.spacing.sm },
+                    ]}
+                  >
+                    {AI_RECIPE_IMPORT_DISCLOSURE_LEAD}{' '}
+                    <Text
+                      onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
+                      style={{ color: theme.accent }}
+                      accessibilityRole="link"
+                      accessibilityLabel="Open privacy policy"
+                    >
+                      Privacy policy
+                    </Text>
+                    .
+                  </Text>
+                </View>
+              )}
             </ListSection>
           ) : null}
 
@@ -360,153 +542,225 @@ export function RecipeEditScreen() {
               label="Recipe name"
               value={name}
               onChangeText={setName}
-              placeholder="e.g. Pasta carbonara"
+              placeholder="Recipe name"
               containerStyle={styles.titleField}
+              style={styles.compactLineInput}
               formatOnBlur="titleWords"
             />
-            <TextField
-              label="Servings"
-              value={servings}
-              onChangeText={setServings}
-              placeholder="4"
-              keyboardType="number-pad"
-            />
-            <TextField
-              label="Total time (minutes)"
-              value={totalTimeMinutes}
-              onChangeText={setTotalTimeMinutes}
-              placeholder="e.g. 30"
-              keyboardType="number-pad"
-              containerStyle={styles.timeField}
-            />
-            <AppSelectField
-              label="Category"
-              value={category ? RECIPE_CATEGORY_LABELS[category] : ''}
-              onPress={() => setCategorySheetVisible(true)}
-              placeholder="None"
-              containerStyle={styles.categoryField}
-              accessibilityLabel="Recipe category"
-            />
+            <View style={styles.twoColRow}>
+              <TextField
+                label="Servings"
+                value={servings}
+                onChangeText={setServings}
+                placeholder="4"
+                keyboardType="number-pad"
+                containerStyle={styles.twoColField}
+                style={styles.compactLineInput}
+              />
+              <TextField
+                label="Total time (minutes)"
+                value={totalTimeMinutes}
+                onChangeText={setTotalTimeMinutes}
+                placeholder="Min"
+                keyboardType="number-pad"
+                containerStyle={styles.twoColField}
+                style={styles.compactLineInput}
+              />
+            </View>
+            <Text
+              style={[
+                theme.typography.caption1,
+                { color: theme.textSecondary, textTransform: 'uppercase', marginBottom: theme.spacing.sm },
+              ]}
+            >
+              Category
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipRow}
+              keyboardShouldPersistTaps="handled"
+            >
+              {CATEGORY_CHIP_ORDER.map((opt) => {
+                const selected = category === opt.key;
+                return (
+                  <TouchableOpacity
+                    key={opt.key === null ? 'none' : opt.key}
+                    onPress={() => setCategory(opt.key)}
+                    style={[
+                      styles.categoryChip,
+                      {
+                        backgroundColor: selected ? theme.accent : theme.surface,
+                        borderColor: selected ? theme.accent : theme.divider,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Category ${opt.label}`}
+                  >
+                    <Text
+                      style={[
+                        theme.typography.subhead,
+                        { color: selected ? theme.onAccent : theme.textPrimary, fontWeight: '600' },
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </ListSection>
 
-          <ListSection title="Instructions" titleVariant="small" glass={false} style={styles.instructionsSection}>
-            <TextField
-              label="Step-by-step"
-              value={instructions}
-              onChangeText={setInstructions}
-              placeholder={'One step per line.\n\nBoil salted water.\nCook pasta until al dente.'}
-              multiline
-              maxLength={MAX_RECIPE_INSTRUCTIONS}
-              scrollEnabled
-              textAlignVertical="top"
-              style={styles.instructionsInput}
-              containerStyle={styles.instructionsField}
-            />
-          </ListSection>
-
-          <ListSection title="Ingredients" titleVariant="small" glass={false} style={styles.ingSection}>
+          <ListSection
+            title="Ingredients"
+            titleVariant="small"
+            glass={false}
+            style={styles.ingSection}
+            headerRight={
+              <TouchableOpacity
+                onPress={addIngredient}
+                style={styles.sectionHeaderBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Add ingredient"
+              >
+                <Text style={[theme.typography.subhead, { color: theme.accent, fontWeight: '600' }]}>
+                  + Add
+                </Text>
+              </TouchableOpacity>
+            }
+          >
             {ingredients.map((ing, idx) => (
               <View
                 key={idx}
                 style={[
-                  styles.ingBlock,
+                  styles.ingredientRow,
                   idx < ingredients.length - 1 && {
                     borderBottomWidth: StyleSheet.hairlineWidth,
                     borderBottomColor: theme.divider,
+                    paddingBottom: theme.spacing.sm,
+                    marginBottom: theme.spacing.sm,
                   },
                 ]}
               >
-                <View style={styles.ingRow1}>
-                  <TextField
-                    value={ing.name}
-                    onChangeText={(v) => updateIngredient(idx, 'name', v)}
-                    placeholder="Ingredient name"
-                    containerStyle={styles.ingName}
-                    formatOnBlur="titleWords"
-                  />
-                  <TouchableOpacity
-                    onPress={() => removeIngredient(idx)}
-                    style={[styles.removeBtn, { backgroundColor: theme.surface }]}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ingredient ${idx + 1}`}
-                  >
-                    <Ionicons
-                      name="close-circle-outline"
-                      size={22}
-                      color={theme.textSecondary}
-                    />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.ingRow2}>
-                  <TextField
-                    value={ing.quantity_value}
-                    onChangeText={(v) => updateIngredient(idx, 'quantity_value', v)}
-                    placeholder="Qty"
-                    containerStyle={styles.ingQty}
-                  />
-                  <View style={styles.ingUnitWrap}>
-                    <UnitDropdown
-                      value={ing.quantity_unit}
-                      onSelect={(u) => updateIngredient(idx, 'quantity_unit', u)}
-                      containerStyle={styles.ingUnit}
-                      accessibilityLabel={`Change unit for ingredient ${idx + 1}`}
-                    />
-                  </View>
-                  <TextField
-                    value={ing.notes}
-                    onChangeText={(v) => updateIngredient(idx, 'notes', v)}
-                    placeholder="Note (optional)"
-                    containerStyle={styles.ingNote}
+                <TextField
+                  value={ing.quantity_value}
+                  onChangeText={(v) => updateIngredient(idx, 'quantity_value', v)}
+                  placeholder="Qty"
+                  textAlign="center"
+                  containerStyle={styles.ingQty}
+                  style={[styles.compactLineInput, styles.ingQtyInput]}
+                />
+                <View style={styles.ingUnitWrap}>
+                  <UnitDropdown
+                    value={ing.quantity_unit}
+                    onSelect={(u) => updateIngredient(idx, 'quantity_unit', u)}
+                    containerStyle={styles.ingUnit}
+                    accessibilityLabel={`Change unit for ingredient ${idx + 1}`}
                   />
                 </View>
+                <TextField
+                  value={ing.name}
+                  onChangeText={(v) => updateIngredient(idx, 'name', v)}
+                  placeholder="Name"
+                  accessibilityLabel="Ingredient name"
+                  containerStyle={styles.ingName}
+                  style={styles.compactLineInput}
+                  formatOnBlur="titleWords"
+                />
+                <TouchableOpacity
+                  onPress={() => removeIngredient(idx)}
+                  style={[styles.removeBtn, { backgroundColor: theme.surface }]}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ingredient ${idx + 1}`}
+                >
+                  <Ionicons name="close-outline" size={24} color={theme.textSecondary} />
+                </TouchableOpacity>
               </View>
             ))}
-            <TouchableOpacity
-              onPress={addIngredient}
-              style={[styles.addIngredientRow, { borderTopColor: theme.divider }]}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="Add ingredient"
-            >
-              <Text style={[theme.typography.body, { color: theme.accent }]}>+ Add ingredient</Text>
-            </TouchableOpacity>
           </ListSection>
 
-          <ListSection title="Optional" titleVariant="small" glass={false} style={styles.optionalSection}>
-            <TextField
-              label="Recipe URL"
-              value={recipeUrl}
-              onChangeText={setRecipeUrl}
-              placeholder="https://..."
-              autoCapitalize="none"
-              keyboardType="url"
-            />
-            <TextField
-              label="Tips"
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="e.g. Prep ahead, serve cold, substitutions"
-              multiline
-            />
+          <ListSection
+            title="Steps"
+            titleVariant="small"
+            glass={false}
+            style={styles.stepsSection}
+            headerRight={
+              <TouchableOpacity
+                onPress={addStep}
+                style={styles.sectionHeaderBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Add step"
+              >
+                <Text style={[theme.typography.subhead, { color: theme.accent, fontWeight: '600' }]}>
+                  + Add
+                </Text>
+              </TouchableOpacity>
+            }
+          >
+            {steps.map((row, idx) => (
+              <View
+                key={row.id}
+                style={[
+                  styles.stepRow,
+                  idx < steps.length - 1 && {
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: theme.divider,
+                    paddingBottom: theme.spacing.sm,
+                    marginBottom: theme.spacing.sm,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.stepNumberCircle,
+                    {
+                      backgroundColor: theme.surface,
+                      borderWidth: 2,
+                      borderColor: theme.accent,
+                    },
+                  ]}
+                >
+                  <Text style={[theme.typography.subhead, { color: theme.accent, fontWeight: '700' }]}>
+                    {idx + 1}
+                  </Text>
+                </View>
+                <TextField
+                  inputVariant="shrinkWrap"
+                  value={row.text}
+                  onChangeText={(v) => updateStep(row.id, v)}
+                  placeholder="Step…"
+                  multiline
+                  multilineVerticalAlign="center"
+                  multilineCenterMinHeight={STEP_FIELD_MIN_HEIGHT}
+                  scrollEnabled={false}
+                  onContentSizeChange={onStepContentSizeChange(row.id, row.text)}
+                  style={[
+                    styles.stepInput,
+                    {
+                      height: stepHeights[row.id] ?? STEP_FIELD_MIN_HEIGHT,
+                      maxHeight: 360,
+                    },
+                  ]}
+                  containerStyle={styles.stepField}
+                />
+                <TouchableOpacity
+                  onPress={() => removeStep(row.id)}
+                  style={[styles.removeBtn, { backgroundColor: theme.surface }]}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove step ${idx + 1}`}
+                >
+                  <Ionicons name="close-outline" size={24} color={theme.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            ))}
           </ListSection>
-
-          <View style={[styles.formFooter, { borderTopColor: theme.divider }]}>
-            <PrimaryButton
-              title={isNew ? 'Create recipe' : 'Save'}
-              onPress={handleSave}
-              loading={saving}
-            />
-          </View>
         </ScrollView>
       </KeyboardSafeForm>
-
-      <RecipeCategorySheet
-        visible={categorySheetVisible}
-        onClose={() => setCategorySheetVisible(false)}
-        value={category}
-        onSelect={setCategory}
-      />
 
       <AppConfirmationDialog
         visible={!!errorDialog}
@@ -515,6 +769,15 @@ export function RecipeEditScreen() {
         message={errorDialog?.message}
         buttons={[{ label: 'OK', onPress: () => setErrorDialog(null) }]}
         allowBackdropDismiss
+      />
+
+      <RecipeAiImportOverlay
+        visible={aiImportOverlay != null}
+        phase={aiImportOverlay?.phase ?? 'parsing'}
+        mode={aiImportOverlay?.mode ?? 'link'}
+        errorMessage={aiImportOverlay?.errorMessage}
+        onDismiss={() => setAiImportOverlay(null)}
+        reduceMotion={reduceMotion}
       />
     </Screen>
   );
@@ -525,30 +788,55 @@ const styles = StyleSheet.create({
   keyboard: { flex: 1 },
   scroll: { flex: 1 },
   content: { flexGrow: 1 },
-  modeSection: { marginBottom: spacing.lg },
-  aiSection: { marginBottom: spacing.lg },
-  aiTextField: { marginBottom: spacing.sm },
-  aiTextInput: { minHeight: 180 },
-  aiParseBtn: { marginBottom: spacing.sm },
+  savePill: {
+    minWidth: 72,
+    minHeight: MIN_TOUCH_TARGET,
+    paddingHorizontal: spacing.md,
+    borderRadius: 999,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  smartImportSection: { marginBottom: spacing.lg },
+  smartImportBody: { marginTop: spacing.sm },
+  smartImportField: { marginBottom: spacing.sm },
+  smartImportAction: { marginBottom: spacing.xs },
+  pasteTextInput: { minHeight: 160 },
   basicsSection: { marginBottom: spacing.lg },
-  titleField: { marginBottom: spacing.lg },
-  timeField: { marginBottom: 0 },
-  categoryField: { marginTop: spacing.md },
-  instructionsSection: { marginBottom: spacing.lg },
-  instructionsField: { marginBottom: 0 },
-  instructionsInput: {
-    minHeight: 160,
+  titleField: { marginBottom: spacing.md },
+  twoColRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  twoColField: { flex: 1, marginBottom: 0, minWidth: 0 },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  categoryChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   ingSection: { marginBottom: spacing.lg },
-  ingBlock: {
-    paddingVertical: spacing.sm,
-  },
-  ingRow1: {
+  ingredientRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xs,
+    gap: spacing.sm,
   },
-  ingName: { flex: 1, marginBottom: 0, marginRight: spacing.sm },
+  ingQty: { width: spacing.md * 5, marginBottom: 0, flexShrink: 0 },
+  /** Single-line inputs: same rhythm as unit dropdown trigger (44pt min, sm vertical padding). */
+  compactLineInput: {
+    minHeight: MIN_TOUCH_TARGET,
+    paddingVertical: spacing.sm,
+  },
+  ingQtyInput: { paddingHorizontal: spacing.xs },
+  ingUnitWrap: { width: 96, marginBottom: 0, flexShrink: 0 },
+  ingUnit: { marginBottom: 0 },
+  ingName: { flex: 1, minWidth: 0, marginBottom: 0 },
   removeBtn: {
     width: MIN_TOUCH_TARGET,
     height: MIN_TOUCH_TARGET,
@@ -556,29 +844,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  ingRow2: {
+  stepsSection: { marginBottom: spacing.lg },
+  stepRow: {
     flexDirection: 'row',
-    flexWrap: 'nowrap',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  ingQty: { width: 56, marginBottom: 0, flexShrink: 0 },
-  ingUnitWrap: { width: 96, marginBottom: 0, flexShrink: 0 },
-  ingUnit: { marginBottom: 0 },
-  ingNote: { flex: 1, minWidth: 100, marginBottom: 0 },
-  addIngredientRow: {
-    minHeight: 48,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
+  stepNumberCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  optionalSection: { marginBottom: spacing.lg },
-  formFooter: {
-    paddingHorizontal: 0,
-    paddingTop: spacing.md,
-    marginTop: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
+  stepField: { flex: 1, minWidth: 0, marginBottom: 0 },
+  stepInput: { paddingVertical: spacing.xs },
+  sectionHeaderBtn: {
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xs,
   },
 });

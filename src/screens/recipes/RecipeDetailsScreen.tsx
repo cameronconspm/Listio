@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useLayoutEffect, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,14 +16,14 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RecipesStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
-import { useScrollContentInsetTop } from '../../ui/chrome/useScrollContentInsetTop';
 import { Screen } from '../../components/ui/Screen';
 import { HeaderIconButton } from '../../components/ui/HeaderIconButton';
+import { PushedScreenHeader } from '../../components/ui/PushedScreenHeader';
 import { ListSection } from '../../components/ui/ListSection';
 import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { SecondaryButton } from '../../components/ui/SecondaryButton';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
-import { AppActionSheet } from '../../components/ui/AppActionSheet';
+import { NativeContextMenu } from '../../components/ui/NativeContextMenu';
 import { IngredientList } from '../../components/recipes/IngredientList';
 import { RecipeMetaPills } from '../../components/recipes/RecipeMetaPills';
 import { RecipeInstructionsSection } from '../../components/recipes/RecipeInstructionsSection';
@@ -35,8 +35,12 @@ import {
   addRecipeIngredientsToList,
   deleteRecipe,
   duplicateRecipe,
+  getRecipes,
   toggleRecipeFavorite,
 } from '../../services/recipeService';
+import { getMeals } from '../../services/mealService';
+import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
+import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { getUserId } from '../../services/supabaseClient';
 import { scaleIngredients } from '../../utils/scaleIngredients';
 import { formatScaledIngredientQuantityDisplay } from '../../utils/formatScaledIngredientAmount';
@@ -45,7 +49,6 @@ import { useInvalidateHomeList } from '../../hooks/useInvalidateHomeList';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../query/keys';
 import { fetchRecipeDetailBundle, RECIPE_DETAIL_STALE_MS } from '../../query/recipeDetailBundle';
-import { QueryUpdatingBar } from '../../components/ui/QueryUpdatingBar';
 import type { HomeListBundle } from '../../query/homeListBundle';
 import { invalidateMealsRange } from '../../query/invalidate';
 import { getZoneOrderFromStore } from '../../utils/storeUtils';
@@ -65,7 +68,7 @@ export function RecipeDetailsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const queryClient = useQueryClient();
   const invalidateHomeList = useInvalidateHomeList();
-  const scrollContentInsetTop = useScrollContentInsetTop();
+  const { isPremium } = usePremiumEntitlement();
   /** Tab bar is absolutely positioned over the scene; pad scroll content so CTAs clear it + home indicator. */
   const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
   const navigation = useNavigation<NativeStackNavigationProp<RecipesStackParamList>>();
@@ -83,7 +86,6 @@ export function RecipeDetailsScreen() {
   );
   const [adding, setAdding] = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
-  const [overflowVisible, setOverflowVisible] = useState(false);
   const [displayServings, setDisplayServings] = useState<number | null>(null);
   const [addToMealSheetVisible, setAddToMealSheetVisible] = useState(false);
   const [confirmingMeal, setConfirmingMeal] = useState(false);
@@ -106,12 +108,15 @@ export function RecipeDetailsScreen() {
     const userId = await getUserId();
     if (!userId) return;
     try {
+      const existing = isPremium ? [] : await getRecipes(userId);
+      const allowed = await ensureFreeTierCapacity('recipe', existing.length, 1, isPremium);
+      if (!allowed) return;
       const newRecipe = await duplicateRecipe(recipeId, userId);
       navigation.replace('RecipeDetails', { recipeId: newRecipe.id });
     } catch {
       showError('Could not duplicate recipe.');
     }
-  }, [recipeId, navigation]);
+  }, [recipeId, navigation, isPremium]);
 
   const handleToggleFavorite = useCallback(async () => {
     try {
@@ -125,92 +130,6 @@ export function RecipeDetailsScreen() {
       showError('Could not update favorite.');
     }
   }, [recipeId, queryClient, invalidateRecipeDetail]);
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <View style={styles.headerRight}>
-          {recipe && (
-            <HeaderIconButton
-              accessibilityLabel={recipe.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
-              onPress={handleToggleFavorite}
-            >
-              <Ionicons
-                name={recipe.is_favorite ? 'heart' : 'heart-outline'}
-                size={22}
-                color={recipe.is_favorite ? theme.accent : theme.textSecondary}
-              />
-            </HeaderIconButton>
-          )}
-          <HeaderIconButton accessibilityLabel="More options" onPress={() => setOverflowVisible(true)}>
-            <Ionicons name="ellipsis-horizontal" size={22} color={theme.textSecondary} />
-          </HeaderIconButton>
-        </View>
-      ),
-    });
-  }, [navigation, theme.danger, theme.accent, theme.textSecondary, recipe, handleToggleFavorite]);
-
-  const handleAddToList = async () => {
-    const userId = await getUserId();
-    if (!userId) return;
-    setAdding(true);
-    try {
-      const baseServings = recipe?.servings ?? 4;
-      const servings = displayServings ?? baseServings;
-      const scaleFactor = baseServings > 0 ? servings / baseServings : 1;
-      const bundle = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList(userId));
-      const store = bundle?.store ?? null;
-      const zoneKeys = getZoneOrderFromStore(store);
-      const zoneLabelsInOrder = zoneKeys.map((k) => ZONE_LABELS[k]);
-      await addRecipeIngredientsToList(recipeId, userId, scaleFactor, {
-        storeType: store?.store_type ?? 'generic',
-        zoneLabelsInOrder,
-      });
-      await invalidateHomeList();
-      invalidateRecipeDetail();
-      showSuccess('Ingredients added to your list.');
-    } catch {
-      showError('Could not add ingredients to list.');
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  const handleConfirmAddToMeal = useCallback(
-    async (payload: AddRecipeToMealPayload) => {
-      const userId = await getUserId();
-      if (!userId) return;
-      setConfirmingMeal(true);
-      try {
-        await addRecipeToMeals(recipeId, userId, {
-          meal_date: payload.meal_date,
-          meal_slot: payload.meal_slot,
-          custom_slot_name: payload.custom_slot_name,
-        });
-        await invalidateMealsRange(queryClient, userId);
-        await invalidateHomeList();
-        setAddToMealSheetVisible(false);
-        showSuccess('Meal created from recipe.');
-        navigation.navigate('RecipesList');
-        invalidateRecipeDetail();
-      } catch {
-        showError('Could not add to meals.');
-      } finally {
-        setConfirmingMeal(false);
-      }
-    },
-    [recipeId, queryClient, navigation, invalidateRecipeDetail, invalidateHomeList]
-  );
-
-  const handleDelete = useCallback(async () => {
-    setDeleteConfirmVisible(false);
-    try {
-      await deleteRecipe(recipeId);
-      navigation.goBack();
-    } catch {
-      showError('Could not delete recipe.');
-    }
-  }, [recipeId, navigation]);
 
   const baseServings = recipe?.servings ?? 4;
   const servings = displayServings ?? baseServings;
@@ -247,9 +166,122 @@ export function RecipeDetailsScreen() {
     Share.share({ message: lines.join('\n'), title: recipe.name });
   }, [recipe, scaledIngredients, servings]);
 
+  const pageHeader = (
+    <PushedScreenHeader
+      title="Recipe"
+      onBack={() => navigation.goBack()}
+      rightAccessory={
+        recipe ? (
+        <View style={styles.headerRight}>
+          <HeaderIconButton
+            accessibilityLabel={recipe.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+            onPress={handleToggleFavorite}
+          >
+            <Ionicons
+              name={recipe.is_favorite ? 'heart' : 'heart-outline'}
+              size={22}
+              color={recipe.is_favorite ? theme.accent : theme.textSecondary}
+            />
+          </HeaderIconButton>
+          <NativeContextMenu
+            title="Recipe"
+            isAnchoredToRight
+            accessibilityLabel="More options"
+            actions={[
+              { id: 'share', label: 'Share recipe', systemImage: 'square.and.arrow.up', onPress: handleShare },
+              { id: 'duplicate', label: 'Duplicate recipe', systemImage: 'plus.square.on.square', onPress: handleDuplicate },
+              {
+                id: 'delete',
+                label: 'Delete recipe',
+                systemImage: 'trash',
+                destructive: true,
+                onPress: () => setDeleteConfirmVisible(true),
+              },
+            ]}
+          >
+            <View style={styles.headerMenuButton}>
+              <Ionicons name="ellipsis-horizontal" size={22} color={theme.textSecondary} />
+            </View>
+          </NativeContextMenu>
+        </View>
+        ) : undefined
+      }
+    />
+  );
+
+  const handleAddToList = async () => {
+    const userId = await getUserId();
+    if (!userId) return;
+    setAdding(true);
+    try {
+      const baseServings = recipe?.servings ?? 4;
+      const servings = displayServings ?? baseServings;
+      const scaleFactor = baseServings > 0 ? servings / baseServings : 1;
+      const bundle = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList(userId));
+      const store = bundle?.store ?? null;
+      const zoneKeys = getZoneOrderFromStore(store);
+      const zoneLabelsInOrder = zoneKeys.map((k) => ZONE_LABELS[k]);
+      await addRecipeIngredientsToList(recipeId, userId, scaleFactor, {
+        storeType: store?.store_type ?? 'generic',
+        zoneLabelsInOrder,
+      });
+      await invalidateHomeList();
+      invalidateRecipeDetail();
+      showSuccess('Ingredients added to your list.');
+    } catch {
+      showError('Could not add ingredients to list.');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleConfirmAddToMeal = useCallback(
+    async (payload: AddRecipeToMealPayload) => {
+      const userId = await getUserId();
+      if (!userId) return;
+      setConfirmingMeal(true);
+      try {
+        const existingMeals = isPremium ? [] : await getMeals(userId);
+        const allowed = await ensureFreeTierCapacity('meal', existingMeals.length, 1, isPremium);
+        if (!allowed) {
+          setConfirmingMeal(false);
+          setAddToMealSheetVisible(false);
+          return;
+        }
+        await addRecipeToMeals(recipeId, userId, {
+          meal_date: payload.meal_date,
+          meal_slot: payload.meal_slot,
+          custom_slot_name: payload.custom_slot_name,
+        });
+        await invalidateMealsRange(queryClient, userId);
+        await invalidateHomeList();
+        setAddToMealSheetVisible(false);
+        showSuccess('Meal created from recipe.');
+        navigation.navigate('RecipesList');
+        invalidateRecipeDetail();
+      } catch {
+        showError('Could not add to meals.');
+      } finally {
+        setConfirmingMeal(false);
+      }
+    },
+    [recipeId, queryClient, navigation, invalidateRecipeDetail, invalidateHomeList, isPremium]
+  );
+
+  const handleDelete = useCallback(async () => {
+    setDeleteConfirmVisible(false);
+    try {
+      await deleteRecipe(recipeId);
+      navigation.goBack();
+    } catch {
+      showError('Could not delete recipe.');
+    }
+  }, [recipeId, navigation]);
+
   if (detailQuery.isPending && !detailQuery.data) {
     return (
-      <Screen padded>
+      <Screen padded safeTop={false} safeBottom={false}>
+        {pageHeader}
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
@@ -259,7 +291,8 @@ export function RecipeDetailsScreen() {
 
   if (!recipe) {
     return (
-      <Screen padded>
+      <Screen padded safeTop={false} safeBottom={false}>
+        {pageHeader}
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <Text style={[theme.typography.body, { color: theme.textSecondary }]}>Recipe not found.</Text>
         </View>
@@ -281,15 +314,14 @@ export function RecipeDetailsScreen() {
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      {pageHeader}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={{
-          paddingTop: scrollContentInsetTop,
           paddingBottom: scrollBottomPad,
         }}
         showsVerticalScrollIndicator={false}
       >
-        <QueryUpdatingBar visible={!!detailQuery.data && detailQuery.isFetching && !adding && !confirmingMeal} />
         <Text style={[theme.typography.title2, { color: theme.textPrimary, marginBottom: theme.spacing.sm }]}>
           {recipe.name}
         </Text>
@@ -385,15 +417,6 @@ export function RecipeDetailsScreen() {
         onConfirm={handleConfirmAddToMeal}
       />
 
-      <AppActionSheet
-        visible={overflowVisible}
-        onClose={() => setOverflowVisible(false)}
-        actions={[
-          { label: 'Share recipe', onPress: handleShare },
-          { label: 'Duplicate recipe', onPress: handleDuplicate },
-          { label: 'Delete recipe', onPress: () => setDeleteConfirmVisible(true), destructive: true },
-        ]}
-      />
       <AppConfirmationDialog
         visible={deleteConfirmVisible}
         onClose={() => setDeleteConfirmVisible(false)}
@@ -443,6 +466,12 @@ const styles = StyleSheet.create({
   secondaryBtn: { marginBottom: spacing.sm },
   headerRight: {
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerMenuButton: {
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
     alignItems: 'center',
   },
 });

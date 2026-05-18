@@ -1,4 +1,5 @@
 import React from 'react';
+import { View, StyleSheet } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { RootStackParamList } from './types';
 import { TabsNavigator } from './TabsNavigator';
@@ -16,14 +17,20 @@ export function RootNavigator() {
   const base = createNativeStackScreenOptions(theme);
   return (
     <NavigationChromeScrollProvider>
-      <Stack.Navigator
-        screenOptions={{
-          ...base,
-          headerShown: false,
-        }}
-      >
-        <Stack.Screen name="AppTabs" component={TabsNavigator} />
-      </Stack.Navigator>
+      <View style={styles.flex}>
+        <Stack.Navigator
+          screenOptions={{
+            ...base,
+            headerShown: false,
+          }}
+        >
+          <Stack.Screen name="AppTabs" component={TabsNavigator} />
+        </Stack.Navigator>
+      </View>
     </NavigationChromeScrollProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+});

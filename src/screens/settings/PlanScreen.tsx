@@ -24,6 +24,8 @@ import {
   presentPaywallForPurchase,
   shouldEnforceIosSubscriptionGate,
 } from '../../services/purchasesService';
+import { ensureServerSubscriptionMirror } from '../../services/subscriptionEntitlementSyncService';
+import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 export function PlanScreen() {
   const onScroll = useSettingsScrollHandler();
@@ -44,6 +46,7 @@ export function PlanScreen() {
         }
         const ok = await fetchPremiumEntitlementActive();
         if (!cancelled) setSubscribed(ok);
+        if (ok) void ensureServerSubscriptionMirror();
       })();
       return () => {
         cancelled = true;
@@ -95,11 +98,12 @@ export function PlanScreen() {
       : subscribed === true
         ? 'Thank you for supporting Listio. You have access to all features included in your plan.'
         : subscribed === false
-          ? `Subscribe for ${LISTIO_PLUS_MONTHLY_USD_LABEL} or ${LISTIO_PLUS_ANNUAL_USD_LABEL} to use Listio on this device. Price may vary by region.`
+          ? `Subscribe for ${LISTIO_PLUS_MONTHLY_USD_LABEL} or ${LISTIO_PLUS_ANNUAL_USD_LABEL} to unlock Listio+ features on this device. Price may vary by region.`
           : 'Checking your plan…';
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      <SettingsPushedScreenHeader title="Plan" />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[

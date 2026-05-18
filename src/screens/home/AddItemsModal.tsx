@@ -15,7 +15,10 @@ import { useHomeListMutations } from '../../hooks/useHomeListMutations';
 import { queryKeys } from '../../query/keys';
 import type { HomeListBundle } from '../../query/homeListBundle';
 import type { ZoneKey } from '../../types/models';
+import { DEFAULT_ZONE_ORDER, ZONE_LABELS } from '../../data/zone';
 import { spacing } from '../../design/spacing';
+import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
+import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 
 type AddItemsModalProps = {
   visible: boolean;
@@ -27,6 +30,7 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
   const theme = useTheme();
   const queryClient = useQueryClient();
   const { insertItems } = useHomeListMutations();
+  const { isPremium } = usePremiumEntitlement();
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,17 +49,23 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
     }
     setLoading(true);
     try {
-      const storeType =
-        queryClient.getQueryData<HomeListBundle>(queryKeys.homeList(userId))?.store?.store_type ??
-        'generic';
-      const { categorizeItems } = await import('../../services/aiService');
-      const { results } = await categorizeItems(raw, storeType);
+      const currentBundle = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList(userId));
+      const currentCount = currentBundle?.listItems.length ?? 0;
+      const ok = await ensureFreeTierCapacity('list', currentCount, raw.length, isPremium);
+      if (!ok) {
+        setLoading(false);
+        return;
+      }
+      const storeType = currentBundle?.store?.store_type ?? 'generic';
+      const zoneLabelsInOrder = DEFAULT_ZONE_ORDER.map((zoneKey) => ZONE_LABELS[zoneKey]);
+      const { categorizeItems, phraseKeyForCategorize } = await import('../../services/aiService');
+      const { results } = await categorizeItems(raw, storeType, zoneLabelsInOrder);
       await insertItems.mutateAsync({
         userId,
         items: results.map((r, i) => ({
           user_id: userId,
-          name: r.normalized_name,
-          normalized_name: r.normalized_name,
+          name: raw[i] ?? r.input,
+          normalized_name: phraseKeyForCategorize(raw[i] ?? r.input),
           category: r.category,
           zone_key: r.zone_key as ZoneKey,
           quantity_value: null,
@@ -66,7 +76,8 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
         })),
       });
       results.forEach((r, i) => {
-        recordItemAdded(r.normalized_name, raw[i] ?? r.normalized_name, null);
+        const display = raw[i] ?? r.input;
+        recordItemAdded(phraseKeyForCategorize(display), display, null);
       });
       setText('');
       onAdded();

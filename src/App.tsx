@@ -11,15 +11,17 @@ import type { RootStackParamList } from './navigation/types';
 import { buildRootLinkingOptions } from './navigation/linking';
 import {
   supabase,
-  getUserId,
   isSupabaseSyncRequiredButMisconfigured,
   signOutLocallyIfCorruptRefreshToken,
 } from './services/supabaseClient';
 import { resolveAuthAccountEmail } from './constants/officialTestAccount';
 import { consumeSupabaseAuthFromUrl } from './services/authDeepLink';
 import {
+  ensurePurchasesConfigured,
   fetchPremiumEntitlementActive,
+  installRevenueCatCustomerInfoListener,
   shouldEnforceIosSubscriptionGate,
+  subscribePremiumStatusChanges,
   syncPurchasesIdentity,
 } from './services/purchasesService';
 import { isOnboardingCompleted, clearOnboardingCompletion } from './services/onboardingService';
@@ -41,8 +43,12 @@ import { logger } from './utils/logger';
 import { hydrateCategoryCache } from './services/aiCategoryCache';
 import { RootNavigator } from './navigation/RootNavigator';
 import { OnboardingFlowScreen } from './screens/onboarding/OnboardingFlowScreen';
-import { SubscriptionGateScreen } from './screens/subscription/SubscriptionGateScreen';
 import { SetPasswordAfterRecoveryScreen } from './screens/auth/SetPasswordAfterRecoveryScreen';
+import { PremiumEntitlementProvider } from './context/PremiumEntitlementContext';
+import { ContextualPaywallProvider } from './context/ContextualPaywallContext';
+import { AppReviewProvider } from './context/AppReviewContext';
+import { recordAppReviewSession } from './services/appReviewService';
+import { ensureServerSubscriptionMirror } from './services/subscriptionEntitlementSyncService';
 import { spacing } from './design/spacing';
 
 /** Lazily imported on first sign-in; keeps the import path out of the initial JS bundle. */
@@ -128,6 +134,7 @@ function AppShell() {
   /** After opening a password-recovery deep link, require a new password before the main app. */
   const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
   const lastConsumedAuthUrlRef = useRef<string | null>(null);
+  const appReviewSessionRecordedRef = useRef(false);
   /** Never `undefined` — some navigation + Fabric paths misbehave with linking omitted on first paint. */
   const [linkingOpts, setLinkingOpts] = useState<LinkingOptions<RootStackParamList>>(
     () => buildRootLinkingOptions()
@@ -221,6 +228,14 @@ function AppShell() {
   useEffect(() => {
     if (isAuthenticated === false) setPasswordRecoveryPending(false);
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (misconfigured || !shouldEnforceIosSubscriptionGate()) return;
+    void ensurePurchasesConfigured().then(() => installRevenueCatCustomerInfoListener());
+    return subscribePremiumStatusChanges((isPremium) => {
+      setSubscriptionUnlocked(isPremium);
+    });
+  }, [misconfigured]);
 
   useEffect(() => {
     if (misconfigured) return;
@@ -354,6 +369,7 @@ function AppShell() {
         entitlementSettled = true;
         clearTimeout(entitlementTimeoutId);
         setSubscriptionUnlocked(ok);
+        if (ok) void ensureServerSubscriptionMirror();
       })
       .catch((e) => {
         if (cancelled || entitlementSettled) return;
@@ -374,36 +390,21 @@ function AppShell() {
     setReplayOnboarding(false);
   }, []);
 
-  const subscriptionBootstrapping =
-    isAuthenticated === true &&
-    !bootstrapping &&
-    onboardingComplete === true &&
-    !showOnboarding &&
-    shouldEnforceIosSubscriptionGate() &&
-    (!purchasesIdentityReady || subscriptionUnlocked === null);
-
-  const showSubscriptionGate =
-    isAuthenticated === true &&
-    !bootstrapping &&
-    onboardingComplete === true &&
-    !showOnboarding &&
+  const isPremium = !shouldEnforceIosSubscriptionGate() ? true : subscriptionUnlocked === true;
+  const isPremiumLoading =
     shouldEnforceIosSubscriptionGate() &&
     purchasesIdentityReady &&
-    subscriptionUnlocked === false;
-
-  const handleSubscriptionUnlocked = useCallback(() => {
-    setSubscriptionUnlocked(true);
-  }, []);
-
-  const subscriptionAllowsMainNav =
-    !shouldEnforceIosSubscriptionGate() || subscriptionUnlocked === true;
+    subscriptionUnlocked === null &&
+    isAuthenticated === true &&
+    onboardingComplete === true &&
+    !showOnboarding;
 
   const mainAppActive =
     isAuthenticated === true &&
     !bootstrapping &&
     onboardingComplete === true &&
     !showOnboarding &&
-    subscriptionAllowsMainNav;
+    purchasesIdentityReady;
 
   useEffect(() => {
     if (!navReady || !mainAppActive) return;
@@ -415,16 +416,21 @@ function AppShell() {
     return subscribeNotificationOpenHandlers();
   }, [navReady, mainAppActive]);
 
+  useEffect(() => {
+    if (!mainAppActive || appReviewSessionRecordedRef.current) return;
+    appReviewSessionRecordedRef.current = true;
+    void recordAppReviewSession();
+  }, [mainAppActive]);
+
   // Keep the native launch screen up until we're actually ready to render real UI —
   // not a `<LoadingGate />`. Without this, users briefly see the branded splash,
   // then an ActivityIndicator, then the app. With this they only ever see the splash
-  // transition straight into auth / onboarding / paywall / main app.
+  // transition straight into auth / onboarding / main app.
   const readyToRenderRealUi =
     misconfigured ||
     isAuthenticated === false ||
     (isAuthenticated === true && passwordRecoveryPending) ||
     showOnboarding ||
-    showSubscriptionGate ||
     mainAppActive;
 
   useEffect(() => {
@@ -465,12 +471,18 @@ function AppShell() {
             <LoadingGate />
           ) : showOnboarding ? (
             <OnboardingFlowScreen onFinished={handleOnboardingUiFinished} />
-          ) : subscriptionBootstrapping ? (
-            <LoadingGate />
-          ) : showSubscriptionGate ? (
-            <SubscriptionGateScreen onUnlocked={handleSubscriptionUnlocked} />
           ) : (
-            <RootNavigator />
+            <PremiumEntitlementProvider isPremium={isPremium} isPremiumLoading={isPremiumLoading}>
+              <AppReviewProvider>
+                <ContextualPaywallProvider
+                  onPremiumStatusKnown={(ok) => {
+                    if (ok) setSubscriptionUnlocked(true);
+                  }}
+                >
+                  <RootNavigator />
+                </ContextualPaywallProvider>
+              </AppReviewProvider>
+            </PremiumEntitlementProvider>
           )}
           <DeferredStatusBar />
         </NavigationContainer>
@@ -507,7 +519,7 @@ function App() {
   useEffect(() => {
     const t = setTimeout(() => {
       // If this fires in the wild it means AppShell never reached a terminal state
-      // (auth / onboarding / paywall / main app / misconfigured) within the budget.
+      // (auth / onboarding / main app / misconfigured) within the budget.
       // We still hide the splash so the user sees *something*, but we want to know
       // how often this happens in production to tune the timeout.
       logger.warnRelease(

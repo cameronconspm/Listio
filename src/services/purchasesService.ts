@@ -8,6 +8,10 @@ import {
   subscriptionPlatformEnforced,
 } from '../constants/subscription';
 import { logger } from '../utils/logger';
+import {
+  ensureServerSubscriptionMirror,
+  scheduleSubscriptionEntitlementSync,
+} from './subscriptionEntitlementSyncService';
 
 type Extra = {
   revenueCatIosApiKey?: string;
@@ -50,6 +54,40 @@ let purchasesConfigured = false;
 let purchasesConfigureAttempted = false;
 
 let revenueCatLoggingInstalled = false;
+let customerInfoListenerInstalled = false;
+
+const premiumStatusListeners = new Set<(isPremium: boolean) => void>();
+
+/** Live updates when StoreKit / RevenueCat changes entitlements (renewal, cancel, restore). */
+export function subscribePremiumStatusChanges(listener: (isPremium: boolean) => void): () => void {
+  premiumStatusListeners.add(listener);
+  return () => {
+    premiumStatusListeners.delete(listener);
+  };
+}
+
+function notifyPremiumStatusListeners(isPremium: boolean): void {
+  for (const listener of premiumStatusListeners) {
+    try {
+      listener(isPremium);
+    } catch (e) {
+      logger.warnRelease('premium status listener failed', e);
+    }
+  }
+}
+
+function handleRevenueCatCustomerInfoUpdate(info: CustomerInfo): void {
+  const isPremium = customerInfoHasPremium(info);
+  notifyPremiumStatusListeners(isPremium);
+  scheduleSubscriptionEntitlementSync();
+}
+
+export function installRevenueCatCustomerInfoListener(): void {
+  if (customerInfoListenerInstalled || !purchasesConfigured) return;
+  if (isRevenueCatNativeLayerSkipped()) return;
+  customerInfoListenerInstalled = true;
+  Purchases.addCustomerInfoUpdateListener(handleRevenueCatCustomerInfoUpdate);
+}
 
 /** Default WARN to avoid flooding Metro; set EXPO_PUBLIC_REVENUECAT_VERBOSE_LOGS=1 for DEBUG. */
 function resolveRevenueCatLogLevel(): (typeof LOG_LEVEL)[keyof typeof LOG_LEVEL] {
@@ -63,6 +101,11 @@ function resolveRevenueCatLogLevel(): (typeof LOG_LEVEL)[keyof typeof LOG_LEVEL]
 /**
  * Install once before configure: filter benign RC backend races that still surface as ERROR logs.
  */
+function revenueCatVerboseLogsEnabled(): boolean {
+  const v = process.env.EXPO_PUBLIC_REVENUECAT_VERBOSE_LOGS?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 function ensureRevenueCatLogHandlerInstalled(): void {
   if (revenueCatLoggingInstalled) return;
   revenueCatLoggingInstalled = true;
@@ -76,6 +119,13 @@ function ensureRevenueCatLogHandlerInstalled(): void {
       return;
     }
     const line = `[RevenueCat] ${message}`;
+    const verbose = revenueCatVerboseLogsEnabled();
+    if (!__DEV__ && !verbose) {
+      if (level === LOG_LEVEL.ERROR) {
+        console.error(line);
+      }
+      return;
+    }
     switch (level) {
       case LOG_LEVEL.VERBOSE:
         console.log(line);
@@ -124,6 +174,7 @@ export async function ensurePurchasesConfigured(): Promise<void> {
       diagnosticsEnabled: false,
     });
     purchasesConfigured = true;
+    installRevenueCatCustomerInfoListener();
   } catch (e) {
     logger.warnRelease(
       'RevenueCat: Purchases.configure failed — use a dev client with native modules, not Expo Go',
@@ -190,7 +241,9 @@ export async function fetchPremiumEntitlementActive(): Promise<boolean> {
     );
     return false;
   }
-  return customerInfoHasPremium(info);
+  const isPremium = customerInfoHasPremium(info);
+  notifyPremiumStatusListeners(isPremium);
+  return isPremium;
 }
 
 /**
@@ -211,12 +264,18 @@ export async function syncPurchasesIdentity(
         await Purchases.logOut();
       }
       await Purchases.setEmail(null);
+      notifyPremiumStatusListeners(false);
       return;
     }
-    await Purchases.logIn(appUserId);
+    const { customerInfo } = await Purchases.logIn(appUserId);
     const trimmed = typeof accountEmail === 'string' ? accountEmail.trim() : '';
     if (trimmed.length > 0) {
       await Purchases.setEmail(trimmed);
+    }
+    const isPremium = customerInfoHasPremium(customerInfo);
+    notifyPremiumStatusListeners(isPremium);
+    if (isPremium) {
+      await ensureServerSubscriptionMirror();
     }
   } catch (e) {
     logger.warnRelease('RevenueCat logIn/logOut/setEmail failed', e);
@@ -243,41 +302,16 @@ export async function presentPaywallForPurchase(): Promise<boolean> {
   }
   try {
     const info = await Purchases.getCustomerInfo();
-    return customerInfoHasPremium(info);
+    const hasPremium = customerInfoHasPremium(info);
+    notifyPremiumStatusListeners(hasPremium);
+    if (hasPremium) {
+      await ensureServerSubscriptionMirror();
+    }
+    return hasPremium;
   } catch (e) {
     logger.warnRelease('RevenueCat getCustomerInfo after paywall failed', e);
     if (isPurchasesConfigurationFailure(e)) return false;
     return false;
-  }
-}
-
-/**
- * Subscription gate: show `presentPaywallIfNeeded` once when the user lacks the entitlement.
- */
-export async function presentSubscriptionGateAutoPaywall(
-  onBillingUnavailable: () => void
-): Promise<void> {
-  if (!subscriptionPlatformEnforced()) return;
-  if (isRevenueCatNativeLayerSkipped()) return;
-  if (!getRevenueCatIosApiKey()) return;
-  await ensurePurchasesConfigured();
-  if (!purchasesConfigured) {
-    logger.warnRelease(
-      'RevenueCat: subscription gate blocked — Purchases not configured.'
-    );
-    return;
-  }
-  try {
-    await RevenueCatUI.presentPaywallIfNeeded({
-      requiredEntitlementIdentifier: REVENUECAT_ENTITLEMENT_ID,
-    });
-  } catch (e) {
-    logger.warnRelease('RevenueCat presentPaywallIfNeeded failed', e);
-    if (isPurchasesConfigurationFailure(e)) {
-      logger.warnRelease(
-        'RevenueCat: configuration error on paywall — blocking app access until offerings / paywall are fixed.'
-      );
-    }
   }
 }
 
@@ -289,7 +323,13 @@ export async function restorePurchases(): Promise<CustomerInfo> {
   if (!purchasesConfigured) {
     throw new Error('Purchases not configured');
   }
-  return Purchases.restorePurchases();
+  const info = await Purchases.restorePurchases();
+  const hasPremium = customerInfoHasPremium(info);
+  notifyPremiumStatusListeners(hasPremium);
+  if (hasPremium) {
+    await ensureServerSubscriptionMirror();
+  }
+  return info;
 }
 
 /** Opens the App Store subscriptions management page in Safari / App Store (fallback). */

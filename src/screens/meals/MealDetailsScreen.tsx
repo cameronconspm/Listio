@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useLayoutEffect, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,16 +15,18 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MealsStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
-import { useScrollContentInsetTop } from '../../ui/chrome/useScrollContentInsetTop';
 import { Screen } from '../../components/ui/Screen';
 import { HeaderIconButton } from '../../components/ui/HeaderIconButton';
+import { PushedScreenHeader } from '../../components/ui/PushedScreenHeader';
 import { ListSection } from '../../components/ui/ListSection';
 import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { SecondaryButton } from '../../components/ui/SecondaryButton';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
 import { IngredientRow } from '../../components/meals/IngredientRow';
 import { RecipeMetaPills } from '../../components/recipes/RecipeMetaPills';
-import { addMissingIngredientsToList, deleteMeal, copyMealToDates } from '../../services/mealService';
+import { addMissingIngredientsToList, deleteMeal, copyMealToDates, getMeals } from '../../services/mealService';
+import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
+import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getUserId } from '../../services/supabaseClient';
 import { useAuthUserId } from '../../context/AuthUserIdContext';
@@ -40,7 +42,6 @@ import { MealWeekdayScheduleSheet } from '../../components/meals/MealWeekdaySche
 import { showError } from '../../utils/appToast';
 import { queryKeys } from '../../query/keys';
 import { fetchMealDetailBundle, MEAL_DETAIL_STALE_MS } from '../../query/mealDetailBundle';
-import { QueryUpdatingBar } from '../../components/ui/QueryUpdatingBar';
 import { spacing } from '../../design/spacing';
 
 type Route = RouteProp<MealsStackParamList, 'MealDetails'>;
@@ -59,7 +60,7 @@ export function MealDetailsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const queryClient = useQueryClient();
   const invalidateHomeList = useInvalidateHomeList();
-  const scrollContentInsetTop = useScrollContentInsetTop();
+  const { isPremium } = usePremiumEntitlement();
   const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
   const navigation = useNavigation<NativeStackNavigationProp<MealsStackParamList>>();
   const route = useRoute<Route>();
@@ -104,19 +105,6 @@ export function MealDetailsScreen() {
     if (!userReady) return;
     void queryClient.invalidateQueries({ queryKey: queryKeys.mealDetail(userId, mealId) });
   }, [queryClient, userId, mealId, userReady]);
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <HeaderIconButton
-          accessibilityLabel="Delete meal"
-          onPress={() => setDeleteConfirmVisible(true)}
-        >
-          <Ionicons name="trash-outline" size={22} color={theme.danger} />
-        </HeaderIconButton>
-      ),
-    });
-  }, [navigation, theme.danger]);
 
   const handleAddMissing = async () => {
     const uid = await getUserId();
@@ -164,6 +152,13 @@ export function MealDetailsScreen() {
     if (targetDates.length === 0) return;
     setCopying(true);
     try {
+      const existing = isPremium ? [] : await getMeals(userId);
+      const allowed = await ensureFreeTierCapacity('meal', existing.length, targetDates.length, isPremium);
+      if (!allowed) {
+        setCopying(false);
+        setCopySheetVisible(false);
+        return;
+      }
       await copyMealToDates(mealId, userId, targetDates);
       await invalidateMealsRange(queryClient, userId);
       setCopySheetVisible(false);
@@ -181,6 +176,7 @@ export function MealDetailsScreen() {
     copyRecurringWeeks,
     navigation,
     queryClient,
+    isPremium,
   ]);
 
   const resetCopySheetFromMeal = useCallback(() => {
@@ -221,9 +217,25 @@ export function MealDetailsScreen() {
     else detailPills.push(`${onListCount} on list`, `${missingCount} missing`);
   }
 
+  const pageHeader = (
+    <PushedScreenHeader
+      title="Meal"
+      onBack={() => navigation.goBack()}
+      rightAccessory={
+        <HeaderIconButton
+          accessibilityLabel="Delete meal"
+          onPress={() => setDeleteConfirmVisible(true)}
+        >
+          <Ionicons name="trash-outline" size={22} color={theme.danger} />
+        </HeaderIconButton>
+      }
+    />
+  );
+
   if (userId === undefined) {
     return (
-      <Screen padded safeTop={false}>
+      <Screen padded safeTop={false} safeBottom={false}>
+        {pageHeader}
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
@@ -233,7 +245,8 @@ export function MealDetailsScreen() {
 
   if (userId === null) {
     return (
-      <Screen padded safeTop={false}>
+      <Screen padded safeTop={false} safeBottom={false}>
+        {pageHeader}
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <Text style={[theme.typography.body, { color: theme.textSecondary }]}>Sign in to view this meal.</Text>
         </View>
@@ -243,7 +256,8 @@ export function MealDetailsScreen() {
 
   if (userReady && !detailQuery.data && detailQuery.isPending) {
     return (
-      <Screen padded safeTop={false}>
+      <Screen padded safeTop={false} safeBottom={false}>
+        {pageHeader}
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
@@ -253,7 +267,8 @@ export function MealDetailsScreen() {
 
   if (!meal) {
     return (
-      <Screen padded safeTop={false}>
+      <Screen padded safeTop={false} safeBottom={false}>
+        {pageHeader}
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <Text style={[theme.typography.body, { color: theme.textSecondary }]}>Meal not found.</Text>
         </View>
@@ -263,15 +278,14 @@ export function MealDetailsScreen() {
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
+      {pageHeader}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={{
-          paddingTop: scrollContentInsetTop,
           paddingBottom: scrollBottomPad,
         }}
         showsVerticalScrollIndicator={false}
       >
-        <QueryUpdatingBar visible={!!detailQuery.data && detailQuery.isFetching && !adding && !copying} />
         <Text style={[theme.typography.title2, { color: theme.textPrimary, marginBottom: theme.spacing.sm }]}>
           {meal.name}
         </Text>
