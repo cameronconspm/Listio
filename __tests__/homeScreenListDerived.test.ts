@@ -1,4 +1,8 @@
-import { deriveHomeListModel, safeZoneOrderOrDefault } from '../src/screens/home/homeScreenListDerived';
+import {
+  deriveHomeListModel,
+  safeZoneOrderOrDefault,
+  shareHomeListDerivedModel,
+} from '../src/screens/home/homeScreenListDerived';
 import { DEFAULT_ZONE_ORDER } from '../src/data/zone';
 import type { ListItem } from '../src/types/models';
 
@@ -59,6 +63,22 @@ describe('deriveHomeListModel', () => {
     expect(produce?.items.map((i) => i.name)).toEqual(['Apple', 'Zebra']);
     const dairy = m.orderedSections.find((s) => s.zone === 'dairy_eggs');
     expect(dairy?.items.map((i) => i.name)).toEqual(['Milk']);
+  });
+
+  it('reuses unchanged section references between derivations', () => {
+    const apple = item({ id: 'a', zone_key: 'produce', name: 'Apple', normalized_name: 'apple' });
+    const milk = item({ id: 'm', zone_key: 'dairy_eggs', name: 'Milk', normalized_name: 'milk' });
+    const first = deriveHomeListModel([apple, milk], DEFAULT_ZONE_ORDER, 'plan', 'all');
+    const checkedMilk = { ...milk, is_checked: true };
+    const second = deriveHomeListModel([apple, checkedMilk], DEFAULT_ZONE_ORDER, 'plan', 'all');
+    const shared = shareHomeListDerivedModel(first, second);
+
+    expect(shared.sections.find((s) => s.zone === 'produce')).toBe(
+      first.sections.find((s) => s.zone === 'produce')
+    );
+    expect(shared.sections.find((s) => s.zone === 'dairy_eggs')).not.toBe(
+      first.sections.find((s) => s.zone === 'dairy_eggs')
+    );
   });
 });
 

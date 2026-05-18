@@ -1,9 +1,6 @@
 import { StyleSheet } from 'react-native';
 import type { AppTheme } from '../../design/ThemeContext';
 
-/** Light dim over the form only — avoids a “double modal” look with the outer sheet backdrop. */
-export const ZONE_OVERLAY_BACKDROP = 'rgba(0,0,0,0.22)';
-
 export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | 'radius'>) {
   const { spacing, radius } = theme;
   return StyleSheet.create({
@@ -33,13 +30,8 @@ export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | '
       minHeight: 44,
       gap: spacing.sm,
     },
-    zoneRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      minHeight: 44,
-      marginTop: spacing.xs,
-      paddingVertical: spacing.sm,
+    headerTitle: {
+      flex: 1,
     },
     zoneRowLabels: {
       flex: 1,
@@ -51,26 +43,22 @@ export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | '
       marginTop: spacing.sm,
       marginHorizontal: -spacing.md,
     },
-    zoneOverlayRoot: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      zIndex: 1000,
-      elevation: 1000,
-      justifyContent: 'flex-end',
+    panelBody: {
+      flexGrow: 0,
+      flexShrink: 1,
+      minHeight: 0,
+      alignSelf: 'stretch',
     },
-    zoneOverlayBackdrop: {
-      backgroundColor: ZONE_OVERLAY_BACKDROP,
-    },
-    zoneOverlayPanel: {
-      borderTopLeftRadius: radius.sheet,
-      borderTopRightRadius: radius.sheet,
+    sectionSummaryCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      minHeight: 56,
+      marginBottom: spacing.md,
+      paddingVertical: spacing.sm,
       paddingHorizontal: spacing.md,
-      /** Room below sheet corner + clear separation from first control (HIG-style 24pt). */
-      paddingTop: spacing.lg,
-      overflow: 'visible',
+      borderRadius: radius.card,
+      borderWidth: StyleSheet.hairlineWidth,
     },
     scrollContent: {
       flexGrow: 0,
@@ -192,6 +180,35 @@ export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | '
     },
     errorIcon: {
       marginRight: spacing.sm,
+    },
+    selectorOverlayRoot: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      zIndex: 30,
+      elevation: 30,
+      justifyContent: 'flex-end',
+      paddingHorizontal: spacing.md,
+      paddingBottom: 82,
+    },
+    selectorBackdrop: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      backgroundColor: 'rgba(0,0,0,0.08)',
+    },
+    selectorMenu: {
+      maxHeight: 360,
+      borderRadius: radius.xl,
+      borderWidth: StyleSheet.hairlineWidth,
+      overflow: 'hidden',
+    },
+    selectorMenuCompact: {
+      maxHeight: 240,
     },
   });
 }

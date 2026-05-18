@@ -14,6 +14,7 @@ export function HomeStack() {
     <Stack.Navigator
       screenOptions={{
         ...base,
+        headerShown: false,
         headerLargeTitle: false,
         headerTitle: 'List',
       }}

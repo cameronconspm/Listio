@@ -25,6 +25,7 @@ import { ListSection } from '../ui/ListSection';
 import type { ListItem, ZoneKey } from '../../types/models';
 import { linkedMealRowMetaFromIds, type LinkedMealRowMeta } from '../../utils/mealLabel';
 import type { ZoneIconOverrides } from '../../utils/storeUtils';
+import { toBoolean } from '../../utils/normalize';
 import { listDuration } from '../../ui/motion/lists';
 import { spacing } from '../../design/spacing';
 import { markRender } from '../../utils/perf';
@@ -132,6 +133,8 @@ function ZoneSectionInner({
 
   if (items.length === 0) return null;
 
+  const sectionComplete = items.every((it) => toBoolean(it.is_checked));
+
   const handleHeaderPress = () => {
     if (zoneClearMode != null) {
       onExitZoneClearMode?.();
@@ -172,7 +175,9 @@ function ZoneSectionInner({
             onLongPress={onRequestDeleteZone && onEnterZoneClearMode ? onEnterZoneClearMode : undefined}
             delayLongPress={450}
             accessibilityRole="button"
-            accessibilityLabel={`${label} section`}
+            accessibilityLabel={
+              sectionComplete ? `${label} section, all items checked` : `${label} section`
+            }
             accessibilityHint={
               onRequestDeleteZone && onEnterZoneClearMode
                 ? 'Tap to expand or collapse. Long press to remove all items in this section. Scroll or use the escape gesture to leave clear mode.'
@@ -210,20 +215,11 @@ function ZoneSectionInner({
                     textTransform: 'uppercase',
                     letterSpacing: 0.5,
                   },
+                  sectionComplete ? styles.sectionTitleComplete : undefined,
                 ]}
               >
                 {label}
               </Text>
-              {isShopMode && remaining > 0 && (
-                <Text
-                  style={[
-                    theme.typography.footnote,
-                    { color: theme.textSecondary, marginLeft: theme.spacing.xs },
-                  ]}
-                >
-                  · {remaining} left
-                </Text>
-              )}
             </View>
             <View style={styles.headerRight}>
               {isShopMode && remaining > 0 ? (
@@ -286,7 +282,36 @@ function ZoneSectionInner({
   );
 }
 
-export const ZoneSection = React.memo(ZoneSectionInner);
+function areZoneSectionPropsEqual(prev: ZoneSectionProps, next: ZoneSectionProps): boolean {
+  const prevClearActive = prev.zoneClearMode === prev.zoneKey;
+  const nextClearActive = next.zoneClearMode === next.zoneKey;
+  const clearStateEqual =
+    prevClearActive === nextClearActive &&
+    (prevClearActive || nextClearActive || prev.zoneClearMode === next.zoneClearMode);
+
+  return (
+    prev.zoneKey === next.zoneKey &&
+    prev.items === next.items &&
+    prev.collapsed === next.collapsed &&
+    prev.onToggleCollapsed === next.onToggleCollapsed &&
+    prev.onToggleItem === next.onToggleItem &&
+    prev.onDeleteItem === next.onDeleteItem &&
+    prev.onEditItem === next.onEditItem &&
+    prev.onRequestDeleteZone === next.onRequestDeleteZone &&
+    clearStateEqual &&
+    prev.onEnterZoneClearMode === next.onEnterZoneClearMode &&
+    prev.onExitZoneClearMode === next.onExitZoneClearMode &&
+    prev.isCurrent === next.isCurrent &&
+    prev.isShopMode === next.isShopMode &&
+    prev.remaining === next.remaining &&
+    prev.hideEditIcon === next.hideEditIcon &&
+    prev.linkedMealLabels === next.linkedMealLabels &&
+    prev.zoneIconOverrides === next.zoneIconOverrides &&
+    prev.reduceMotion === next.reduceMotion
+  );
+}
+
+export const ZoneSection = React.memo(ZoneSectionInner, areZoneSectionPropsEqual);
 
 const styles = StyleSheet.create({
   sectionOuter: {
@@ -333,6 +358,10 @@ const styles = StyleSheet.create({
   },
   zoneEmoji: {
     fontSize: 18,
+  },
+  sectionTitleComplete: {
+    textDecorationLine: 'line-through',
+    opacity: 0.6,
   },
   headerRight: {
     flexDirection: 'row',

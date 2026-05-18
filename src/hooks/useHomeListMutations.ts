@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   deleteAllListItems,
+  deleteCheckedListItems,
   deleteListItem,
   deleteListItemsInZone,
   insertListItems,
@@ -11,8 +12,43 @@ import type { ListItemInsert, ListItemUpdate } from '../services/listService';
 import { queryKeys } from '../query/keys';
 import type { HomeListBundle } from '../query/homeListBundle';
 import type { ListItem, ZoneKey } from '../types/models';
+import { newPendingListItemId } from '../utils/listItemPending';
+import { notifyMeaningfulListOrRecipeAction } from '../services/engagementPaywallTriggers';
 
 type MutationContext = { previous: HomeListBundle | undefined };
+
+type InsertMutationContext = MutationContext & { optimisticIds: string[] };
+
+/** Variables for `insertItems.mutate`; `onOptimisticApplied` is not sent to the API. */
+export type InsertListItemsVariables = {
+  userId: string;
+  items: ListItemInsert[];
+  onOptimisticApplied?: () => void;
+};
+
+function listItemFromInsert(insert: ListItemInsert, id: string, householdId?: string): ListItem {
+  const ts = new Date().toISOString();
+  return {
+    id,
+    user_id: insert.user_id,
+    ...(householdId ? { household_id: householdId } : {}),
+    name: insert.name,
+    normalized_name: insert.normalized_name,
+    category: insert.category,
+    zone_key: insert.zone_key,
+    quantity_value: insert.quantity_value,
+    quantity_unit: insert.quantity_unit,
+    notes: insert.notes,
+    is_checked: insert.is_checked,
+    linked_meal_ids: insert.linked_meal_ids,
+    brand_preference: insert.brand_preference ?? null,
+    substitute_allowed: insert.substitute_allowed ?? true,
+    priority: insert.priority ?? 'normal',
+    is_recurring: insert.is_recurring ?? false,
+    created_at: ts,
+    updated_at: ts,
+  };
+}
 
 /**
  * List writes use onMutate for optimistic UI updates against the React Query
@@ -55,18 +91,57 @@ export function useHomeListMutations() {
   const insertItems = useMutation<
     ListItem[],
     unknown,
-    { userId: string; items: ListItemInsert[] },
-    MutationContext
+    InsertListItemsVariables,
+    InsertMutationContext
   >({
     mutationFn: ({ userId, items }) => insertListItems(userId, items),
-    onSuccess: (inserted, { userId }) => {
-      if (inserted.length === 0) return;
-      writeCache(userId, (prev) => ({
-        ...prev,
-        listItems: [...prev.listItems, ...inserted],
-      }));
+    onMutate: async (variables) => {
+      const { userId, items, onOptimisticApplied } = variables;
+      const ctx = await cancelAndSnapshot(userId);
+      const optimisticIds: string[] = [];
+      if (!ctx.previous || items.length === 0) {
+        return { ...ctx, optimisticIds };
+      }
+      const householdId = ctx.previous.listItems.find((i) => i.household_id)?.household_id;
+      const optimisticRows: ListItem[] = items.map((ins) => {
+        const id = newPendingListItemId();
+        optimisticIds.push(id);
+        return listItemFromInsert(ins, id, householdId);
+      });
+      writeCache(userId, (prev) => {
+        if (!prev) return prev;
+        return { ...prev, listItems: [...prev.listItems, ...optimisticRows] };
+      });
+      onOptimisticApplied?.();
+      return { previous: ctx.previous, optimisticIds };
     },
-    onError: (_e, { userId }) => invalidateList(userId),
+    onSuccess: (inserted, { userId, items }, ctx) => {
+      if (inserted.length === 0) return;
+      notifyMeaningfulListOrRecipeAction();
+      const optimisticIds = ctx?.optimisticIds ?? [];
+      if (optimisticIds.length === 0) {
+        writeCache(userId, (prev) =>
+          prev ? { ...prev, listItems: [...prev.listItems, ...inserted] } : prev
+        );
+        return;
+      }
+      if (inserted.length !== items.length || optimisticIds.length !== items.length) {
+        invalidateList(userId);
+        return;
+      }
+      const pendingSet = new Set(optimisticIds);
+      writeCache(userId, (prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          listItems: [...prev.listItems.filter((i) => !pendingSet.has(i.id)), ...inserted],
+        };
+      });
+    },
+    onError: (_e, { userId }, ctx) => {
+      rollback(userId, ctx);
+      invalidateList(userId);
+    },
   });
 
   const updateItem = useMutation<
@@ -164,6 +239,25 @@ export function useHomeListMutations() {
     onSettled: (_d, _e, { userId }) => invalidateList(userId),
   });
 
+  const removeCheckedItems = useMutation<
+    void,
+    unknown,
+    { userId: string },
+    MutationContext
+  >({
+    mutationFn: ({ userId }) => deleteCheckedListItems(userId),
+    onMutate: async ({ userId }) => {
+      const ctx = await cancelAndSnapshot(userId);
+      writeCache(userId, (prev) => ({
+        ...prev,
+        listItems: prev.listItems.filter((i) => !i.is_checked),
+      }));
+      return ctx;
+    },
+    onError: (_e, { userId }, ctx) => rollback(userId, ctx),
+    onSettled: (_d, _e, { userId }) => invalidateList(userId),
+  });
+
   return {
     insertItems,
     updateItem,
@@ -171,5 +265,6 @@ export function useHomeListMutations() {
     removeItem,
     removeAllItems,
     removeZoneItems,
+    removeCheckedItems,
   };
 }

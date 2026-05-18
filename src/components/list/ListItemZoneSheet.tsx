@@ -35,9 +35,11 @@ export type ListItemZonePickerPanelProps = {
   /** Order for section rows; falls back to ZONE_KEYS. */
   zoneOrder?: ZoneKey[];
   /**
-   * `modal` = standalone sheet with “Section” title. `embedded` = inline under existing “Section” row (no duplicate title).
+   * `modal` = standalone sheet with “Section” title.
+   * `embedded` = inline under existing “Section” row (grabber, no duplicate title).
+   * `plain` = hosted inside an existing sheet panel with its own header.
    */
-  layout?: 'modal' | 'embedded';
+  layout?: 'modal' | 'embedded' | 'plain';
 };
 
 /**
@@ -56,6 +58,7 @@ export function ListItemZonePickerPanel({
   const keys = useMemo(() => orderedZoneKeys(zoneOrder), [zoneOrder]);
   const scrollMax = Math.min(windowHeight * 0.5, 420);
   const embedded = layout === 'embedded';
+  const plain = layout === 'plain';
 
   return (
     <View>
@@ -63,7 +66,7 @@ export function ListItemZonePickerPanel({
         <View style={styles.embeddedGrabberWrap} accessibilityElementsHidden>
           <View style={[styles.embeddedGrabber, { backgroundColor: theme.divider }]} />
         </View>
-      ) : (
+      ) : plain ? null : (
         <View style={styles.header}>
           <Text style={[theme.typography.headline, { color: theme.textPrimary }]}>Section</Text>
         </View>

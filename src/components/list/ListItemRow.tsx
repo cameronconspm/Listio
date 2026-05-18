@@ -13,6 +13,7 @@ import type { ListItem } from '../../types/models';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
 import { markRender } from '../../utils/perf';
+import { isPendingListItemId } from '../../utils/listItemPending';
 
 const MIN_TOUCH_TARGET = 44;
 
@@ -103,92 +104,93 @@ function ListItemRowInner({
   };
 
   const handleRowPress = isPlanMode ? undefined : handleToggle;
+  const rowPending = isPendingListItemId(item.id);
 
   return (
     <View style={styles.swipeableWrapper}>
       <ReanimatedSwipeable
-        renderRightActions={renderRightActions}
+        enabled={!rowPending}
+        renderRightActions={rowPending ? undefined : renderRightActions}
         friction={2}
         overshootRight={false}
       >
         <Pressable
-          style={[styles.row, { backgroundColor: theme.surface }]}
-          onPress={handleRowPress}
+          style={[
+            styles.row,
+            { backgroundColor: theme.surface },
+            rowPending ? { opacity: 0.62 } : undefined,
+          ]}
+          onPress={rowPending ? undefined : handleRowPress}
+          disabled={rowPending}
+          accessibilityState={rowPending ? { disabled: true } : undefined}
+          accessibilityLabel={rowPending ? `${item.name}, saving to your list` : undefined}
         >
-        <View style={styles.toggleArea}>
-          {!isPlanMode && (
-            <Animated.View style={[styles.leadingWrapper, leadingAnimStyle]}>
-              <Ionicons
-                name={checked ? 'checkmark-circle' : 'ellipse-outline'}
-                size={24}
-                color={checked ? theme.accent : theme.textSecondary}
-              />
-            </Animated.View>
-          )}
-          <View style={styles.textBlock}>
-            <Text
-              style={[
-                theme.typography.body,
-                styles.itemTitle,
-                { color: theme.textPrimary },
-                !isPlanMode && checked ? styles.checkedText : undefined,
-              ]}
-              numberOfLines={2}
-            >
-              {item.name}
-            </Text>
-            {secondarySegments.length > 0 ? (
-              <View
-                style={[styles.secondaryPillsRow, !isPlanMode && checked ? styles.secondaryPillsChecked : undefined]}
-                accessible
-                accessibilityRole="text"
-                accessibilityLabel={secondaryA11y}
+          <View style={styles.toggleArea}>
+            {!isPlanMode && (
+              <Animated.View style={[styles.leadingWrapper, leadingAnimStyle]}>
+                <Ionicons
+                  name={checked ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={24}
+                  color={checked ? theme.accent : theme.textSecondary}
+                />
+              </Animated.View>
+            )}
+            <View style={styles.textBlock}>
+              <Text
+                style={[
+                  theme.typography.body,
+                  styles.itemTitle,
+                  { color: theme.textPrimary },
+                  !isPlanMode && checked ? styles.checkedText : undefined,
+                ]}
+                numberOfLines={2}
               >
-                {secondarySegments.map((segment, index) =>
-                  segment.kind === 'meal' ? (
-                    <View
-                      key={index}
-                      style={[styles.metaPill, styles.mealMetaPill, { backgroundColor: theme.accent + '18' }]}
-                      accessibilityElementsHidden
-                      importantForAccessibility="no-hide-descendants"
-                    >
-                      <Ionicons name="restaurant-outline" size={13} color={theme.accent} style={styles.mealMetaIcon} />
-                      <Text
-                        style={[theme.typography.caption1, { color: theme.textPrimary }]}
-                        numberOfLines={1}
+                {item.name}
+              </Text>
+              {secondarySegments.length > 0 ? (
+                <View
+                  style={[styles.secondaryPillsRow, !isPlanMode && checked ? styles.secondaryPillsChecked : undefined]}
+                  accessible
+                  accessibilityRole="text"
+                  accessibilityLabel={secondaryA11y}
+                >
+                  {secondarySegments.map((segment, index) =>
+                    segment.kind === 'meal' ? (
+                      <View
+                        key={index}
+                        style={[styles.metaPill, styles.mealMetaPill, { backgroundColor: theme.accent + '18' }]}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
                       >
-                        {segment.text}
-                      </Text>
-                    </View>
-                  ) : (
-                    <View
-                      key={index}
-                      style={[styles.metaPill, { backgroundColor: theme.textSecondary + '16' }]}
-                    >
-                      <Text
-                        style={[theme.typography.caption1, { color: theme.textPrimary }]}
-                        numberOfLines={1}
-                      >
-                        {segment.text}
-                      </Text>
-                    </View>
-                  )
-                )}
-              </View>
-            ) : null}
+                        <Ionicons name="restaurant-outline" size={13} color={theme.accent} style={styles.mealMetaIcon} />
+                        <Text style={[theme.typography.caption1, { color: theme.textPrimary }]} numberOfLines={1}>
+                          {segment.text}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View key={index} style={[styles.metaPill, { backgroundColor: theme.textSecondary + '16' }]}>
+                        <Text style={[theme.typography.caption1, { color: theme.textPrimary }]} numberOfLines={1}>
+                          {segment.text}
+                        </Text>
+                      </View>
+                    )
+                  )}
+                </View>
+              ) : null}
+            </View>
           </View>
-        </View>
-        {!hideEditIcon && !isPlanMode && (
-          <TouchableOpacity
-            onPress={handleEdit}
-            style={[styles.editBtn, { backgroundColor: theme.surface }]}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Ionicons name="pencil-outline" size={20} color={theme.textSecondary} />
-          </TouchableOpacity>
-        )}
-      </Pressable>
-    </ReanimatedSwipeable>
+          {!hideEditIcon && !isPlanMode && (
+            <TouchableOpacity
+              onPress={handleEdit}
+              disabled={rowPending}
+              style={[styles.editBtn, { backgroundColor: theme.surface }]}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="pencil-outline" size={20} color={theme.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </Pressable>
+      </ReanimatedSwipeable>
     </View>
   );
 }

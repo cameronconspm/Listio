@@ -9,7 +9,8 @@ import { patchUserPreferences, patchUserPreferencesIfSync } from './userPreferen
 
 const STORAGE_KEY = '@listio/recent_items';
 const MAX_ITEMS = 20;
-const SUGGESTION_CAP = 5;
+/** Wider pool for merged quick-add search; UI still caps visible rows. */
+export const RECENT_SUGGESTION_SEARCH_CAP = 8;
 const MAX_CLOUD_RECENT = 15;
 const MAX_CLOUD_JSON = 28000;
 
@@ -70,12 +71,15 @@ export async function recordItemAdded(
 }
 
 /**
- * Get recent items for suggestions, capped at SUGGESTION_CAP.
+ * Get recent items for suggestions, capped at `searchCap` (default RECENT_SUGGESTION_SEARCH_CAP).
  * Optionally filter by prefix (display_name or normalized_name).
  */
-export async function getRecentSuggestions(prefix?: string): Promise<RecentItem[]> {
+export async function getRecentSuggestions(
+  prefix?: string,
+  searchCap = RECENT_SUGGESTION_SEARCH_CAP
+): Promise<RecentItem[]> {
   const list = await loadRecent();
-  const capped = list.slice(0, SUGGESTION_CAP);
+  const capped = list.slice(0, searchCap);
 
   if (!prefix || !prefix.trim()) return capped;
 
@@ -85,6 +89,11 @@ export async function getRecentSuggestions(prefix?: string): Promise<RecentItem[
       i.display_name.toLowerCase().includes(lower) ||
       i.normalized_name.includes(lower)
   );
+}
+
+/** Full recent list for synchronous suggestion merge (already in memory after load). */
+export async function loadRecentItemsForSuggestions(): Promise<RecentItem[]> {
+  return loadRecent();
 }
 
 /** Clears on-device recent suggestions and synced `user_preferences.recentItems` when cloud sync is on. */

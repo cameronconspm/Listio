@@ -141,6 +141,69 @@ export function deriveHomeListModel(
   };
 }
 
+function sameItemReferences(a: ListItem[], b: ListItem[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function shareSectionsByZone(
+  previous: HomeSectionItem[],
+  next: HomeSectionItem[]
+): HomeSectionItem[] {
+  if (previous.length === 0 || next.length === 0) return next;
+  const previousByZone = new Map(previous.map((section) => [section.zone, section]));
+  let changed = false;
+  const shared = next.map((section) => {
+    const prev = previousByZone.get(section.zone);
+    if (prev && sameItemReferences(prev.items, section.items)) {
+      changed = true;
+      return prev;
+    }
+    return section;
+  });
+  return changed ? shared : next;
+}
+
+/**
+ * Reuse section objects/arrays for zones whose sorted item references did not change.
+ * This lets FlatList + React.memo skip unrelated sections after optimistic item updates.
+ */
+export function shareHomeListDerivedModel(
+  previous: HomeListDerivedModel | null | undefined,
+  next: HomeListDerivedModel
+): HomeListDerivedModel {
+  if (!previous) return next;
+  const rawSections = shareSectionsByZone(previous.rawSections, next.rawSections);
+  const orderedSections = shareSectionsByZone(previous.orderedSections, next.orderedSections);
+  const sections = shareSectionsByZone(previous.sections, next.sections);
+  const filteredItems =
+    previous.isFiltered === next.isFiltered &&
+    next.isFiltered &&
+    sameItemReferences(previous.filteredItems, next.filteredItems)
+      ? previous.filteredItems
+      : next.filteredItems;
+
+  if (
+    rawSections === next.rawSections &&
+    orderedSections === next.orderedSections &&
+    sections === next.sections &&
+    filteredItems === next.filteredItems
+  ) {
+    return next;
+  }
+
+  return {
+    ...next,
+    rawSections,
+    orderedSections,
+    sections,
+    filteredItems,
+  };
+}
+
 export function safeZoneOrderOrDefault(zoneOrder: ZoneKey[] | null | undefined): ZoneKey[] {
   return zoneOrder ?? DEFAULT_ZONE_ORDER;
 }
