@@ -151,8 +151,7 @@ export function OnboardingShoppingRhythmFeatured({
         >
           {!syncEnabled ? (
             <Text style={[theme.typography.body, { color: theme.textSecondary, lineHeight: 24 }]}>
-              Personalized reminders sync when your Listio account is connected. You can adjust notifications later in
-              Settings.
+              Sign in to set shopping-day reminders here. You can change notifications anytime in Settings.
             </Text>
           ) : (
             <>
@@ -197,6 +196,15 @@ export function OnboardingShoppingRhythmFeatured({
                 value={timeBucket}
                 onChange={onChangeBucket}
               />
+              <Text
+                style={[
+                  theme.typography.caption2,
+                  { color: theme.textSecondary, marginTop: spacing.md, lineHeight: 16 },
+                ]}
+              >
+                You can turn on notifications later in Settings. Skipping may still show Apple&apos;s permission
+                prompt once.
+              </Text>
             </>
           )}
         </View>

@@ -60,6 +60,12 @@ console.log(`
 4. Smart Add or recipe paste → premium paywall when not subscribed
 5. (Staging / QA Supabase only) Settings → Delete account — NEVER on production reviewer account
 
+Performance (device):
+6. Home: add 50+ items in one zone — scroll stays smooth
+7. Airplane mode on cold Home load — error + Try again (not empty list)
+8. Recipe import — Cancel during parse dismisses overlay
+9. Sign out → sign in — cached list restores without long spinner
+
 App Review notes: copy from src/constants/appStoreReviewNotes.ts → APP_STORE_REVIEW_NOTES
 `);
 

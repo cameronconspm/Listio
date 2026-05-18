@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { SettingsStackParamList } from '../../navigation/types';
@@ -10,5 +10,14 @@ type SettingsPushedScreenHeaderProps = {
 
 export function SettingsPushedScreenHeader({ title }: SettingsPushedScreenHeaderProps) {
   const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
-  return <PushedScreenHeader title={title} onBack={() => navigation.goBack()} />;
+
+  const handleBack = useCallback(() => {
+    if (navigation.getState().index > 0) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('SettingsHub');
+  }, [navigation]);
+
+  return <PushedScreenHeader title={title} onBack={handleBack} />;
 }

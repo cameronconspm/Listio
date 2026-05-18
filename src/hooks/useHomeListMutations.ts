@@ -14,6 +14,7 @@ import type { HomeListBundle } from '../query/homeListBundle';
 import type { ListItem, ZoneKey } from '../types/models';
 import { newPendingListItemId } from '../utils/listItemPending';
 import { notifyMeaningfulListOrRecipeAction } from '../services/engagementPaywallTriggers';
+import { notifyFreeTierNearLimitIfNeeded } from '../services/notifyFreeTierNearLimit';
 
 type MutationContext = { previous: HomeListBundle | undefined };
 
@@ -118,6 +119,9 @@ export function useHomeListMutations() {
     onSuccess: (inserted, { userId, items }, ctx) => {
       if (inserted.length === 0) return;
       notifyMeaningfulListOrRecipeAction();
+      const bundle = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList(userId));
+      const count = bundle?.listItems.length ?? inserted.length;
+      void notifyFreeTierNearLimitIfNeeded('list', count);
       const optimisticIds = ctx?.optimisticIds ?? [];
       if (optimisticIds.length === 0) {
         writeCache(userId, (prev) =>

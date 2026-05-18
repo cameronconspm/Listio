@@ -80,7 +80,7 @@ export function LoginScreen(_props: Props) {
     setError(null);
     if (!isSupabaseConfigured()) {
       setError(
-        'Supabase not configured. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to .env'
+        'Listio isn’t set up on this device yet. Check your connection or reinstall from the App Store.'
       );
       return;
     }
@@ -100,7 +100,7 @@ export function LoginScreen(_props: Props) {
       const msg = e instanceof Error ? e.message : 'Login failed';
       setError(
         msg.includes('Network') || msg.includes('fetch')
-          ? 'Network error. Check .env has valid Supabase URL and restart the app.'
+          ? 'Network error. Check your connection and try again.'
           : msg
       );
     } finally {

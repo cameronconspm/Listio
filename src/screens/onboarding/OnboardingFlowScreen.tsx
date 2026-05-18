@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, Platform, Pressable } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
@@ -48,6 +49,7 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
   const [routineSaveBusy, setRoutineSaveBusy] = useState(false);
   const [shoppingWeekdays, setShoppingWeekdays] = useState<number[]>([]);
   const [shoppingTimeBucket, setShoppingTimeBucket] = useState<ShoppingTimeBucket>('evening');
+  const [legalTermsExpanded, setLegalTermsExpanded] = useState(false);
 
   const isDark = theme.colorScheme === 'dark';
   const gradientColors = isDark ? onboardingPageGradient.dark : onboardingPageGradient.light;
@@ -144,25 +146,44 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
         >
           Free plan: up to {FREE_LIST_ITEMS_LIMIT} list items, {FREE_MEALS_LIMIT} meal, and {FREE_RECIPES_LIMIT} recipe.
           Listio+ ({LISTIO_PLUS_MONTHLY_USD_LABEL} or {LISTIO_PLUS_ANNUAL_USD_LABEL}, auto-renewing) unlocks unlimited
-          use, cloud sync, and AI features.
+          use, recipe imports, Smart add, and more.
         </Text>
-        <Text
-          style={[
-            theme.typography.caption2,
-            {
-              color: theme.textSecondary,
-              textAlign: 'center',
-              lineHeight: 15,
-              marginBottom: theme.spacing.sm,
-            },
-          ]}
+        <Pressable
+          onPress={() => setLegalTermsExpanded((v) => !v)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: legalTermsExpanded }}
+          accessibilityLabel="Subscription terms"
+          style={{ minHeight: 44, justifyContent: 'center', marginBottom: theme.spacing.xs }}
         >
-          If you subscribe, your subscription automatically renews for the same term at the standard price shown on
-          the App Store unless
-          auto-renew is turned off at least 24 hours before the end of the current period. Your account will be charged
-          for renewal within 24 hours prior to the end of the current period. Manage or cancel your subscription in the
-          App Store under Account → Subscriptions.
-        </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing.xs }}>
+            <Text style={[theme.typography.caption2, { color: theme.textSecondary, fontWeight: '600' }]}>
+              Subscription terms
+            </Text>
+            <Ionicons
+              name={legalTermsExpanded ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={theme.textSecondary}
+            />
+          </View>
+        </Pressable>
+        {legalTermsExpanded ? (
+          <Text
+            style={[
+              theme.typography.caption2,
+              {
+                color: theme.textSecondary,
+                textAlign: 'center',
+                lineHeight: 15,
+                marginBottom: theme.spacing.sm,
+              },
+            ]}
+          >
+            If you subscribe, your subscription automatically renews for the same term at the standard price shown on
+            the App Store unless auto-renew is turned off at least 24 hours before the end of the current period. Your
+            account will be charged for renewal within 24 hours prior to the end of the current period. Manage or cancel
+            your subscription in the App Store under Account → Subscriptions.
+          </Text>
+        ) : null}
         <SubscriptionLegalLinks compact />
       </View>
     ) : null;
@@ -172,7 +193,8 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
       ? null
       : step === REMINDERS_STEP
         ? {
-            label: 'Skip for now',
+            label: 'Skip reminders',
+            accessibilityLabel: 'Skip reminders. You can enable them later in Settings.',
             onPress: () => {
               void skipReminders();
             },
@@ -216,7 +238,7 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
             <OnboardingStepHeader
               eyebrow="Welcome to Listio"
               title="Plan meals, build your list, then shop"
-              subtitle="Three connected tabs keep your week, recipes, and grocery run in one place — without retyping ingredients."
+              subtitle={`Three connected tabs keep your week, recipes, and grocery run in one place. Free plan: up to ${FREE_LIST_ITEMS_LIMIT} list items, ${FREE_MEALS_LIMIT} meal, and ${FREE_RECIPES_LIMIT} recipe.`}
             />
             <OnboardingWelcomeFeatured />
           </OnboardingAnimatedStep>

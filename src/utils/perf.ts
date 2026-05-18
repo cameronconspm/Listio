@@ -6,6 +6,12 @@ type Counter = { count: number };
 type Sample = { label: string; durationMs: number; at: number };
 
 const renderCounts: Map<string, Counter> = new Map();
+let appLaunchMs = Date.now();
+
+/** Call once at JS entry (index.ts) before React mounts. */
+export function markAppLaunch(): void {
+  appLaunchMs = Date.now();
+}
 const SAMPLE_BUFFER_SIZE = 200;
 const samples: Sample[] = [];
 
@@ -100,4 +106,27 @@ export function resetPerfSnapshot(): void {
   if (!__DEV__) return;
   renderCounts.clear();
   samples.length = 0;
+}
+
+/** Record splash → first interactive navigation ready (release: sampled Sentry span). */
+export function recordColdStartFromLaunch(): void {
+  recordColdStartInteractive(Date.now() - appLaunchMs);
+}
+
+export function recordColdStartInteractive(durationMs: number): void {
+  if (__DEV__) {
+    if (samples.length >= SAMPLE_BUFFER_SIZE) samples.shift();
+    samples.push({ label: 'app.cold_start', durationMs, at: Date.now() });
+    return;
+  }
+  if (!shouldRecordReleasePerfSpan()) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Sentry = require('@sentry/react-native') as typeof import('@sentry/react-native');
+    Sentry.startSpan({ name: 'app.cold_start', op: 'app.lifecycle' }, (span) => {
+      span.setAttribute('duration_ms', durationMs);
+    });
+  } catch {
+    /* optional */
+  }
 }

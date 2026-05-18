@@ -86,8 +86,8 @@ export function ListItemZonePickerPanel({
               label="Auto (suggested)"
               secondary={
                 embedded
-                  ? 'AI picks the section using your store’s layout order'
-                  : 'Use AI to pick the section from the item name'
+                  ? 'Suggested section based on your store layout'
+                  : 'Suggested section from the item name'
               }
               selected={value === null}
               onPress={() => onCommit(null)}

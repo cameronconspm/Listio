@@ -27,7 +27,7 @@ export function mapDbErrorToUserMessage(err: unknown, fallback: string): string 
   if (code === '23514') return fallback;
 
   if (code === 'PGRST204') {
-    return 'The database is missing a column this app version expects. Apply the latest Listio Supabase migrations on your project, then try again. If you already ran them, reload the API schema from the Supabase dashboard.';
+    return 'This app needs an update before it can save that. Update Listio from the App Store and try again.';
   }
 
   return fallback;

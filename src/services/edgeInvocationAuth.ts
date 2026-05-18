@@ -36,20 +36,18 @@ const MESSAGES: Record<
   }
 > = {
   categorizeItems: {
-    corrupt: 'Sign in again to categorize items.',
-    loadFailed: 'Sign in required to categorize items (session could not be loaded).',
-    noToken: 'Sign in required to categorize items (no access token).',
-    projectMismatch:
-      'This session does not match this app build. Sign out and sign in again, or reinstall the app from the same environment.',
-    expired: 'Session expired; sign in again to categorize items.',
+    corrupt: 'Sign in again to sort items into sections.',
+    loadFailed: 'Sign in again to sort items into sections.',
+    noToken: 'Sign in again to sort items into sections.',
+    projectMismatch: 'Sign out and sign in again.',
+    expired: 'Sign in again to sort items into sections.',
   },
   parseRecipeFromText: {
-    corrupt: 'Sign in again to use AI recipe parsing.',
-    loadFailed: 'Sign in required to use AI recipe parsing (session could not be loaded).',
-    noToken: 'Sign in required to use AI recipe parsing (no access token).',
-    projectMismatch:
-      'This session does not match this app build. Sign out and sign in again, or reinstall the app from the same environment.',
-    expired: 'Session expired; sign in again to use AI recipe parsing.',
+    corrupt: 'Sign in again to import recipes.',
+    loadFailed: 'Sign in again to import recipes.',
+    noToken: 'Sign in again to import recipes.',
+    projectMismatch: 'Sign out and sign in again.',
+    expired: 'Sign in again to import recipes.',
   },
   parseListItemsFromText: {
     corrupt: 'Sign in again to use Smart add.',
@@ -59,11 +57,11 @@ const MESSAGES: Record<
     expired: 'Sign in again to use Smart add.',
   },
   syncSubscriptionEntitlement: {
-    corrupt: 'Sign in again to sync subscription.',
-    loadFailed: 'Sign in required to sync subscription.',
-    noToken: 'Sign in required to sync subscription.',
-    projectMismatch: 'Sign in again to sync subscription.',
-    expired: 'Session expired; sign in again to sync subscription.',
+    corrupt: 'Sign in again to refresh your subscription.',
+    loadFailed: 'Sign in again to refresh your subscription.',
+    noToken: 'Sign in again to refresh your subscription.',
+    projectMismatch: 'Sign out and sign in again.',
+    expired: 'Sign in again to refresh your subscription.',
   },
 };
 

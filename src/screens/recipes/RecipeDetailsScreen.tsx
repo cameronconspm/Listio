@@ -68,7 +68,7 @@ export function RecipeDetailsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const queryClient = useQueryClient();
   const invalidateHomeList = useInvalidateHomeList();
-  const { isPremium } = usePremiumEntitlement();
+  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   /** Tab bar is absolutely positioned over the scene; pad scroll content so CTAs clear it + home indicator. */
   const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
   const navigation = useNavigation<NativeStackNavigationProp<RecipesStackParamList>>();
@@ -109,7 +109,7 @@ export function RecipeDetailsScreen() {
     if (!userId) return;
     try {
       const existing = isPremium ? [] : await getRecipes(userId);
-      const allowed = await ensureFreeTierCapacity('recipe', existing.length, 1, isPremium);
+      const allowed = await ensureFreeTierCapacity('recipe', existing.length, 1, isPremium, isPremiumLoading);
       if (!allowed) return;
       const newRecipe = await duplicateRecipe(recipeId, userId);
       navigation.replace('RecipeDetails', { recipeId: newRecipe.id });
@@ -242,10 +242,9 @@ export function RecipeDetailsScreen() {
       setConfirmingMeal(true);
       try {
         const existingMeals = isPremium ? [] : await getMeals(userId);
-        const allowed = await ensureFreeTierCapacity('meal', existingMeals.length, 1, isPremium);
+        const allowed = await ensureFreeTierCapacity('meal', existingMeals.length, 1, isPremium, isPremiumLoading);
         if (!allowed) {
           setConfirmingMeal(false);
-          setAddToMealSheetVisible(false);
           return;
         }
         await addRecipeToMeals(recipeId, userId, {
@@ -256,7 +255,6 @@ export function RecipeDetailsScreen() {
         await invalidateMealsRange(queryClient, userId);
         await invalidateHomeList();
         setAddToMealSheetVisible(false);
-        showSuccess('Meal created from recipe.');
         navigation.navigate('RecipesList');
         invalidateRecipeDetail();
       } catch {

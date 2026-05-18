@@ -21,6 +21,10 @@ jest.mock('../src/services/engagementPaywallTriggers', () => ({
   notifyMeaningfulListOrRecipeAction: jest.fn(),
 }));
 
+jest.mock('../src/services/notifyFreeTierNearLimit', () => ({
+  notifyFreeTierNearLimitIfNeeded: jest.fn(),
+}));
+
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

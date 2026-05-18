@@ -26,9 +26,130 @@ import {
   syncSubscriptionEntitlementToServer,
 } from './subscriptionEntitlementSyncService';
 
+export type PremiumHint = {
+  isPremium: boolean;
+  isLoading: boolean;
+};
+
+export type CategorizeItemsOptions = {
+  premiumHint?: PremiumHint;
+  /** When true (or known non-premium), assign `other` locally without edge RTT. */
+  freeTierLocalOnly?: boolean;
+};
+
+const EDGE_INVOKE_TIMEOUT_MS = 55_000;
+
+const categorizeInflight = new Map<string, Promise<CategorizeItemsResponse>>();
+
+/** Clears in-flight categorize dedupe (tests). */
+export function clearCategorizeInflight(): void {
+  categorizeInflight.clear();
+}
+
+function categorizeDedupeKey(
+  rawItems: string[],
+  storeType: string | undefined,
+  zoneLabelsInOrder: string[] | undefined
+): string {
+  const labels = (zoneLabelsInOrder ?? []).join('\x1e');
+  const items = rawItems.map((r) => phraseKeyForCategorize(r)).sort().join('\x1e');
+  return `${storeType ?? ''}\x1f${labels}\x1f${items}`;
+}
+
+function shouldSkipEdgeCategorize(options?: CategorizeItemsOptions): boolean {
+  if (options?.freeTierLocalOnly) return true;
+  const hint = options?.premiumHint;
+  return hint != null && hint.isPremium === false && !hint.isLoading;
+}
+
+function buildFreeTierFallbackResults(
+  rawItems: string[],
+  cachedByIdx: (FastCategoryEntry | null)[]
+): CategorizeItemResult[] {
+  return rawItems.map((raw, i) => {
+    const fast = cachedByIdx[i];
+    if (fast) {
+      return {
+        input: raw,
+        normalized_name: phraseKeyForCategorize(raw),
+        category: fast.category,
+        zone_key: fast.zone_key,
+        confidence: fast.confidence,
+      };
+    }
+    return {
+      input: raw,
+      normalized_name: phraseKeyForCategorize(raw),
+      category: 'other',
+      zone_key: 'other',
+      confidence: 0,
+    };
+  });
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new Error('Cancelled.');
+  }
+}
+
+function invokeWithAbort<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  throwIfAborted(signal);
+  if (!signal) return fn();
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error('Cancelled.'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    fn()
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
+async function invokeEdgeWithTimeout<T extends { data: unknown; error: unknown }>(
+  invoke: () => Promise<T>,
+  timeoutMessage: string,
+  timeoutMs: number = EDGE_INVOKE_TIMEOUT_MS,
+  signal?: AbortSignal
+): Promise<T> {
+  throwIfAborted(signal);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await invokeWithAbort(
+      () =>
+        Promise.race([
+          invoke(),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+          }),
+        ]),
+      signal
+    );
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
+async function invokeEdgeWithTimeoutAnd429Retry<T extends { data: unknown; error: unknown }>(
+  invoke: () => Promise<T>,
+  timeoutMessage: string,
+  signal?: AbortSignal
+): Promise<T> {
+  let result = await invokeEdgeWithTimeout(invoke, timeoutMessage, EDGE_INVOKE_TIMEOUT_MS, signal);
+  if (result.error) {
+    const details = await readFunctionsHttpErrorDetails(result.error);
+    if (details?.status === 429) {
+      await new Promise((r) => setTimeout(r, 1500 + Math.random() * 400));
+      throwIfAborted(signal);
+      result = await invokeEdgeWithTimeout(invoke, timeoutMessage, EDGE_INVOKE_TIMEOUT_MS, signal);
+    }
+  }
+  return result;
+}
+
 /** Align Supabase mirror with RevenueCat before server-gated AI (paywall usually ran first). */
-async function ensureServerMirrorBeforePremiumAi(): Promise<void> {
+async function ensureServerMirrorBeforePremiumAi(premiumHint?: PremiumHint): Promise<void> {
   if (!isSyncEnabled() || !subscriptionPlatformEnforced()) return;
+  if (premiumHint?.isPremium === true && !premiumHint.isLoading) return;
   await ensureServerSubscriptionMirror();
 }
 
@@ -57,15 +178,18 @@ function userFacingCategorizeMessage(details: { status: number; bodySnippet: str
     return 'Too many requests right now. Try again in a little while.';
   }
   if (status === 401) {
-    return 'Sign in again to categorize items.';
+    return 'Sign in again to sort items into sections.';
   }
   if (status === 400) {
-    return 'Could not categorize those items. Try shorter lines or fewer items at once.';
+    return 'Couldn’t sort those items into sections. Try shorter lines or fewer items at once.';
+  }
+  if (status === 504) {
+    return 'Section suggestions took too long. Try again.';
   }
   if (status === 503 || status === 502 || status === 500) {
-    return 'Classification is temporarily unavailable. Try again later.';
+    return 'Section suggestions are temporarily unavailable. Try again later.';
   }
-  return 'Could not categorize items. Try again.';
+  return 'Couldn’t sort items into sections. Try again.';
 }
 
 function parseEdgeErrorMessage(bodySnippet: string | undefined): string | null {
@@ -104,10 +228,10 @@ async function retryEdgeInvokeAfterPremiumSync<T extends { data: unknown; error:
 }
 
 const SESSION_REFRESH_SIGN_IN_MESSAGES: Record<EdgeAuthPurpose, string> = {
-  categorizeItems: 'Sign in again to categorize items.',
-  parseRecipeFromText: 'Sign in again to use AI recipe parsing.',
+  categorizeItems: 'Sign in again to sort items into sections.',
+  parseRecipeFromText: 'Sign in again to import recipes.',
   parseListItemsFromText: 'Sign in again to use Smart add.',
-  syncSubscriptionEntitlement: 'Sign in again to sync subscription.',
+  syncSubscriptionEntitlement: 'Sign in again to refresh your subscription.',
 };
 
 /** On 401: refresh session, invalidate edge JWT cache, retry invoke once with a fresh token. */
@@ -135,24 +259,27 @@ function userFacingParseRecipeMessage(details: { status: number; bodySnippet: st
   const status = details?.status;
   const fromBody = parseEdgeErrorMessage(details?.bodySnippet);
   if (status === 429) {
-    return 'AI recipe parsing is temporarily rate-limited. Please try again later.';
+    return 'Recipe import is busy right now. Please try again later.';
   }
   if (status === 401) {
-    return 'Sign in again to use AI recipe parsing.';
+    return 'Sign in again to import recipes.';
   }
   if (status === 400) {
-    return fromBody ?? 'Could not parse that recipe text. Try shorter or cleaner text.';
+    return fromBody ?? 'Couldn’t read that recipe. Try shorter or cleaner text.';
+  }
+  if (status === 504) {
+    return 'Recipe import took too long. Try again.';
   }
   if (status === 503 || status === 502 || status === 500) {
-    return fromBody ?? 'AI recipe parsing is temporarily unavailable. Please try again.';
+    return fromBody ?? 'Recipe import is temporarily unavailable. Please try again.';
   }
   if (status === 403) {
     return (
       fromBody ??
-      'Listio+ is required for AI recipe parsing. Try Restore Purchases in Settings → Plan.'
+      'Listio+ is required for recipe import. Try Restore purchases in Settings.'
     );
   }
-  return fromBody ?? 'Could not parse recipe text. Try again.';
+  return fromBody ?? 'Couldn’t read that recipe. Try again.';
 }
 
 export interface CategorizeItemsResponse {
@@ -228,7 +355,27 @@ export async function categorizeItems(
   rawItems: string[],
   _storeType?: string,
   /** Human-readable store section labels in walking order (from the current list / store layout). */
-  zoneLabelsInOrder?: string[]
+  zoneLabelsInOrder?: string[],
+  options?: CategorizeItemsOptions
+): Promise<CategorizeItemsResponse> {
+  const dedupeKey = categorizeDedupeKey(rawItems, _storeType, zoneLabelsInOrder);
+  const inflight = categorizeInflight.get(dedupeKey);
+  if (inflight) return inflight;
+
+  const promise = categorizeItemsInner(rawItems, _storeType, zoneLabelsInOrder, options);
+  categorizeInflight.set(dedupeKey, promise);
+  try {
+    return await promise;
+  } finally {
+    categorizeInflight.delete(dedupeKey);
+  }
+}
+
+async function categorizeItemsInner(
+  rawItems: string[],
+  _storeType?: string,
+  zoneLabelsInOrder?: string[],
+  options?: CategorizeItemsOptions
 ): Promise<CategorizeItemsResponse> {
   const startedAt = Date.now();
 
@@ -331,6 +478,31 @@ export async function categorizeItems(
     };
   }
 
+  if (shouldSkipEdgeCategorize(options)) {
+    const results = buildFreeTierFallbackResults(rawItems, cachedByIdx);
+    const uncachedMisses = missGroups.reduce((sum, group) => sum + group.indices.length, 0);
+    if (uncachedMisses > 0) {
+      incrementSourceCount(sourceCounts, 'free_tier_local', uncachedMisses);
+    }
+    const totalMs = Date.now() - startedAt;
+    logCategorizeDevSummary(rawItems, results, cachedByIdx, {
+      networkInvoked: false,
+      totalMs,
+      sourceCounts,
+      count: rawItems.length,
+      fastHits: fastHitCount,
+      networkMisses: 0,
+    });
+    return {
+      results,
+      cache_hits: fastHitCount,
+      cache_misses: uncachedMisses,
+      fast_hits: fastHitCount,
+      total_ms: totalMs,
+      source_counts: sourceCounts,
+    };
+  }
+
   const invokeBody = {
     items: missInputs,
     storeType: _storeType,
@@ -345,7 +517,10 @@ export async function categorizeItems(
     });
 
   const networkStartedAt = Date.now();
-  let { data, error } = await invokeCategorize(firstToken);
+  let { data, error } = await invokeEdgeWithTimeoutAnd429Retry(
+    () => invokeCategorize(firstToken),
+    'Section suggestions took too long. Try again.'
+  );
 
   if (error) {
     const sessionRetry = await retryEdgeInvokeAfterSessionRefresh(
@@ -369,7 +544,7 @@ export async function categorizeItems(
 
   const networkResults: CategorizeItemResult[] = Array.isArray(data?.results) ? data.results : [];
   if (networkResults.length !== missInputs.length) {
-    throw new Error('Could not categorize items. Try again.');
+    throw new Error('Couldn’t sort items into sections. Try again.');
   }
 
   const edgeSourceCounts =
@@ -442,7 +617,10 @@ export async function categorizeItems(
   };
 }
 
-export async function parseRecipeFromText(recipeText: string): Promise<ParseRecipeResponse> {
+export async function parseRecipeFromText(
+  recipeText: string,
+  options?: { premiumHint?: PremiumHint; signal?: AbortSignal }
+): Promise<ParseRecipeResponse> {
   const preparedText = recipeText.trim();
   if (!preparedText) {
     throw new Error('Recipe text is required.');
@@ -451,7 +629,9 @@ export async function parseRecipeFromText(recipeText: string): Promise<ParseReci
     throw new Error('Recipe text is too long. Please shorten it and try again.');
   }
 
-  await ensureServerMirrorBeforePremiumAi();
+  throwIfAborted(options?.signal);
+  await ensureServerMirrorBeforePremiumAi(options?.premiumHint);
+  throwIfAborted(options?.signal);
 
   const { accessToken: parseToken } = await getValidAccessTokenForEdgeInvoke('parseRecipeFromText');
   const invokeParse = (accessToken: string) =>
@@ -462,7 +642,11 @@ export async function parseRecipeFromText(recipeText: string): Promise<ParseReci
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-  let { data, error } = await invokeParse(parseToken);
+  let { data, error } = await invokeEdgeWithTimeoutAnd429Retry(
+    () => invokeParse(parseToken),
+    'Recipe import took too long. Try again.',
+    options?.signal
+  );
 
   if (error) {
     const sessionRetry = await retryEdgeInvokeAfterSessionRefresh(
@@ -479,7 +663,10 @@ export async function parseRecipeFromText(recipeText: string): Promise<ParseReci
   if (error) {
     const premiumRetry = await retryEdgeInvokeAfterPremiumSync(error, async () => {
       const { accessToken } = await getValidAccessTokenForEdgeInvoke('parseRecipeFromText');
-      return invokeParse(accessToken);
+      return invokeEdgeWithTimeout(
+        () => invokeParse(accessToken),
+        'Recipe import took too long. Try again.'
+      );
     });
     if (premiumRetry) {
       data = premiumRetry.data;
@@ -497,7 +684,7 @@ export async function parseRecipeFromText(recipeText: string): Promise<ParseReci
 
   const recipe = data?.recipe;
   if (!recipe || typeof recipe !== 'object') {
-    throw new Error('Could not parse recipe text. Try again.');
+    throw new Error('Couldn’t read that recipe. Try again.');
   }
 
   const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
@@ -512,7 +699,10 @@ export async function parseRecipeFromText(recipeText: string): Promise<ParseReci
  * Fetch a recipe page server-side and parse it with the same pipeline as pasted text.
  * Uses the same edge auth purpose as `parseRecipeFromText` (single Supabase function).
  */
-export async function parseRecipeFromUrl(recipeUrl: string): Promise<ParseRecipeResponse> {
+export async function parseRecipeFromUrl(
+  recipeUrl: string,
+  options?: { premiumHint?: PremiumHint; signal?: AbortSignal }
+): Promise<ParseRecipeResponse> {
   const prepared = recipeUrl.trim();
   if (!prepared) {
     throw new Error('Recipe URL is required.');
@@ -521,7 +711,9 @@ export async function parseRecipeFromUrl(recipeUrl: string): Promise<ParseRecipe
     throw new Error('URL is too long.');
   }
 
-  await ensureServerMirrorBeforePremiumAi();
+  throwIfAborted(options?.signal);
+  await ensureServerMirrorBeforePremiumAi(options?.premiumHint);
+  throwIfAborted(options?.signal);
 
   const { accessToken: parseToken } = await getValidAccessTokenForEdgeInvoke('parseRecipeFromText');
   const invokeParse = (accessToken: string) =>
@@ -532,7 +724,11 @@ export async function parseRecipeFromUrl(recipeUrl: string): Promise<ParseRecipe
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-  let { data, error } = await invokeParse(parseToken);
+  let { data, error } = await invokeEdgeWithTimeoutAnd429Retry(
+    () => invokeParse(parseToken),
+    'Recipe import took too long. Try again.',
+    options?.signal
+  );
 
   if (error) {
     const sessionRetry = await retryEdgeInvokeAfterSessionRefresh(
@@ -549,7 +745,10 @@ export async function parseRecipeFromUrl(recipeUrl: string): Promise<ParseRecipe
   if (error) {
     const premiumRetry = await retryEdgeInvokeAfterPremiumSync(error, async () => {
       const { accessToken } = await getValidAccessTokenForEdgeInvoke('parseRecipeFromText');
-      return invokeParse(accessToken);
+      return invokeEdgeWithTimeout(
+        () => invokeParse(accessToken),
+        'Recipe import took too long. Try again.'
+      );
     });
     if (premiumRetry) {
       data = premiumRetry.data;
@@ -567,7 +766,7 @@ export async function parseRecipeFromUrl(recipeUrl: string): Promise<ParseRecipe
 
   const recipe = data?.recipe;
   if (!recipe || typeof recipe !== 'object') {
-    throw new Error('Could not parse recipe from URL. Try again.');
+    throw new Error('Couldn’t import that recipe link. Try again.');
   }
 
   const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
@@ -601,13 +800,16 @@ function userFacingSmartAddMessage(details: { status: number; bodySnippet: strin
     return 'Sign in again to use Smart add.';
   }
   if (status === 400) {
-    return fromBody ?? 'Could not parse that description. Try shorter or cleaner text.';
+    return fromBody ?? 'Couldn’t understand that description. Try shorter or cleaner text.';
+  }
+  if (status === 504) {
+    return 'Smart add took too long. Try again.';
   }
   if (status === 503 || status === 502 || status === 500) {
     return fromBody ?? 'Smart add is temporarily unavailable. Please try again.';
   }
   if (status === 403) {
-    return fromBody ?? 'Listio+ is required for Smart add. Try Restore Purchases in Settings → Plan.';
+    return fromBody ?? 'Listio+ is required for Smart add. Try Restore purchases in Settings.';
   }
   return fromBody ?? 'Could not understand that description. Try again.';
 }
@@ -720,7 +922,8 @@ async function parseListItemsFromTextLegacyChain(
 export async function parseListItemsFromText(
   text: string,
   storeType?: string,
-  zoneLabelsInOrder?: string[]
+  zoneLabelsInOrder?: string[],
+  options?: { premiumHint?: PremiumHint }
 ): Promise<ParsedListItem[]> {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -733,10 +936,10 @@ export async function parseListItemsFromText(
   if (!isSyncEnabled()) {
     // Offline / sync-disabled builds can't reach the edge function. The composer
     // treats this like any other error and falls back to single-item mode.
-    throw new Error('Smart add is unavailable offline. Try again when connected.');
+    throw new Error('Smart add needs an internet connection. Try again when you’re back online.');
   }
 
-  await ensureServerMirrorBeforePremiumAi();
+  await ensureServerMirrorBeforePremiumAi(options?.premiumHint);
 
   const { accessToken: smartToken } = await getValidAccessTokenForEdgeInvoke('parseListItemsFromText');
 
@@ -753,7 +956,10 @@ export async function parseListItemsFromText(
     });
 
   try {
-    let res = await invokeSmartAdd(smartToken);
+    let res = await invokeEdgeWithTimeoutAnd429Retry(
+      () => invokeSmartAdd(smartToken),
+      'Smart add took too long. Try again.'
+    );
     if (res.error) {
       const sessionRetry = await retryEdgeInvokeAfterSessionRefresh(
         'parseListItemsFromText',

@@ -48,6 +48,9 @@ import { resolveCategoryFast } from '../../services/aiCategoryCache';
 import type { ParsedListItem } from '../../types/api';
 import { AI_SMART_CATEGORIZATION_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDisclosure';
 import { ensurePremiumViaContextualPaywall } from '../../context/contextualPaywallRef';
+import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
+import { DuplicateResolutionPanel } from './DuplicateResolutionPanel';
+import type { DuplicateMatch } from '../../utils/duplicateDetection';
 
 export interface QuickAddComposerHandle {
   focus: () => void;
@@ -75,6 +78,10 @@ type QuickAddComposerProps = {
   storeType?: string;
   /** Zone labels (display strings) in store layout order, for AI zone suggestions. */
   zoneLabelsInOrder?: string[];
+  /** When adding a single item, detect duplicates before submit. */
+  onCheckDuplicate?: (item: ParsedItem) => DuplicateMatch | null;
+  onDuplicateMerge?: (match: DuplicateMatch, incoming: ParsedItem) => Promise<void>;
+  onDuplicateAddSeparately?: (incoming: ParsedItem) => Promise<void>;
 };
 
 type ComposerDropdown = 'section' | 'unit' | null;
@@ -95,6 +102,9 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
     onBulkAddPreCategorized,
     storeType,
     zoneLabelsInOrder,
+    onCheckDuplicate,
+    onDuplicateMerge,
+    onDuplicateAddSeparately,
   }: QuickAddComposerProps,
   ref: React.ForwardedRef<QuickAddComposerHandle>
 ) {
@@ -104,6 +114,11 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const haptics = useHaptics();
+  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
+  const categorizeOpts = useMemo(
+    () => ({ premiumHint: { isPremium, isLoading: isPremiumLoading } }),
+    [isPremium, isPremiumLoading]
+  );
   const inputRef = useRef<TextInput>(null);
 
   const [text, setText] = useState('');
@@ -127,6 +142,10 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
    */
   const [smartMode, setSmartMode] = useState(false);
   const [smartBusy, setSmartBusy] = useState(false);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{
+    match: DuplicateMatch;
+    incoming: ParsedItem;
+  } | null>(null);
   const smartParseAbortRef = useRef<{ cancelled: boolean } | null>(null);
   const smartAvailable = !editingItem && !!onBulkAddPreCategorized;
 
@@ -277,7 +296,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       if (token.cancelled) return;
       void (async () => {
         try {
-          await categorizeItems([name], storeType, zoneLabelsInOrder);
+          await categorizeItems([name], storeType, zoneLabelsInOrder, categorizeOpts);
         } catch {
           // Background only — submit can still categorize before inserting.
         }
@@ -288,7 +307,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       clearTimeout(timeoutId);
       token.cancelled = true;
     };
-  }, [visible, text, smartMode, editingItem, storeType, zoneLabelsInOrder]);
+  }, [visible, text, smartMode, editingItem, storeType, zoneLabelsInOrder, categorizeOpts]);
 
   const handleTextChange = useCallback(
     (s: string) => {
@@ -315,6 +334,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
   }, [text, quantity, unit, note, brandPreference, syncParsedFromText]);
 
   const handleDismiss = useCallback(() => {
+    setDuplicatePrompt(null);
     draftRef.current = { text, quantity, unit, note, brandPreference };
     onDismiss();
   }, [text, quantity, unit, note, brandPreference, onDismiss]);
@@ -395,7 +415,9 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
     const abort = { cancelled: false };
     smartParseAbortRef.current = abort;
     try {
-      const parsed = await parseListItemsFromText(trimmed, storeType, zoneLabelsInOrder);
+      const parsed = await parseListItemsFromText(trimmed, storeType, zoneLabelsInOrder, {
+        premiumHint: { isPremium, isLoading: isPremiumLoading },
+      });
       if (abort.cancelled) return;
       if (parsed.length === 0) {
         setError(
@@ -519,6 +541,14 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
         is_recurring: false,
       };
       if (note.trim()) item.note = note.trim();
+      if (onCheckDuplicate) {
+        const match = onCheckDuplicate(item);
+        if (match) {
+          haptics.light();
+          setDuplicatePrompt({ match, incoming: item });
+          return;
+        }
+      }
       await performSubmit([item]);
     }
   }, [
@@ -536,7 +566,44 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
     dismissWithoutSavingDraft,
     editZoneKey,
     syncParsedFromText,
+    onCheckDuplicate,
   ]);
+
+  const handleDuplicateCancel = useCallback(() => {
+    setDuplicatePrompt(null);
+  }, []);
+
+  const handleDuplicateMergePress = useCallback(async () => {
+    if (!duplicatePrompt || !onDuplicateMerge) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await onDuplicateMerge(duplicatePrompt.match, duplicatePrompt.incoming);
+      setDuplicatePrompt(null);
+      dismissWithoutSavingDraft();
+      haptics.success();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not merge items');
+    } finally {
+      setLoading(false);
+    }
+  }, [duplicatePrompt, onDuplicateMerge, dismissWithoutSavingDraft, haptics]);
+
+  const handleDuplicateAddSeparatelyPress = useCallback(async () => {
+    if (!duplicatePrompt || !onDuplicateAddSeparately) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await onDuplicateAddSeparately(duplicatePrompt.incoming);
+      setDuplicatePrompt(null);
+      dismissWithoutSavingDraft();
+      haptics.success();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not add item');
+    } finally {
+      setLoading(false);
+    }
+  }, [duplicatePrompt, onDuplicateAddSeparately, dismissWithoutSavingDraft, haptics]);
 
   const handleKeyPress = useCallback(
     (e: { nativeEvent: { key: string } }) => {
@@ -848,7 +915,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       ]}
     >
       <PrimaryButton
-        title={editingItem ? 'Save' : smartMode ? 'Parse with AI' : 'Add item'}
+        title={editingItem ? 'Save' : smartMode ? 'Add with Smart add' : 'Add item'}
         size="compact"
         onPress={() => {
           if (!loading && !smartBusy) haptics.light();
@@ -879,7 +946,15 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
     </View>
   );
 
-  const composerBodyEl = (
+  const composerBodyEl = duplicatePrompt ? (
+    <DuplicateResolutionPanel
+      match={duplicatePrompt.match}
+      incoming={duplicatePrompt.incoming}
+      onMerge={() => void handleDuplicateMergePress()}
+      onAddSeparately={() => void handleDuplicateAddSeparatelyPress()}
+      onCancel={handleDuplicateCancel}
+    />
+  ) : (
     <>
       <ScrollView
         style={[styles.scrollContent, { maxHeight: scrollMaxHeight }]}

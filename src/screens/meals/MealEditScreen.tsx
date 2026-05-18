@@ -29,8 +29,7 @@ import { RecipeSearchBar } from '../../components/recipes/RecipeSearchBar';
 import { MealRepeatSheet } from '../../components/meals/MealRepeatSheet';
 import { RECIPE_CATEGORY_LABELS } from '../../components/recipes/RecipeCategorySheet';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getUserId } from '../../services/supabaseClient';
-import { useAuthUserId } from '../../context/AuthUserIdContext';
+import { useAuthUserId } from '../../context/AuthContext';
 import { invalidateMealsRange } from '../../query/invalidate';
 import { queryKeys } from '../../query/keys';
 import { fetchMealDetailBundle, MEAL_DETAIL_STALE_MS } from '../../query/mealDetailBundle';
@@ -39,7 +38,8 @@ import { fetchRecipesScreenBundle, RECIPES_SCREEN_STALE_MS } from '../../query/r
 import { createMeal, getMeals, setMealIngredients, updateMeal } from '../../services/mealService';
 import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
 import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
-import { showError, showSuccess } from '../../utils/appToast';
+import { showError } from '../../utils/appToast';
+import { notifyFreeTierNearLimitIfNeeded } from '../../services/notifyFreeTierNearLimit';
 import { normalize } from '../../utils/normalize';
 import {
   expandMealRepeatDates,
@@ -129,7 +129,7 @@ function chipSelected(chip: MealSlotChip, mealSlot: MealSlot, customSlotName: st
 export function MealEditScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
-  const { isPremium } = usePremiumEntitlement();
+  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xxl;
@@ -377,7 +377,7 @@ export function MealEditScreen() {
   const handleSave = async () => {
     Keyboard.dismiss();
 
-    const uid = await getUserId();
+    const uid = typeof userId === 'string' ? userId : null;
     if (!uid) {
       setErrorDialog({ title: 'Error', message: 'You must be signed in to save a meal.' });
       return;
@@ -429,7 +429,7 @@ export function MealEditScreen() {
         if (dates.length === 0) dates = [trimmedDate];
 
         const existingMeals = isPremium ? [] : await getMeals(uid);
-        const allowed = await ensureFreeTierCapacity('meal', existingMeals.length, dates.length, isPremium);
+        const allowed = await ensureFreeTierCapacity('meal', existingMeals.length, dates.length, isPremium, isPremiumLoading);
         if (!allowed) {
           setSaving(false);
           return;
@@ -450,8 +450,8 @@ export function MealEditScreen() {
           if (!firstMealId) firstMealId = meal.id;
         }
         await invalidateMealsRange(queryClient, uid);
-        showSuccess(dates.length > 1 ? `${dates.length} meals created.` : 'Meal created.');
         notifyMealSavedForMilestones();
+        void notifyFreeTierNearLimitIfNeeded('meal', existingMeals.length + dates.length);
         navigation.replace('MealDetails', { mealId: firstMealId! });
       } else {
         await updateMeal(mealId!, {
@@ -466,7 +466,6 @@ export function MealEditScreen() {
         await setMealIngredients(mealId!, ings);
         await invalidateMealsRange(queryClient, uid);
         void queryClient.invalidateQueries({ queryKey: queryKeys.mealDetail(uid, mealId!) });
-        showSuccess('Meal updated.');
         navigation.goBack();
       }
     } catch (err) {

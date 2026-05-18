@@ -29,11 +29,12 @@ import {
   RECIPE_SORT_LABELS,
 } from '../../components/recipes/RecipeSortSheet';
 import { Screen } from '../../components/ui/Screen';
+import { QueryLoadErrorPanel } from '../../components/ui/QueryLoadErrorPanel';
 import { FloatingAddButton } from '../../components/ui/FloatingAddButton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
-import { useAuthUserId } from '../../context/AuthUserIdContext';
+import { useAuthUserId } from '../../context/AuthContext';
 import {
   toggleRecipeFavorite,
   deleteRecipe,
@@ -50,6 +51,10 @@ import { useLazyMount } from '../../hooks/useLazyMount';
 import { getRecipeIngredientNamesByRecipeIds, searchRecipeIds } from '../../services/recipeService';
 import { mapToRecord } from '../../utils/mapToJson';
 import { isSyncEnabled } from '../../services/supabaseClient';
+import { FreeTierUsageBanner } from '../../components/subscription/FreeTierUsageBanner';
+import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
+import type { NavigationProp, ParamListBase } from '@react-navigation/native';
+import { openPlanScreen } from '../../navigation/openPlanScreen';
 import { fetchRecipeDetailBundle, RECIPE_DETAIL_STALE_MS } from '../../query/recipeDetailBundle';
 
 const AnimatedFlatList = createAnimatedComponent(FlatList<Recipe>);
@@ -104,7 +109,12 @@ export function RecipesScreen() {
   const { fabExpandProgress, listScrollHandler } = useFabExpandScrollHandler(recipesScrollShared);
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<NativeStackNavigationProp<RecipesStackParamList>>();
+  const tabNavigation = useNavigation<NavigationProp<ParamListBase>>();
   const userId = useAuthUserId();
+  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
+  const handleOpenPlan = useCallback(() => {
+    openPlanScreen(tabNavigation);
+  }, [tabNavigation]);
   const [screenFocused, setScreenFocused] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<RecipeFilter>('all');
@@ -192,6 +202,8 @@ export function RecipesScreen() {
     screenFocused &&
     recipesQuery.data === undefined &&
     (recipesQuery.isPending || isRestoringCache);
+
+  const showInlineSpinner = userId === undefined || listInitialLoad;
 
   const trueEmpty = !listInitialLoad && allRecipesCount === 0;
 
@@ -325,6 +337,25 @@ export function RecipesScreen() {
     });
   }, [recipes, searchQuery, debouncedSearchQuery, namesByRecipeIdForSearch, searchIdSet, syncEnabled]);
 
+  const recipesListExtraData = useMemo(
+    () => `${filter}-${sort}-${searchQuery}`,
+    [filter, sort, searchQuery]
+  );
+
+  const renderRecipeItem = useCallback(
+    ({ item }: { item: (typeof visibleRecipes)[number] }) => (
+      <RenderRecipeCard
+        recipe={item}
+        ingredientCount={ingredientCounts[item.id] ?? 0}
+        onOpen={openRecipeDetail}
+        onFavorite={handleFavorite}
+        onEdit={openRecipeEdit}
+        onDelete={handleDelete}
+      />
+    ),
+    [ingredientCounts, openRecipeDetail, handleFavorite, openRecipeEdit, handleDelete]
+  );
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -335,6 +366,11 @@ export function RecipesScreen() {
           left: 0,
           right: 0,
           zIndex: 10,
+        },
+        inlineSpinner: {
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
         },
         paddedBody: {
           flex: 1,
@@ -355,12 +391,6 @@ export function RecipesScreen() {
         sortTouchable: {
           paddingVertical: 4,
           paddingHorizontal: 4,
-        },
-        centeredLoader: {
-          flex: 1,
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: 280,
         },
       }),
     [theme],
@@ -386,6 +416,11 @@ export function RecipesScreen() {
   const listHeader = useMemo(
     () => (
       <View>
+        <FreeTierUsageBanner
+          kind="recipe"
+          currentCount={allRecipesCount}
+          onPressUpgrade={handleOpenPlan}
+        />
         <RecipeFilterRow filter={filter} onFilterChange={setFilter} />
         <View style={styles.sortRow}>
           <Text style={[theme.typography.footnote, { color: theme.textSecondary }]}>
@@ -410,19 +445,42 @@ export function RecipesScreen() {
       theme.textSecondary,
       theme.typography.footnote,
       visibleRecipes.length,
+      allRecipesCount,
+      handleOpenPlan,
       styles.sortRow,
       styles.sortTouchable,
     ]
   );
 
-  if (userId === undefined || listInitialLoad) {
+  const recipesLoadFailed =
+    userReady && recipesQuery.isError && recipesQuery.data === undefined;
+
+  if (recipesLoadFailed) {
+    const errMsg =
+      recipesQuery.error instanceof Error
+        ? recipesQuery.error.message
+        : 'Could not load recipes.';
     return (
       <Screen padded={false} safeTop={false} safeBottom={false}>
         <View style={styles.headerOverlay} pointerEvents="box-none">
           {headerChrome}
         </View>
-        <View style={[styles.centeredLoader, { paddingTop: scrollContentPaddingTop }]}>
-          <ActivityIndicator size="large" color={theme.accent} />
+        <QueryLoadErrorPanel
+          message={errMsg}
+          onRetry={() => void recipesQuery.refetch()}
+        />
+      </Screen>
+    );
+  }
+
+  if (showInlineSpinner) {
+    return (
+      <Screen padded={false} safeTop={false} safeBottom={false}>
+        <View style={styles.headerOverlay} pointerEvents="box-none">
+          {headerChrome}
+        </View>
+        <View style={styles.inlineSpinner}>
+          <ActivityIndicator color={theme.accent} />
         </View>
       </Screen>
     );
@@ -435,6 +493,11 @@ export function RecipesScreen() {
           {headerChrome}
         </View>
         <View style={[styles.paddedBody, { paddingTop: scrollContentPaddingTop }]}>
+        <FreeTierUsageBanner
+          kind="recipe"
+          currentCount={allRecipesCount}
+          onPressUpgrade={handleOpenPlan}
+        />
         <RecipeSortSheet
           visible={sortSheetVisible}
           onClose={() => setSortSheetVisible(false)}
@@ -549,16 +612,8 @@ export function RecipesScreen() {
         maxToRenderPerBatch={8}
         windowSize={9}
         removeClippedSubviews={Platform.OS === 'android'}
-        renderItem={({ item }) => (
-          <RenderRecipeCard
-            recipe={item}
-            ingredientCount={ingredientCounts[item.id] ?? 0}
-            onOpen={openRecipeDetail}
-            onFavorite={handleFavorite}
-            onEdit={openRecipeEdit}
-            onDelete={handleDelete}
-          />
-        )}
+        extraData={recipesListExtraData}
+        renderItem={renderRecipeItem}
         ListEmptyComponent={
           searchNoMatches ? (
             <EmptyState

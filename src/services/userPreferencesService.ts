@@ -90,8 +90,9 @@ export function fitUserPreferencesPayload(next: UserPreferencesPayload): UserPre
   return {};
 }
 
-export async function fetchUserPreferences(): Promise<UserPreferencesPayload> {
-  if (!isSyncEnabled()) return {};
+let fetchUserPreferencesInflight: Promise<UserPreferencesPayload> | null = null;
+
+async function doFetchUserPreferences(): Promise<UserPreferencesPayload> {
   const uid = await getUserId();
   if (!uid) return {};
 
@@ -103,6 +104,20 @@ export async function fetchUserPreferences(): Promise<UserPreferencesPayload> {
 
   if (error || !data?.payload || typeof data.payload !== 'object') return {};
   return data.payload as UserPreferencesPayload;
+}
+
+/**
+ * In-flight dedupe so concurrent bootstrap callers (household resolution + onboarding check
+ * + screen-level prefs reads) share a single round-trip. The dedupe only spans the lifetime
+ * of the inflight request; once resolved, the next call re-fetches.
+ */
+export async function fetchUserPreferences(): Promise<UserPreferencesPayload> {
+  if (!isSyncEnabled()) return {};
+  if (fetchUserPreferencesInflight) return fetchUserPreferencesInflight;
+  fetchUserPreferencesInflight = doFetchUserPreferences().finally(() => {
+    fetchUserPreferencesInflight = null;
+  });
+  return fetchUserPreferencesInflight;
 }
 
 export async function patchUserPreferences(patch: UserPreferencesPatch): Promise<void> {

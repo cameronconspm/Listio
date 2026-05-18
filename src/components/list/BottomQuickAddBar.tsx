@@ -25,7 +25,11 @@ import { GlassControl, GlassInputBar, GlassMenu } from '../ui/GlassPrimitives';
 import { PressableScale } from '../ui/PressableScale';
 import { AppConfirmationDialog } from '../ui/AppConfirmationDialog';
 import { useHaptics } from '../../hooks/useHaptics';
-import { useKeyboardFrameLift } from '../../hooks/useKeyboardFrameLift';
+import {
+  COMPOSER_KEYBOARD_EDGE_GAP,
+  useKeyboardFrameLift,
+} from '../../hooks/useKeyboardFrameLift';
+import { KeyboardComposerHost } from 'listio-keyboard-composer';
 import {
   parseItems,
   parseSingleEntry,
@@ -80,10 +84,10 @@ const CONTROL_SIZE = 44;
 /** Slightly smaller than qty/unit so the row reads as one height with lighter send affordance. */
 const SEND_BUTTON_SIZE = 36;
 const SEND_ICON_SIZE = 18;
-/** Extra gap between the tab bar and the quick-add row (visual breathing room). */
-const ADDBAR_TAB_BAR_GAP = 3;
-/** Space for the composer row, inline error text, and the same tab-bar gap used by the overlay. */
-export const BOTTOM_QUICK_ADD_BAR_CLEARANCE = CONTROL_SIZE + 28 + ADDBAR_TAB_BAR_GAP;
+/** Gap between the quick bar and the tab bar or keyboard (pt). */
+export const COMPOSER_EDGE_GAP = COMPOSER_KEYBOARD_EDGE_GAP;
+/** Space for the composer row, inline error text, and the edge gap used by the overlay. */
+export const BOTTOM_QUICK_ADD_BAR_CLEARANCE = CONTROL_SIZE + 28 + COMPOSER_EDGE_GAP;
 const UNIT_MENU_MAX_HEIGHT = 188;
 
 export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
@@ -118,7 +122,7 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
     void loadRecentItemsForSuggestions().then(setRecentItems);
   }, []);
 
-  const restingBottomOffset = tabBarHeight + theme.spacing.sm + ADDBAR_TAB_BAR_GAP;
+  /** Tab bar is overlaid; quick bar rests `COMPOSER_EDGE_GAP` pt above it (see useKeyboardFrameLift). */
   const trimmed = text.trim();
   const canSubmit = trimmed.length > 0 && !loading && !disabled;
   /** Keep accent styling while `loading` so the send control stays visible (spinner on green). */
@@ -144,9 +148,10 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
   );
 
   const handleKeyboardHidden = useCallback(() => setQuantityEditing(false), []);
-  const liftedStyle = useKeyboardFrameLift({
-    restingBottomOffset,
-    extraLift: theme.spacing.sm,
+
+  const stickyBarStyle = useKeyboardFrameLift({
+    tabBarHeight,
+    edgeGap: COMPOSER_EDGE_GAP,
     onKeyboardHidden: handleKeyboardHidden,
   });
 
@@ -161,7 +166,6 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
         },
         bottomWrap: {
           paddingHorizontal: theme.spacing.md,
-          paddingBottom: restingBottomOffset,
         },
         dismissLayer: {
           ...StyleSheet.absoluteFillObject,
@@ -266,7 +270,7 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
           marginLeft: theme.spacing.md,
         },
       }),
-    [restingBottomOffset, theme]
+    [theme]
   );
 
   useImperativeHandle(
@@ -415,18 +419,19 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
     };
   }, [disabled, unitMenuOpen, text, trimmed, storeType, zoneLabelsInOrder]);
 
-  return (
+  const bottomWrapStyle = [styles.bottomWrap, stickyBarStyle];
+
+  const composerOverlay = (
     <>
-      <Animated.View pointerEvents="box-none" style={styles.overlay}>
-        {unitMenuOpen ? (
-          <Pressable
-            style={styles.dismissLayer}
-            onPress={() => setUnitMenuOpen(false)}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss unit menu"
-          />
-        ) : null}
-        <Animated.View pointerEvents="box-none" style={[styles.bottomWrap, liftedStyle]}>
+      {unitMenuOpen ? (
+        <Pressable
+          style={styles.dismissLayer}
+          onPress={() => setUnitMenuOpen(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss unit menu"
+        />
+      ) : null}
+      <Animated.View pointerEvents="box-none" style={bottomWrapStyle}>
           {unitMenuOpen ? (
             <GlassMenu style={[styles.unitMenuWrap, theme.shadows.chrome]}>
               <ScrollView
@@ -595,8 +600,21 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
               {error}
             </Text>
           ) : null}
-        </Animated.View>
       </Animated.View>
+    </>
+  );
+
+  return (
+    <>
+      {Platform.OS === 'ios' ? (
+        <KeyboardComposerHost pointerEvents="box-none" style={styles.overlay}>
+          {composerOverlay}
+        </KeyboardComposerHost>
+      ) : (
+        <Animated.View pointerEvents="box-none" style={styles.overlay}>
+          {composerOverlay}
+        </Animated.View>
+      )}
 
       <AppConfirmationDialog
         visible={confirmItems != null}

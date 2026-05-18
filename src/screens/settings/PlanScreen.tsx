@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../design/ThemeContext';
 import { useSettingsScrollHandler } from '../../navigation/NavigationChromeScrollContext';
@@ -25,7 +25,9 @@ import {
   shouldEnforceIosSubscriptionGate,
 } from '../../services/purchasesService';
 import { ensureServerSubscriptionMirror } from '../../services/subscriptionEntitlementSyncService';
+import { restorePurchasesWithUserFeedback } from '../../services/restorePurchasesFlow';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
+import { Chevron } from './SettingsChevron';
 
 export function PlanScreen() {
   const onScroll = useSettingsScrollHandler();
@@ -35,6 +37,7 @@ export function PlanScreen() {
   const reviewSubscriptionBypass = Platform.OS === 'ios' && isIosSubscriptionGateDisabledViaEnv();
   const [subscribed, setSubscribed] = useState<boolean | null>(null);
   const [paywallBusy, setPaywallBusy] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -56,7 +59,7 @@ export function PlanScreen() {
 
   const handleSubscribe = async () => {
     if (!getRevenueCatIosApiKey()) {
-      Alert.alert('Not configured', 'Add EXPO_PUBLIC_REVENUECAT_IOS_API_KEY and rebuild.');
+      Alert.alert('Not available', 'Subscriptions aren’t set up in this build. Install the App Store version to subscribe.');
       return;
     }
     setPaywallBusy(true);
@@ -65,6 +68,16 @@ export function PlanScreen() {
       if (ok) setSubscribed(true);
     } finally {
       setPaywallBusy(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    setRestoreBusy(true);
+    try {
+      const ok = await restorePurchasesWithUserFeedback();
+      if (ok) setSubscribed(true);
+    } finally {
+      setRestoreBusy(false);
     }
   };
 
@@ -130,30 +143,56 @@ export function PlanScreen() {
         </ListSection>
 
         {Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate() && subscribed === false ? (
-          <ListSection title="Upgrade" titleVariant="small" glass={false} style={styles.section}>
-            <View style={[styles.ctaCard, { backgroundColor: theme.surface }]}>
-              <Text
-                style={[
-                  theme.typography.footnote,
-                  { color: theme.textSecondary, lineHeight: 20, marginBottom: theme.spacing.md },
-                ]}
-              >
-                Listio+ monthly ({LISTIO_PLUS_MONTHLY_USD_LABEL}) or yearly ({LISTIO_PLUS_ANNUAL_USD_LABEL}). Cancel
-                anytime in Settings.
-              </Text>
-              <PrimaryButton title="View plans" onPress={handleSubscribe} loading={paywallBusy} />
-            </View>
-          </ListSection>
+          <>
+            <ListSection title="Upgrade" titleVariant="small" glass={false} style={styles.section}>
+              <View style={[styles.ctaCard, { backgroundColor: theme.surface }]}>
+                <Text
+                  style={[
+                    theme.typography.footnote,
+                    { color: theme.textSecondary, lineHeight: 20, marginBottom: theme.spacing.md },
+                  ]}
+                >
+                  Listio+ monthly ({LISTIO_PLUS_MONTHLY_USD_LABEL}) or yearly ({LISTIO_PLUS_ANNUAL_USD_LABEL}). Cancel
+                  anytime in Settings.
+                </Text>
+                <PrimaryButton title="View plans" onPress={handleSubscribe} loading={paywallBusy} />
+              </View>
+            </ListSection>
+            <ListSection title="Already subscribed?" titleVariant="small" glass={false} style={styles.section}>
+              <ListRow
+                title="Restore purchases"
+                subtitle="Get Listio+ back if you already subscribed"
+                onPress={restoreBusy ? undefined : handleRestore}
+                rightAccessory={
+                  restoreBusy ? <ActivityIndicator size="small" color={theme.accent} /> : <Chevron />
+                }
+                showSeparator={false}
+                fullWidthDivider
+              />
+            </ListSection>
+          </>
         ) : null}
 
         <ListSection title="Included with Listio+" titleVariant="small" glass={false} style={styles.section}>
           <ListRow
-            title="Sync across devices"
+            title="Use on all your devices"
             rightAccessory={
               <Text style={[theme.typography.footnote, { color: syncOn ? theme.accent : theme.textSecondary }]}>
-                {syncOn ? 'On' : 'Sign in'}
+                {syncOn ? 'With your account' : 'Sign in'}
               </Text>
             }
+            showSeparator
+            fullWidthDivider
+          />
+          <ListRow
+            title="Smart add"
+            subtitle="Add several items from one description"
+            showSeparator
+            fullWidthDivider
+          />
+          <ListRow
+            title="Recipe imports"
+            subtitle="From a link or pasted text"
             showSeparator
             fullWidthDivider
           />

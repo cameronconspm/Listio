@@ -315,6 +315,11 @@ export function HomeScreenZoneList({
     ]
   );
 
+  const reorderExtraData = useMemo(() => {
+    const data = reorderSections.length > 0 ? reorderSections : sections;
+    return `${data.map((s) => s.zone).join(',')}-${reduceMotion}`;
+  }, [reorderSections, sections, reduceMotion]);
+
   if (reorderMode) {
     /** `DraggableFlatList` wraps the list in `Animated.View` using `containerStyle`; without flex:1 that wrapper has no height and the list collapses to blank. */
     const reorderData = reorderSections.length > 0 ? reorderSections : sections;
@@ -324,7 +329,7 @@ export function HomeScreenZoneList({
         containerStyle={styles.list}
         style={styles.list}
         data={reorderData}
-        extraData={`${reorderData.map((s) => s.zone).join(',')}-${reduceMotion}`}
+        extraData={reorderExtraData}
         keyExtractor={(s) => s.zone}
         ListHeaderComponent={listHeader}
         onDragBegin={(index) => {

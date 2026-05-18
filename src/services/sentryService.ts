@@ -16,6 +16,7 @@ export function isSentryConfigured(): boolean {
 /**
  * Call once before the root component mounts. No-ops when EXPO_PUBLIC_SENTRY_DSN is unset.
  * Release builds use a modest trace sample rate; dev stays off unless EXPO_PUBLIC_SENTRY_DEBUG=1.
+ * Custom app perf spans in `src/utils/perf.ts` honor `EXPO_PUBLIC_SENTRY_PERF_SAMPLE_RATE` when set.
  */
 export function initSentry(): void {
   if (initialized) return;

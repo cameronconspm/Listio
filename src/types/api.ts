@@ -50,7 +50,7 @@ export interface ParseRecipeResponse {
 
 /**
  * Result of AI-parsing a free-text shopping description into a ready-to-insert row.
- * Produced by `aiService.parseListItemsFromText` and displayed in the Smart Add review sheet
+ * Produced by `aiService.parseListItemsFromText` for Smart Add bulk insert.
  * before the user commits to inserting into their list.
  */
 export interface ParsedListItem {

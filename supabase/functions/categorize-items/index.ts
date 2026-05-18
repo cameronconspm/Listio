@@ -14,6 +14,11 @@ import {
 } from '../_shared/commonGroceryCatalog.ts';
 import { tokensForFuzzyCacheLookup } from '../_shared/groceryResolverCore.ts';
 import { fetchUserPremiumActive } from '../_shared/premiumEntitlement.ts';
+import {
+  fetchOpenAiWithTimeout,
+  OpenAiUpstreamTimeoutError,
+  openAiTimeoutResponse,
+} from '../_shared/openaiFetch.ts';
 
 const MAX_ITEMS = 50;
 const MAX_STORE_TYPE = 80;
@@ -362,22 +367,30 @@ One object per item, in the same order as the list. No other keys or text.
 Items to classify:
 ${cacheMissInputs.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
-      const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          response_format: { type: 'json_object' },
-          // Deterministic classification → fewer malformed JSON retries, tighter p99.
-          temperature: 0,
-          // Roughly ~60 tokens per item for the JSON row + a fixed envelope.
-          max_tokens: Math.min(4000, 60 * cacheMissInputs.length + 120),
-        }),
-      });
+      let openaiRes: Response;
+      try {
+        openaiRes = await fetchOpenAiWithTimeout('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${openaiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: 'json_object' },
+            // Deterministic classification → fewer malformed JSON retries, tighter p99.
+            temperature: 0,
+            // Roughly ~60 tokens per item for the JSON row + a fixed envelope.
+            max_tokens: Math.min(4000, 60 * cacheMissInputs.length + 120),
+          }),
+        });
+      } catch (e) {
+        if (e instanceof OpenAiUpstreamTimeoutError) {
+          return openAiTimeoutResponse(corsHeaders);
+        }
+        throw e;
+      }
 
       if (!openaiRes.ok) {
         const err = await openaiRes.text();

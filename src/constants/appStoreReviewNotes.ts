@@ -24,8 +24,8 @@ Free tier (no subscription required)
 
 Listio+ (subscription)
 - Unlimited list items, meals, and recipes
-- Cloud sync across devices
-- AI: Smart add, recipe URL import, paste-to-import ingredients
+- Use on all devices when signed in
+- Smart add, recipe URL import, paste-to-import ingredients
 - Subscribe via contextual paywall (e.g. add a 4th list item) or Settings → Plan
 - Restore purchases: Settings → Restore purchases
 

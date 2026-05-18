@@ -25,7 +25,7 @@ export function ForgotPasswordScreen(_props: Props) {
     setError(null);
     if (!isSupabaseConfigured()) {
       setError(
-        'Supabase not configured. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to .env'
+        'Listio isn’t set up on this device yet. Check your connection or reinstall from the App Store.'
       );
       return;
     }
@@ -48,7 +48,7 @@ export function ForgotPasswordScreen(_props: Props) {
       const msg = e instanceof Error ? e.message : 'Could not send reset email';
       setError(
         msg.includes('Network') || msg.includes('fetch')
-          ? 'Network error. Check your connection and Supabase settings.'
+          ? 'Network error. Check your connection and try again.'
           : msg
       );
     } finally {

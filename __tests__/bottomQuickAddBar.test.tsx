@@ -35,8 +35,22 @@ jest.mock('../src/hooks/useHaptics', () => ({
 }));
 
 jest.mock('../src/hooks/useKeyboardFrameLift', () => ({
-  useKeyboardFrameLift: () => ({}),
+  COMPOSER_KEYBOARD_EDGE_GAP: 6,
+  useKeyboardFrameLift: () => ({
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 70,
+  }),
 }));
+
+jest.mock('listio-keyboard-composer', () => {
+  const { View } = require('react-native');
+  return {
+    KeyboardComposerHost: ({ children, ...props }: { children?: React.ReactNode }) =>
+      mockReact.createElement(View, props, children),
+  };
+});
 
 jest.mock('../src/services/recentItemsStore', () => ({
   loadRecentItemsForSuggestions: jest.fn(async () => []),

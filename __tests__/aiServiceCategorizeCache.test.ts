@@ -8,7 +8,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { categorizeItems } from '../src/services/aiService';
+import { categorizeItems, clearCategorizeInflight } from '../src/services/aiService';
 import {
   __resetCategoryCacheForTests,
   hydrateCategoryCache,
@@ -58,6 +58,7 @@ describe('categorizeItems + local cache', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
     __resetCategoryCacheForTests();
+    clearCategorizeInflight();
     await hydrateCategoryCache();
     invokeMock.mockReset();
     (isSyncEnabled as jest.Mock).mockReturnValue(true);
@@ -237,5 +238,39 @@ describe('categorizeItems + local cache', () => {
     const res = await categorizeItems(['Imported Licorice Root'], 'generic', []);
     expect(invokeMock).not.toHaveBeenCalled();
     expect(res.results[0].zone_key).toBe('pantry');
+  });
+
+  it('dedupes concurrent categorize calls with the same inputs', async () => {
+    invokeMock.mockResolvedValue({
+      data: {
+        results: [
+          {
+            input: 'dragon fruit',
+            normalized_name: 'dragon fruit',
+            category: 'Produce',
+            zone_key: 'produce',
+            confidence: 0.9,
+          },
+        ],
+        source_counts: { openai: 1 },
+      },
+      error: null,
+    });
+
+    const [r1, r2] = await Promise.all([
+      categorizeItems(['dragon fruit'], 'generic', ['Produce']),
+      categorizeItems(['dragon fruit'], 'generic', ['Produce']),
+    ]);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(r1.results[0].zone_key).toBe('produce');
+    expect(r2.results[0].zone_key).toBe('produce');
+  });
+
+  it('skips edge for known free-tier users on cache miss', async () => {
+    const res = await categorizeItems(['xyzunknownitem'], 'generic', [], {
+      premiumHint: { isPremium: false, isLoading: false },
+    });
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(res.results[0]?.zone_key).toBe('other');
   });
 });

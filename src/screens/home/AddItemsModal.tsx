@@ -8,7 +8,8 @@ import { BottomSheet } from '../../components/ui/BottomSheet';
 import { parseItems } from '../../utils/parseItems';
 import { titleCaseWords } from '../../utils/titleCaseWords';
 import { recordItemAdded } from '../../services/recentItemsStore';
-import { getUserId, isSyncEnabled } from '../../services/supabaseClient';
+import { isSyncEnabled } from '../../services/supabaseClient';
+import { useAuthUserId } from '../../context/AuthContext';
 import { PRIVACY_POLICY_URL } from '../../constants/legalUrls';
 import { AI_SMART_CATEGORIZATION_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDisclosure';
 import { useHomeListMutations } from '../../hooks/useHomeListMutations';
@@ -30,7 +31,8 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
   const theme = useTheme();
   const queryClient = useQueryClient();
   const { insertItems } = useHomeListMutations();
-  const { isPremium } = usePremiumEntitlement();
+  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
+  const authUserId = useAuthUserId();
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
       setError('Enter or paste at least one item');
       return;
     }
-    const userId = await getUserId();
+    const userId = typeof authUserId === 'string' ? authUserId : null;
     if (!userId) {
       setError('Not signed in');
       return;
@@ -51,7 +53,7 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
     try {
       const currentBundle = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList(userId));
       const currentCount = currentBundle?.listItems.length ?? 0;
-      const ok = await ensureFreeTierCapacity('list', currentCount, raw.length, isPremium);
+      const ok = await ensureFreeTierCapacity('list', currentCount, raw.length, isPremium, isPremiumLoading);
       if (!ok) {
         setLoading(false);
         return;
@@ -59,7 +61,9 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
       const storeType = currentBundle?.store?.store_type ?? 'generic';
       const zoneLabelsInOrder = DEFAULT_ZONE_ORDER.map((zoneKey) => ZONE_LABELS[zoneKey]);
       const { categorizeItems, phraseKeyForCategorize } = await import('../../services/aiService');
-      const { results } = await categorizeItems(raw, storeType, zoneLabelsInOrder);
+      const { results } = await categorizeItems(raw, storeType, zoneLabelsInOrder, {
+        premiumHint: { isPremium, isLoading: isPremiumLoading },
+      });
       await insertItems.mutateAsync({
         userId,
         items: results.map((r, i) => ({
@@ -97,7 +101,7 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
         </Text>
         <View style={{ marginBottom: theme.spacing.lg }}>
           <Text style={[theme.typography.footnote, { color: theme.textSecondary, marginBottom: theme.spacing.xs }]}>
-            One per line or comma-separated. Categorized by section.
+            One per line or comma-separated. Sorted into store sections.
           </Text>
           {isSyncEnabled() ? (
             <Text style={[theme.typography.footnote, { color: theme.textSecondary, lineHeight: 20 }]}>

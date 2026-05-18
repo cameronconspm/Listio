@@ -45,6 +45,7 @@ import { parseRecipeInstructionSteps } from '../../utils/parseRecipeInstructionS
 import { mapParsedRecipeDraftToForm } from './recipeAiImport';
 import { ensurePremiumViaContextualPaywall } from '../../context/contextualPaywallRef';
 import { notifyMeaningfulListOrRecipeAction } from '../../services/engagementPaywallTriggers';
+import { notifyFreeTierNearLimitIfNeeded } from '../../services/notifyFreeTierNearLimit';
 import { notifyRecipeSavedForMilestones } from '../../firstLaunchTour/milestoneUnlockFlow';
 import {
   RecipeAiImportOverlay,
@@ -107,7 +108,7 @@ function instructionsFromSteps(rows: StepRow[]): string {
 export function RecipeEditScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
-  const { isPremium } = usePremiumEntitlement();
+  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<RecipesStackParamList>>();
   const route = useRoute<Route>();
@@ -132,8 +133,10 @@ export function RecipeEditScreen() {
   const [aiImportOverlay, setAiImportOverlay] = useState<{
     phase: RecipeAiImportPhase;
     mode: RecipeAiImportMode;
+    progress?: number;
     errorMessage?: string;
   } | null>(null);
+  const importAbortRef = useRef<AbortController | null>(null);
   const [errorDialog, setErrorDialog] = useState<{ title: string; message: string } | null>(null);
   const reduceMotion = useReduceMotion();
   const haptics = useHaptics();
@@ -303,7 +306,7 @@ export function RecipeEditScreen() {
 
       if (isNew) {
         const existingRecipes = isPremium ? [] : await getRecipes(userId);
-        const allowed = await ensureFreeTierCapacity('recipe', existingRecipes.length, 1, isPremium);
+        const allowed = await ensureFreeTierCapacity('recipe', existingRecipes.length, 1, isPremium, isPremiumLoading);
         if (!allowed) {
           setSaving(false);
           return;
@@ -322,6 +325,7 @@ export function RecipeEditScreen() {
         void queryClient.invalidateQueries({ queryKey: queryKeys.recipesScreenRoot(userId) });
         notifyMeaningfulListOrRecipeAction();
         notifyRecipeSavedForMilestones();
+        void notifyFreeTierNearLimitIfNeeded('recipe', existingRecipes.length + 1);
         navigation.replace('RecipeDetails', { recipeId: r.id });
       } else {
         await updateRecipe(recipeId!, {
@@ -347,6 +351,12 @@ export function RecipeEditScreen() {
     }
   };
 
+  const dismissAiImport = useCallback(() => {
+    importAbortRef.current?.abort();
+    importAbortRef.current = null;
+    setAiImportOverlay(null);
+  }, []);
+
   const handleImportFromLink = async () => {
     const raw = importLinkUrl.trim();
     if (!raw) {
@@ -357,20 +367,40 @@ export function RecipeEditScreen() {
     const allowed = await ensurePremiumViaContextualPaywall('recipe_url');
     if (!allowed) return;
 
-    setAiImportOverlay({ phase: 'parsing', mode: 'link' });
+    importAbortRef.current?.abort();
+    const ac = new AbortController();
+    importAbortRef.current = ac;
+    const invokeOpts = {
+      premiumHint: { isPremium, isLoading: isPremiumLoading },
+      signal: ac.signal,
+    };
+
+    setAiImportOverlay({ phase: 'parsing', mode: 'link', progress: 0.1 });
     try {
       const [{ parseRecipeFromUrl }, { mapParsedRecipeDraftToForm: mapDraft }] = await Promise.all([
         import('../../services/aiService'),
         import('./recipeAiImport'),
       ]);
-      const { recipe } = await parseRecipeFromUrl(raw);
+      setAiImportOverlay({ phase: 'parsing', mode: 'link', progress: 0.35 });
+      const { recipe, cache_hit } = await parseRecipeFromUrl(raw, invokeOpts);
+      setAiImportOverlay({
+        phase: 'parsing',
+        mode: 'link',
+        progress: cache_hit ? 0.95 : 0.75,
+      });
       const mapped = mapDraft(recipe);
       applyParsedDraft(mapped);
-      setAiImportOverlay({ phase: 'success', mode: 'link' });
+      setAiImportOverlay({ phase: 'success', mode: 'link', progress: 1 });
       haptics.success();
     } catch (err) {
+      if (err instanceof Error && err.message === 'Cancelled.') {
+        setAiImportOverlay(null);
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Could not import from that link. Try again.';
       setAiImportOverlay({ phase: 'failure', mode: 'link', errorMessage: message });
+    } finally {
+      importAbortRef.current = null;
     }
   };
 
@@ -384,20 +414,40 @@ export function RecipeEditScreen() {
     const allowed = await ensurePremiumViaContextualPaywall('recipe_paste');
     if (!allowed) return;
 
-    setAiImportOverlay({ phase: 'parsing', mode: 'paste' });
+    importAbortRef.current?.abort();
+    const ac = new AbortController();
+    importAbortRef.current = ac;
+    const invokeOpts = {
+      premiumHint: { isPremium, isLoading: isPremiumLoading },
+      signal: ac.signal,
+    };
+
+    setAiImportOverlay({ phase: 'parsing', mode: 'paste', progress: 0.1 });
     try {
       const [{ parseRecipeFromText }, { mapParsedRecipeDraftToForm: mapDraft }] = await Promise.all([
         import('../../services/aiService'),
         import('./recipeAiImport'),
       ]);
-      const { recipe } = await parseRecipeFromText(raw);
+      setAiImportOverlay({ phase: 'parsing', mode: 'paste', progress: 0.4 });
+      const { recipe, cache_hit } = await parseRecipeFromText(raw, invokeOpts);
+      setAiImportOverlay({
+        phase: 'parsing',
+        mode: 'paste',
+        progress: cache_hit ? 0.95 : 0.75,
+      });
       const mapped = mapDraft(recipe);
       applyParsedDraft(mapped);
-      setAiImportOverlay({ phase: 'success', mode: 'paste' });
+      setAiImportOverlay({ phase: 'success', mode: 'paste', progress: 1 });
       haptics.success();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Could not parse recipe text. Try again.';
+      if (err instanceof Error && err.message === 'Cancelled.') {
+        setAiImportOverlay(null);
+        return;
+      }
+      const message = err instanceof Error ? err.message : 'Couldn’t read that recipe. Try again.';
       setAiImportOverlay({ phase: 'failure', mode: 'paste', errorMessage: message });
+    } finally {
+      importAbortRef.current = null;
     }
   };
 
@@ -775,8 +825,16 @@ export function RecipeEditScreen() {
         visible={aiImportOverlay != null}
         phase={aiImportOverlay?.phase ?? 'parsing'}
         mode={aiImportOverlay?.mode ?? 'link'}
+        progressFraction={aiImportOverlay?.progress}
         errorMessage={aiImportOverlay?.errorMessage}
-        onDismiss={() => setAiImportOverlay(null)}
+        onDismiss={() => {
+          if (aiImportOverlay?.phase === 'parsing') {
+            dismissAiImport();
+          } else {
+            setAiImportOverlay(null);
+          }
+        }}
+        onCancel={aiImportOverlay?.phase === 'parsing' ? dismissAiImport : undefined}
         reduceMotion={reduceMotion}
       />
     </Screen>

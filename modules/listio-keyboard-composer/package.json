@@ -1,0 +1,11 @@
+{
+  "name": "listio-keyboard-composer",
+  "version": "1.0.0",
+  "description": "iOS keyboardLayoutGuide host for the list quick-add composer",
+  "main": "src/index.tsx",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

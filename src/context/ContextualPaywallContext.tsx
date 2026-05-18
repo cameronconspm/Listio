@@ -1,22 +1,17 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { useTheme } from '../design/ThemeContext';
-import { BottomSheet } from '../components/ui/BottomSheet';
-import { PrimaryButton } from '../components/ui/PrimaryButton';
-import { SecondaryButton } from '../components/ui/SecondaryButton';
-import {
-  contextualPaywallBody,
-  contextualPaywallHeadline,
-  type ContextualPaywallReason,
-} from './contextualPaywallReasons';
+import { Platform } from 'react-native';
+import { ContextualPaywallOverlay } from '../components/paywall/ContextualPaywallOverlay';
+import type { ContextualPaywallReason } from './contextualPaywallReasons';
+import { contextualPaywallDismissToast } from './contextualPaywallReasons';
 import {
   fetchPremiumEntitlementActive,
   presentPaywallForPurchase,
   shouldEnforceIosSubscriptionGate,
 } from '../services/purchasesService';
 import { ensureServerSubscriptionMirror } from '../services/subscriptionEntitlementSyncService';
+import { restorePurchasesWithUserFeedback } from '../services/restorePurchasesFlow';
+import { showInfo } from '../utils/appToast';
 import { setContextualPaywallPresenter } from './contextualPaywallRef';
-import { spacing } from '../design/spacing';
 
 type Ctx = {
   ensurePremiumOrPresentPaywall: (reason: ContextualPaywallReason) => Promise<boolean>;
@@ -31,18 +26,32 @@ type Props = {
 };
 
 export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Props) {
-  const theme = useTheme();
   const [pendingReason, setPendingReason] = useState<ContextualPaywallReason | null>(null);
   const [busy, setBusy] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
   const resolveRef = useRef<((ok: boolean) => void) | null>(null);
+  const dismissReasonRef = useRef<ContextualPaywallReason | null>(null);
 
-  const closeSheet = useCallback((result: boolean) => {
-    const r = resolveRef.current;
-    if (!r) return;
-    resolveRef.current = null;
-    setPendingReason(null);
-    r(result);
+  const showDismissToast = useCallback((reason: ContextualPaywallReason) => {
+    const { title, message } = contextualPaywallDismissToast(reason);
+    showInfo(message, title);
   }, []);
+
+  const closeSheet = useCallback(
+    (result: boolean, options?: { showDismissToast?: boolean }) => {
+      const r = resolveRef.current;
+      const reason = dismissReasonRef.current;
+      if (!r) return;
+      resolveRef.current = null;
+      dismissReasonRef.current = null;
+      setPendingReason(null);
+      if (!result && options?.showDismissToast !== false && reason) {
+        showDismissToast(reason);
+      }
+      r(result);
+    },
+    [showDismissToast]
+  );
 
   const ensurePremiumOrPresentPaywall = useCallback(
     async (reason: ContextualPaywallReason): Promise<boolean> => {
@@ -58,6 +67,7 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
       }
       return await new Promise<boolean>((resolve) => {
         resolveRef.current = resolve;
+        dismissReasonRef.current = reason;
         setPendingReason(reason);
       });
     },
@@ -81,7 +91,7 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
     try {
       const ok = await presentPaywallForPurchase();
       onPremiumStatusKnown?.(ok);
-      closeSheet(ok);
+      closeSheet(ok, { showDismissToast: !ok });
     } finally {
       setBusy(false);
     }
@@ -91,6 +101,23 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
     closeSheet(false);
   }, [closeSheet]);
 
+  const handleRestorePurchases = useCallback(async () => {
+    setRestoreBusy(true);
+    try {
+      const ok = await restorePurchasesWithUserFeedback({
+        onPremiumActive: () => onPremiumStatusKnown?.(true),
+      });
+      if (ok) {
+        closeSheet(true, { showDismissToast: false });
+      }
+    } finally {
+      setRestoreBusy(false);
+    }
+  }, [closeSheet, onPremiumStatusKnown]);
+
+  const showRestore =
+    Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate();
+
   const value = useMemo(
     () => ({ ensurePremiumOrPresentPaywall }),
     [ensurePremiumOrPresentPaywall]
@@ -99,42 +126,18 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
   return (
     <ContextualPaywallContext.Provider value={value}>
       {children}
-      <BottomSheet
+      <ContextualPaywallOverlay
         visible={pendingReason !== null}
-        onClose={() => closeSheet(false)}
-        surfaceVariant="solid"
-        size="default"
-        interactiveDismiss
-        padContent
-      >
-        {pendingReason ? (
-          <View style={styles.sheetInner}>
-            <Text style={[theme.typography.title3, { color: theme.textPrimary, marginBottom: spacing.sm }]}>
-              {contextualPaywallHeadline(pendingReason)}
-            </Text>
-            <Text
-              style={[
-                theme.typography.body,
-                { color: theme.textSecondary, lineHeight: 22, marginBottom: spacing.lg },
-              ]}
-            >
-              {contextualPaywallBody(pendingReason)}
-            </Text>
-            <PrimaryButton title="See plans" onPress={() => void handleSeePlans()} loading={busy} disabled={busy} />
-            <View style={{ height: spacing.sm }} />
-            <SecondaryButton title="Not now" onPress={handleNotNow} disabled={busy} />
-          </View>
-        ) : null}
-      </BottomSheet>
+        reason={pendingReason}
+        onSeePlans={handleSeePlans}
+        onNotNow={handleNotNow}
+        onRestorePurchases={showRestore ? handleRestorePurchases : undefined}
+        busy={busy}
+        restoreBusy={restoreBusy}
+      />
     </ContextualPaywallContext.Provider>
   );
 }
-
-const styles = StyleSheet.create({
-  sheetInner: {
-    paddingBottom: spacing.md,
-  },
-});
 
 export function useContextualPaywall(): Ctx {
   const v = useContext(ContextualPaywallContext);

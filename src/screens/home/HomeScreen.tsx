@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
-import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query';
+import { View, StyleSheet } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import { useNavigationChromeScroll } from '../../navigation/NavigationChromeScrollContext';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
@@ -8,16 +8,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
 import { tabRootScrollPaddingTop } from '../../design/layout';
 import { Screen } from '../../components/ui/Screen';
+import { QueryLoadErrorPanel } from '../../components/ui/QueryLoadErrorPanel';
 import {
   AppConfirmationDialog,
   type AppConfirmationButton,
 } from '../../components/ui/AppConfirmationDialog';
 import { useHaptics } from '../../hooks/useHaptics';
 import { useShoppingMode } from '../../hooks/useShoppingMode';
-import { getUserId } from '../../services/supabaseClient';
-import { useAuthUserId } from '../../context/AuthUserIdContext';
-import { getMealsByIds } from '../../services/mealService';
-import { linkedMealRowMeta, type LinkedMealRowMeta } from '../../utils/mealLabel';
+import { useAuthUserId } from '../../context/AuthContext';
+import type { LinkedMealRowMeta } from '../../utils/mealLabel';
 import { getZoneIconOverrides } from '../../utils/storeUtils';
 import { DEFAULT_ZONE_ORDER, ZONE_LABELS } from '../../data/zone';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -34,10 +33,10 @@ import {
   type BottomQuickAddBarHandle,
 } from '../../components/list/BottomQuickAddBar';
 import { ITEM_NAME_SUGGESTION_UI_CAP } from '../../services/itemNameSuggestions';
-import { putCachedCategories, seedCategoryCacheFromListItems } from '../../services/aiCategoryCache';
+import { putCachedCategories } from '../../services/aiCategoryCache';
 import { normalize, toBoolean } from '../../utils/normalize';
 import type { ParsedItem } from '../../utils/parseItems';
-import { findDuplicate, type DuplicateMatch } from '../../utils/duplicateDetection';
+import { findDuplicate, mergeMetadata, type DuplicateMatch } from '../../utils/duplicateDetection';
 import type { CategorizeItemResult, ParsedListItem } from '../../types/api';
 import { normalizePersistedZoneOrder } from '../../utils/zoneOrderPrefs';
 import { showError } from '../../utils/appToast';
@@ -48,26 +47,23 @@ import { ListScreenHeader } from '../../components/list/ListScreenHeader';
 import { recordItemAdded } from '../../services/recentItemsStore';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
 import { useFabExpandScrollHandler } from '../../hooks/useFabExpandScrollHandler';
-import { useHomeListMutations } from '../../hooks/useHomeListMutations';
 import { useLazyMount } from '../../hooks/useLazyMount';
 import { queryKeys } from '../../query/keys';
-import { fetchHomeListBundle, HOME_LIST_STALE_MS } from '../../query/homeListBundle';
-import { prefetchRecipesAndDefaultMealsRange } from '../../query/prefetchAdjacentTabs';
-import {
-  deriveHomeListModel,
-  safeZoneOrderOrDefault,
-  shareHomeListDerivedModel,
-  type HomeListDerivedModel,
-  type HomeSectionItem,
-} from './homeScreenListDerived';
+import { HOME_LIST_STALE_MS } from '../../query/homeListBundle';
+import { safeZoneOrderOrDefault, type HomeSectionItem } from './homeScreenListDerived';
+import { useHomeListScreenState } from './useHomeListScreenState';
+import { useListRealtimeSync } from '../../hooks/useListRealtimeSync';
 import { HomeScreenEmptyState } from './HomeScreenEmptyState';
 import { HomeScreenZoneList } from './HomeScreenZoneList';
 import { ShopRunCompleteOverlay } from '../../components/list/ShopRunCompleteOverlay';
 import { markRender, time, timeAsync } from '../../utils/perf';
-import { notifyListItemsForMilestones } from '../../firstLaunchTour/milestoneUnlockFlow';
 import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
+import { shouldEnforceIosSubscriptionGate } from '../../services/purchasesService';
 import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { useAppReview } from '../../context/AppReviewContext';
+import { FreeTierUsageBanner } from '../../components/subscription/FreeTierUsageBanner';
+import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
+import { openPlanScreen } from '../../navigation/openPlanScreen';
 
 const VALID_LIST_ZONES = new Set<ZoneKey>(DEFAULT_ZONE_ORDER);
 
@@ -88,6 +84,13 @@ type ListDeleteDialogState =
 /** Options for `handleComposerSubmit` / bottom quick-add (see `onOptimisticListInsert`). */
 type ComposerSubmitOptions = {
   onOptimisticListInsert?: () => void;
+  skipDuplicateCheck?: boolean;
+};
+
+type CategorizeFallbackPending = {
+  parsedItems: ParsedItem[];
+  zoneOverride: ZoneKey | null;
+  fallbackResults: CategorizeItemResult[];
 };
 
 export function HomeScreen() {
@@ -95,8 +98,12 @@ export function HomeScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const { isPremium } = usePremiumEntitlement();
+  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   const { maybePromptForReview } = useAppReview();
+  const tabNavigation = useNavigation<NavigationProp<ParamListBase>>();
+  const handleOpenPlan = useCallback(() => {
+    openPlanScreen(tabNavigation);
+  }, [tabNavigation]);
   const scrollTopBelowTabHeader = tabRootScrollPaddingTop(insets.top, theme.spacing);
   const tabBarHeight = useBottomTabBarHeight();
   const haptics = useHaptics();
@@ -105,7 +112,6 @@ export function HomeScreen() {
   const bottomAddBarRef = useRef<BottomQuickAddBarHandle>(null);
   const sectionsRef = useRef<HomeSectionItem[]>([]);
   const itemsRef = useRef<ListItem[]>([]);
-  const previousDerivedRef = useRef<HomeListDerivedModel | null>(null);
   const { scrollY: tabScrollY } = useNavigationChromeScroll();
   const listScrollShared = tabScrollY.ListTab;
   const { listScrollHandler } = useFabExpandScrollHandler(listScrollShared);
@@ -118,7 +124,7 @@ export function HomeScreen() {
   const [zoneOrder, setZoneOrder] = useState<ZoneKey[]>(DEFAULT_ZONE_ORDER);
   const [collapsedZones, setCollapsedZones] = useState<Set<ZoneKey>>(new Set());
   const [filterZone, setFilterZone] = useState<ZoneKey | 'all'>('all');
-  const [shoppingMode, setShoppingMode, { isHydrated: shoppingModeHydrated }] = useShoppingMode();
+  const [shoppingMode, setShoppingMode] = useShoppingMode();
 
   const [reorderMode, setReorderMode] = useState(false);
   const [sessionZoneOrder, setSessionZoneOrder] = useState<ZoneKey[] | null>(null);
@@ -136,23 +142,14 @@ export function HomeScreen() {
   const pendingDeleteEntireListAfterSheetRef = useRef(false);
   const [reorderSaveSheetVisible, setReorderSaveSheetVisible] = useState(false);
   const [reorderSaveOrder, setReorderSaveOrder] = useState<ZoneKey[] | null>(null);
-  const [duplicateResolution, setDuplicateResolution] = useState<{
-    match: DuplicateMatch;
-    incoming: ParsedItem;
-    categorized: { normalized_name: string; category: string; zone_key: string };
-  } | null>(null);
+  const [categorizeFallbackPending, setCategorizeFallbackPending] =
+    useState<CategorizeFallbackPending | null>(null);
   /** Lazy-mount gates: sheets/dialogs stay unmounted until first opened to avoid mount cost on screen load. */
   const composerMounted = useLazyMount(composerVisible);
   const listActionsMounted = useLazyMount(listActionsVisible);
   const reorderSaveSheetMounted = useLazyMount(reorderSaveSheetVisible);
   const listDeleteDialogMounted = useLazyMount(listDeleteDialog != null);
-  const duplicateResolutionMounted = useLazyMount(duplicateResolution != null);
-  /** Staged duplicate: show centered alert only after the composer sheet modal has fully exited (avoids stacked RN Modals freezing touches). */
-  const pendingDuplicateAfterComposerRef = useRef<{
-    match: DuplicateMatch;
-    incoming: ParsedItem;
-    categorized: { normalized_name: string; category: string; zone_key: string };
-  } | null>(null);
+  const categorizeFallbackMounted = useLazyMount(categorizeFallbackPending != null);
   const [linkedMealLabels, setLinkedMealLabels] = useState<Map<string, LinkedMealRowMeta>>(
     () => new Map()
   );
@@ -161,34 +158,16 @@ export function HomeScreen() {
   /** Restore section expand/collapse after inline reorder finishes. */
   const collapsedSnapshotRef = useRef<Set<ZoneKey> | null>(null);
 
-  const isRestoringCache = useIsRestoring();
-
-  const listQuery = useQuery({
-    queryKey: queryKeys.homeList(userId ?? ''),
-    queryFn: () => fetchHomeListBundle(userId!, queryClient),
-    enabled: typeof userId === 'string' && userId.length > 0,
-    staleTime: HOME_LIST_STALE_MS,
-  });
-
-  const userReady = typeof userId === 'string' && userId.length > 0;
-  const listAwaitingFirstPayload =
-    userReady && listQuery.data === undefined && (listQuery.isPending || isRestoringCache);
-  const listBlocking = userId === undefined || listAwaitingFirstPayload;
-
-  /**
-   * Prefetch Recipes + default Meals window after list loads (tabs open without cold fetches).
-   * Guarded to fire once per user session so invalidations of the home list don't re-trigger
-   * adjacent-tab prefetches.
-   */
-  const prefetchedForUserRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (typeof userId !== 'string' || !userId || !listQuery.isSuccess) return;
-    if (prefetchedForUserRef.current === userId) return;
-    prefetchedForUserRef.current = userId;
-    prefetchRecipesAndDefaultMealsRange(userId, queryClient);
-  }, [userId, listQuery.isSuccess, queryClient]);
-
   const {
+    listQuery,
+    userReady,
+    listBlocking,
+    items,
+    store,
+    effectiveZoneOrder,
+    safeZoneOrder,
+    sections,
+    derived,
     insertItems,
     updateItem,
     toggleItem,
@@ -196,7 +175,16 @@ export function HomeScreen() {
     removeAllItems,
     removeZoneItems,
     removeCheckedItems,
-  } = useHomeListMutations();
+  } = useHomeListScreenState({
+    userId,
+    shoppingMode,
+    filterZone,
+    zoneOrder,
+    sessionZoneOrder,
+    setLinkedMealLabels,
+  });
+
+  useListRealtimeSync(userId);
 
   useEffect(() => {
     let cancelled = false;
@@ -239,75 +227,12 @@ export function HomeScreen() {
     debouncedPersistListUi();
   }, [collapsedZones, filterZone, debouncedPersistListUi]);
 
-  const items = (listQuery.data?.listItems ?? EMPTY_ITEMS) as ListItem[];
-  const store: StoreProfile | null = listQuery.data?.store ?? null;
   itemsRef.current = items;
 
   const listItemNames = useMemo(
     () => items.map((item) => item.name).filter((name) => name.trim().length > 0),
     [items]
   );
-
-  const categorySeedSignature = useMemo(
-    () =>
-      items
-        .map((item) => `${item.normalized_name}|${item.zone_key}|${item.category}`)
-        .join('\n'),
-    [items]
-  );
-
-  useEffect(() => {
-    if (!categorySeedSignature) return;
-    const id = setTimeout(() => {
-      seedCategoryCacheFromListItems(
-        items.map((item) => ({
-          normalized_name: item.normalized_name,
-          zone_key: item.zone_key,
-          category: item.category,
-        }))
-      );
-    }, 400);
-    return () => clearTimeout(id);
-  }, [categorySeedSignature, items]);
-
-  /**
-   * Keying the linked-meals fetch on the full `listItems` reference would refire
-   * on every optimistic toggle/edit (since react-query hands us a new array each
-   * mutation). Dedupe via a stable id signature so the fetch only reruns when
-   * the *set* of linked meal ids actually changes.
-   */
-  const linkedMealIdsSignature = useMemo(() => {
-    const listData = listQuery.data?.listItems;
-    if (!listData) return '';
-    const ids = new Set<string>();
-    for (const i of listData) {
-      const linked = i.linked_meal_ids;
-      if (!linked) continue;
-      for (const id of linked) ids.add(id);
-    }
-    if (ids.size === 0) return '';
-    return Array.from(ids).sort().join(',');
-  }, [listQuery.data?.listItems]);
-
-  useEffect(() => {
-    if (!linkedMealIdsSignature) {
-      setLinkedMealLabels((prev) => (prev.size === 0 ? prev : new Map()));
-      return;
-    }
-    const mealIds = linkedMealIdsSignature.split(',');
-    let cancelled = false;
-    void getMealsByIds(mealIds).then((meals) => {
-      if (cancelled) return;
-      const map = new Map<string, LinkedMealRowMeta>();
-      for (const m of meals) {
-        map.set(m.id, linkedMealRowMeta(m));
-      }
-      setLinkedMealLabels(map);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [linkedMealIdsSignature]);
 
   useEffect(() => {
     if (listQuery.isError) {
@@ -348,8 +273,7 @@ export function HomeScreen() {
 
   const handleComposerSubmit = useCallback(
     async (parsedItems: ParsedItem[], zoneOverride: ZoneKey | null, opts?: ComposerSubmitOptions) => {
-      const userId = await getUserId();
-      if (!userId) throw new Error('Not signed in');
+      if (typeof userId !== 'string' || !userId) throw new Error('Not signed in');
       const storeType = store?.store_type ?? 'generic';
       const zoneLabelsInOrder = (sessionZoneOrder ?? safeZoneOrderOrDefault(zoneOrder)).map(
         (k) => ZONE_LABELS[k]
@@ -366,10 +290,12 @@ export function HomeScreen() {
         const stableKey = phraseKeyForCategorize(p.name);
         let categorized: { normalized_name: string; category: string; zone_key: string };
         if (zoneOverride == null) {
-          const res = await categorizeItems([p.name], storeType, zoneLabelsInOrder);
+          const res = await categorizeItems([p.name], storeType, zoneLabelsInOrder, {
+            premiumHint: { isPremium, isLoading: isPremiumLoading },
+          });
           const first = res.results[0];
           if (!first) {
-            throw new Error('Could not categorize item. Try again.');
+            throw new Error('Couldn’t place that item in a section. Try again.');
           }
           categorized = first;
         } else {
@@ -382,29 +308,18 @@ export function HomeScreen() {
         const resolvedZone: ZoneKey = zoneOverride ?? (categorized.zone_key as ZoneKey);
         const resolvedCategory = categorized.category;
 
-        const match = findDuplicate(items, p);
-        if (match) {
-          haptics.light();
-          pendingDuplicateAfterComposerRef.current = {
-            match,
-            incoming: p,
-            categorized: {
-              normalized_name: stableKey,
-              category: resolvedCategory,
-              zone_key: resolvedZone,
-            },
-          };
-          setComposerVisible(false);
-          setEditingItem(null);
-          const err = new Error('Duplicate item');
-          (err as { code?: string }).code = 'DUPLICATE';
-          throw err;
+        if (!opts?.skipDuplicateCheck) {
+          const match = findDuplicate(items, p);
+          if (match) {
+            haptics.light();
+            const err = new Error('Duplicate item');
+            (err as { code?: string }).code = 'DUPLICATE';
+            throw err;
+          }
         }
 
-        const okSingle = await ensureFreeTierCapacity('list', items.length, 1, isPremium);
+        const okSingle = await ensureFreeTierCapacity('list', items.length, 1, isPremium, isPremiumLoading);
         if (!okSingle) {
-          setComposerVisible(false);
-          setEditingItem(null);
           return;
         }
 
@@ -487,29 +402,35 @@ export function HomeScreen() {
 
       // Multi-item path: keep today's synchronous categorize → bulk insert flow.
       // Users who paste a multi-line list expect all rows to land pre-sorted; the
-      // brief AI wait here is tolerable and matches the Smart Add review flow.
-      const okMulti = await ensureFreeTierCapacity('list', items.length, parsedItems.length, isPremium);
+      // brief AI wait here is tolerable for multi-line paste.
+      const okMulti = await ensureFreeTierCapacity('list', items.length, parsedItems.length, isPremium, isPremiumLoading);
       if (!okMulti) {
-        setComposerVisible(false);
-        setEditingItem(null);
         return;
       }
       const rawNames = parsedItems.map((p) => p.name);
       const { categorizeItems, phraseKeyForCategorize } = await import('../../services/aiService');
       let results: CategorizeItemResult[];
       try {
-        const res = await categorizeItems(rawNames, storeType, zoneLabelsInOrder);
+        const res = await categorizeItems(rawNames, storeType, zoneLabelsInOrder, {
+          premiumHint: { isPremium, isLoading: isPremiumLoading },
+        });
         results = res.results;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        showError(msg.length > 140 ? `${msg.slice(0, 140)}…` : msg, 'Could not auto-categorize');
-        results = rawNames.map((name) => ({
+        const fallbackResults = rawNames.map((name) => ({
           input: name,
           normalized_name: normalize(name) || name,
           category: 'other',
-          zone_key: 'other',
+          zone_key: 'other' as const,
           confidence: 0,
         }));
+        setCategorizeFallbackPending({
+          parsedItems,
+          zoneOverride,
+          fallbackResults,
+        });
+        showError(msg.length > 140 ? `${msg.slice(0, 140)}…` : msg, 'Couldn’t sort into sections');
+        return;
       }
 
       if (zoneOverride !== null) {
@@ -561,24 +482,16 @@ export function HomeScreen() {
       setComposerVisible(false);
       setEditingItem(null);
     },
-    [insertItems, items, zoneOrder, sessionZoneOrder, store, haptics, isPremium]
+    [insertItems, items, zoneOrder, sessionZoneOrder, store, haptics, isPremium, isPremiumLoading, userId]
   );
 
-  /**
-   * Bulk-insert items that were already parsed + categorized by the Smart Add AI flow.
-   * Unlike `handleComposerSubmit`, we do NOT re-run `categorizeItems` here — the user just
-   * reviewed the zones in the Smart Add review sheet, so running categorize again could
-   * disagree with what they saw, and would cost a second round-trip for zero gain.
-   */
+  /** Bulk-insert items already parsed + categorized by Smart Add (no second categorize call). */
   const handleBulkAddPreCategorized = useCallback(
     async (preCategorized: ParsedListItem[]) => {
       if (preCategorized.length === 0) return;
-      const userId = await getUserId();
-      if (!userId) throw new Error('Not signed in');
-      const okBulk = await ensureFreeTierCapacity('list', items.length, preCategorized.length, isPremium);
+      if (typeof userId !== 'string' || !userId) throw new Error('Not signed in');
+      const okBulk = await ensureFreeTierCapacity('list', items.length, preCategorized.length, isPremium, isPremiumLoading);
       if (!okBulk) {
-        setComposerVisible(false);
-        setEditingItem(null);
         return;
       }
       await timeAsync('homeInsertSmartAddItems', () =>
@@ -612,33 +525,74 @@ export function HomeScreen() {
       setComposerVisible(false);
       setEditingItem(null);
     },
-    [insertItems, items, isPremium]
+    [insertItems, items, isPremium, isPremiumLoading, userId]
   );
 
-  const handleDuplicateAlertClose = useCallback(() => {
-    pendingDuplicateAfterComposerRef.current = null;
-    setDuplicateResolution(null);
-  }, []);
+  const handleDuplicateMerge = useCallback(
+    async (match: DuplicateMatch, incoming: ParsedItem) => {
+      if (typeof userId !== 'string' || !userId) throw new Error('Not signed in');
+      if (!match.sameUnit) throw new Error('Cannot merge different units');
+      const meta = mergeMetadata(match.existing, incoming);
+      await updateItem.mutateAsync({
+        userId,
+        id: match.existing.id,
+        updates: {
+          quantity_value: match.mergedQuantity,
+          quantity_unit: match.mergedUnit ?? match.existing.quantity_unit,
+          brand_preference: meta.brand_preference,
+          substitute_allowed: meta.substitute_allowed,
+          priority: meta.priority,
+          is_recurring: meta.is_recurring,
+        },
+      });
+    },
+    [updateItem, userId]
+  );
 
-  const duplicateItemAlert = useMemo(() => {
-    const r = duplicateResolution;
-    if (!r) {
-      return { message: undefined as string | undefined, buttons: [] as AppConfirmationButton[] };
+  const handleDuplicateAddSeparately = useCallback(
+    async (incoming: ParsedItem) => {
+      await handleComposerSubmit([incoming], null, { skipDuplicateCheck: true });
+    },
+    [handleComposerSubmit]
+  );
+
+  const handleConfirmCategorizeFallback = useCallback(async () => {
+    const pending = categorizeFallbackPending;
+    if (!pending) return;
+    setCategorizeFallbackPending(null);
+    if (typeof userId !== 'string' || !userId) return;
+    let results = pending.fallbackResults;
+    if (pending.zoneOverride !== null) {
+      results = results.map((r) => ({ ...r, zone_key: pending.zoneOverride! }));
     }
-    const { match, incoming } = r;
-    const { existing } = match;
-    const existingUnit = (existing.quantity_unit ?? 'ea').toString();
-    const incomingQty = incoming.quantity ?? 1;
-    const incomingUnit = (incoming.unit ?? 'ea').toString();
-    const existingQty = existing.quantity_value ?? 1;
-
-    let message = `"${existing.name}" is already on your list.`;
-    message += `\n\nCurrent: ${existingQty} ${existingUnit}\nAdding: ${incomingQty} ${incomingUnit}`;
-
-    const buttons: AppConfirmationButton[] = [{ label: 'Dismiss', onPress: () => {} }];
-
-    return { message, buttons };
-  }, [duplicateResolution]);
+    const { phraseKeyForCategorize } = await import('../../services/aiService');
+    await insertItems.mutateAsync({
+      userId,
+      items: results.map((r, i) => {
+        const p = pending.parsedItems[i];
+        const displayName = (p?.name ?? r.input).trim();
+        const stableKey = phraseKeyForCategorize(p?.name ?? r.input);
+        return {
+          user_id: userId,
+          name: displayName || stableKey,
+          normalized_name: stableKey,
+          category: r.category,
+          zone_key: r.zone_key as ZoneKey,
+          quantity_value: p?.quantity ?? null,
+          quantity_unit: p?.unit ?? null,
+          notes: p?.note ?? null,
+          is_checked: false,
+          linked_meal_ids: [],
+          brand_preference: p?.brand_preference ?? null,
+          substitute_allowed: p?.substitute_allowed ?? true,
+          priority: p?.priority ?? 'normal',
+          is_recurring: p?.is_recurring ?? false,
+        };
+      }),
+    });
+    setComposerVisible(false);
+    setEditingItem(null);
+  }, [categorizeFallbackPending, insertItems, userId]);
 
   const handleComposerEdit = useCallback(
     async (id: string, parsed: ParsedItem, zoneKey: ZoneKey) => {
@@ -846,11 +800,6 @@ export function HomeScreen() {
     [zoneOrder, setShoppingMode]
   );
 
-  const safeZoneOrder = useMemo(() => safeZoneOrderOrDefault(zoneOrder), [zoneOrder]);
-  const effectiveZoneOrder = useMemo(
-    () => sessionZoneOrder ?? safeZoneOrder,
-    [sessionZoneOrder, safeZoneOrder]
-  );
   const smartAddStoreType = store?.store_type ?? 'generic';
   const smartAddZoneLabels = useMemo(
     () => effectiveZoneOrder.map((k) => ZONE_LABELS[k]),
@@ -858,17 +807,6 @@ export function HomeScreen() {
   );
   const zoneIconOverrides = DEFAULT_ZONE_ICON_OVERRIDES;
 
-  const derived = useMemo(
-    () => {
-      const next = time('deriveHomeListModel', () =>
-        deriveHomeListModel(items, effectiveZoneOrder, shoppingMode, filterZone)
-      );
-      const shared = shareHomeListDerivedModel(previousDerivedRef.current, next);
-      previousDerivedRef.current = shared;
-      return shared;
-    },
-    [items, effectiveZoneOrder, shoppingMode, filterZone]
-  );
   const {
     zoneCounts,
     remaining,
@@ -882,23 +820,11 @@ export function HomeScreen() {
     filteredZoneCount,
     filteredSectionsLeft,
     orderedSections,
-    sections,
   } = derived;
 
   sectionsRef.current = sections;
 
-  useEffect(() => {
-    notifyListItemsForMilestones(items);
-  }, [items]);
-
-  const handleQuickAddSheetDismissed = useCallback(() => {
-    const pending = pendingDuplicateAfterComposerRef.current;
-    if (!pending) return;
-    pendingDuplicateAfterComposerRef.current = null;
-    requestAnimationFrame(() => {
-      setDuplicateResolution(pending);
-    });
-  }, []);
+  const handleQuickAddSheetDismissed = useCallback(() => {}, []);
 
   const handleBottomQuickAddSubmit = useCallback(
     async (
@@ -909,12 +835,9 @@ export function HomeScreen() {
       try {
         await handleComposerSubmit(parsedItems, zoneOverride, barOpts);
       } catch (e) {
-        if ((e as { code?: string })?.code === 'DUPLICATE') {
-          const pending = pendingDuplicateAfterComposerRef.current;
-          if (pending) {
-            pendingDuplicateAfterComposerRef.current = null;
-            setDuplicateResolution(pending);
-          }
+        if ((e as { code?: string })?.code === 'DUPLICATE' && parsedItems.length === 1) {
+          setComposerVisible(true);
+          requestAnimationFrame(() => composerRef.current?.focus());
         }
         throw e;
       }
@@ -942,7 +865,9 @@ export function HomeScreen() {
       theme.spacing.sm,
     [bottomBarBottom, theme.spacing.sm]
   );
-  const listScrollTopInset = scrollTopBelowTabHeader;
+  const showFreeTierBanner =
+    shouldEnforceIosSubscriptionGate() && !isPremium && !isPremiumLoading;
+  const listScrollTopInset = showFreeTierBanner ? theme.spacing.xs : scrollTopBelowTabHeader;
 
   /**
    * FlatList's `extraData` forces row re-render when anything listed here flips.
@@ -971,7 +896,7 @@ export function HomeScreen() {
   );
 
   useEffect(() => {
-    if (listBlocking || !shoppingModeHydrated) return;
+    if (listBlocking) return;
     if (shoppingMode !== 'shop') {
       shopRunCompleteGateRef.current = false;
       setShopRunCompleteVisible(false);
@@ -999,7 +924,6 @@ export function HomeScreen() {
     }
   }, [
     listBlocking,
-    shoppingModeHydrated,
     shoppingMode,
     items,
     items.length,
@@ -1074,12 +998,20 @@ export function HomeScreen() {
     setReorderSaveOrder(null);
   }, []);
 
-  if (listBlocking || !shoppingModeHydrated) {
+  const listLoadFailed =
+    userReady && listQuery.isError && listQuery.data === undefined;
+
+  if (listLoadFailed) {
+    const errMsg =
+      listQuery.error instanceof Error
+        ? listQuery.error.message
+        : 'Could not load your list.';
     return (
       <Screen padded={false} safeTop={false} safeBottom={false}>
-        <View style={[styles.centered, { backgroundColor: theme.background }]}>
-          <ActivityIndicator size="large" color={theme.accent} />
-        </View>
+        <QueryLoadErrorPanel
+          message={errMsg}
+          onRetry={() => void listQuery.refetch()}
+        />
       </Screen>
     );
   }
@@ -1094,8 +1026,21 @@ export function HomeScreen() {
             reorderMode={reorderMode}
           />
         </View>
+        <View style={{ paddingTop: showFreeTierBanner ? scrollTopBelowTabHeader : 0 }}>
+          <FreeTierUsageBanner
+            kind="list"
+            currentCount={items.length}
+            onPressUpgrade={handleOpenPlan}
+          />
+        </View>
         {items.length === 0 ? (
-          <HomeScreenEmptyState scrollContentPaddingTop={scrollTopBelowTabHeader} />
+          <HomeScreenEmptyState
+            scrollContentPaddingTop={0}
+            onAddFirstItem={() => {
+              setComposerVisible(true);
+              requestAnimationFrame(() => composerRef.current?.focus());
+            }}
+          />
         ) : (
           <View style={[styles.container, { backgroundColor: theme.background }]}>
             <HomeScreenZoneList
@@ -1160,7 +1105,7 @@ export function HomeScreen() {
         <BottomQuickAddBar
           ref={bottomAddBarRef}
           onSubmit={handleBottomQuickAddSubmit}
-          disabled={listBlocking || !shoppingModeHydrated}
+          disabled={listBlocking}
           listItemNames={listItemNames}
           storeType={smartAddStoreType}
           zoneLabelsInOrder={smartAddZoneLabels}
@@ -1182,6 +1127,9 @@ export function HomeScreen() {
           onBulkAddPreCategorized={handleBulkAddPreCategorized}
           storeType={smartAddStoreType}
           zoneLabelsInOrder={smartAddZoneLabels}
+          onCheckDuplicate={(item) => findDuplicate(items, item)}
+          onDuplicateMerge={handleDuplicateMerge}
+          onDuplicateAddSeparately={handleDuplicateAddSeparately}
         />
       ) : null}
       {listActionsMounted ? (
@@ -1252,15 +1200,22 @@ export function HomeScreen() {
           ]}
         />
       ) : null}
-      {duplicateResolutionMounted ? (
+      {categorizeFallbackMounted ? (
         <AppConfirmationDialog
-          visible={duplicateResolution != null}
-          onClose={handleDuplicateAlertClose}
-          title="Already on your list"
-          message={duplicateItemAlert.message}
-          buttons={duplicateItemAlert.buttons}
+          visible={categorizeFallbackPending != null}
+          onClose={() => setCategorizeFallbackPending(null)}
+          title="Couldn't sort into sections"
+          message="We couldn't place these items in store sections. You can add them to Other, or cancel and try again."
+          buttons={[
+            { label: 'Cancel', onPress: () => setCategorizeFallbackPending(null), cancel: true },
+            {
+              label: 'Add to Other',
+              onPress: () => {
+                void handleConfirmCategorizeFallback();
+              },
+            },
+          ]}
           allowBackdropDismiss
-          contentAlignment="center"
         />
       ) : null}
       <ShopRunCompleteOverlay
@@ -1287,5 +1242,4 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   container: { flex: 1 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

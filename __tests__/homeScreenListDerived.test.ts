@@ -87,3 +87,25 @@ describe('safeZoneOrderOrDefault', () => {
     expect(safeZoneOrderOrDefault(null)).toEqual(DEFAULT_ZONE_ORDER);
   });
 });
+
+/** CI guardrail — 2× regression fails the build. */
+const DERIVE_BENCHMARK_MS = 100;
+
+describe('deriveHomeListModel benchmark', () => {
+  it(`derives 500 items within ${DERIVE_BENCHMARK_MS}ms`, () => {
+    const items: ListItem[] = Array.from({ length: 500 }, (_, i) =>
+      item({
+        id: `item-${i}`,
+        zone_key: DEFAULT_ZONE_ORDER[i % DEFAULT_ZONE_ORDER.length]!,
+        name: `Item ${i}`,
+        normalized_name: `item ${i}`,
+      })
+    );
+    const started = performance.now();
+    const first = deriveHomeListModel(items, DEFAULT_ZONE_ORDER, 'plan', 'all');
+    const second = deriveHomeListModel(items, DEFAULT_ZONE_ORDER, 'shop', 'all');
+    shareHomeListDerivedModel(first, second);
+    const durationMs = performance.now() - started;
+    expect(durationMs).toBeLessThan(DERIVE_BENCHMARK_MS);
+  });
+});

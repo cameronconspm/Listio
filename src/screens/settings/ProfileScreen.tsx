@@ -115,7 +115,7 @@ export function ProfileScreen() {
               </>
             ) : (
               <Text style={[theme.typography.body, { color: theme.textSecondary, lineHeight: 22 }]}>
-                Sign in to see and edit your name and email. This build isn’t connected to cloud sync.
+                Sign in to see and edit your name and email.
               </Text>
             )}
           </ListSection>

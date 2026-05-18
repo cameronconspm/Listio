@@ -29,7 +29,7 @@ import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
 import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getUserId } from '../../services/supabaseClient';
-import { useAuthUserId } from '../../context/AuthUserIdContext';
+import { useAuthUserId } from '../../context/AuthContext';
 import { useInvalidateHomeList } from '../../hooks/useInvalidateHomeList';
 import { invalidateMealsRange } from '../../query/invalidate';
 import {
@@ -60,7 +60,7 @@ export function MealDetailsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const queryClient = useQueryClient();
   const invalidateHomeList = useInvalidateHomeList();
-  const { isPremium } = usePremiumEntitlement();
+  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
   const navigation = useNavigation<NativeStackNavigationProp<MealsStackParamList>>();
   const route = useRoute<Route>();
@@ -153,10 +153,9 @@ export function MealDetailsScreen() {
     setCopying(true);
     try {
       const existing = isPremium ? [] : await getMeals(userId);
-      const allowed = await ensureFreeTierCapacity('meal', existing.length, targetDates.length, isPremium);
+      const allowed = await ensureFreeTierCapacity('meal', existing.length, targetDates.length, isPremium, isPremiumLoading);
       if (!allowed) {
         setCopying(false);
-        setCopySheetVisible(false);
         return;
       }
       await copyMealToDates(mealId, userId, targetDates);

@@ -60,7 +60,7 @@ export function recipeAiImportTitles(mode: RecipeAiImportMode, phase: RecipeAiIm
   if (phase === 'parsing') {
     return {
       title: mode === 'link' ? 'Importing recipe…' : 'Extracting recipe…',
-      detail: 'Listio AI is reading and structuring your recipe.',
+      detail: 'We’re reading your recipe and pulling out ingredients.',
     };
   }
   if (phase === 'success') {
@@ -78,8 +78,11 @@ type RecipeAiImportOverlayProps = {
   visible: boolean;
   phase: RecipeAiImportPhase;
   mode: RecipeAiImportMode;
+  /** When set during `parsing`, drives the progress bar instead of the legacy timed animation. */
+  progressFraction?: number;
   errorMessage?: string;
   onDismiss: () => void;
+  onCancel?: () => void;
   reduceMotion: boolean;
 };
 
@@ -91,8 +94,10 @@ export function RecipeAiImportOverlay({
   visible,
   phase,
   mode,
+  progressFraction,
   errorMessage,
   onDismiss,
+  onCancel,
   reduceMotion,
 }: RecipeAiImportOverlayProps) {
   const theme = useTheme();
@@ -110,12 +115,19 @@ export function RecipeAiImportOverlay({
   useEffect(() => {
     if (!visible || phase !== 'parsing') return;
     setStatusIndex(0);
+    if (progressFraction != null) {
+      progress.value = withTiming(Math.min(1, Math.max(0, progressFraction)), {
+        duration: rm ? 80 : 220,
+        easing: Easing.out(Easing.cubic),
+      });
+      return;
+    }
     progress.value = 0;
     progress.value = withTiming(0.92, {
       duration: rm ? 400 : 11_000,
       easing: Easing.out(Easing.cubic),
     });
-  }, [visible, phase, mode, rm, progress]);
+  }, [visible, phase, mode, rm, progress, progressFraction]);
 
   useEffect(() => {
     if (!visible || phase !== 'parsing') return;
@@ -337,6 +349,9 @@ export function RecipeAiImportOverlay({
             <Text style={styles.errorDetail}>{errorMessage.trim()}</Text>
           ) : null}
 
+          {phase === 'parsing' && onCancel ? (
+            <PrimaryButton title="Cancel" onPress={onCancel} flat style={{ alignSelf: 'stretch' }} />
+          ) : null}
           {canDismiss ? (
             <PrimaryButton title={dismissLabel} onPress={onDismiss} flat style={{ alignSelf: 'stretch' }} />
           ) : null}

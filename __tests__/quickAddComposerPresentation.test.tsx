@@ -11,6 +11,10 @@ jest.mock('../src/context/contextualPaywallRef', () => ({
   ensurePremiumViaContextualPaywall: jest.fn(async () => true),
 }));
 
+jest.mock('../src/context/PremiumEntitlementContext', () => ({
+  usePremiumEntitlement: () => ({ isPremium: true, isPremiumLoading: false }),
+}));
+
 // eslint-disable-next-line import/first -- mocks must register before QuickAddComposer loads paywall deps
 import { QuickAddComposer } from '../src/components/list/QuickAddComposer';
 // eslint-disable-next-line import/first
@@ -97,14 +101,6 @@ jest.mock('../src/components/list/ListItemZoneSheet', () => ({
 jest.mock('../src/services/aiService', () => ({
   parseListItemsFromText: jest.fn(),
   categorizeItems: jest.fn(async () => ({ results: [], cache_hits: 0, cache_misses: 0 })),
-}));
-
-jest.mock('../src/components/list/SmartAddReviewSheet', () => ({
-  SmartAddReviewSheet: ({ visible }: { visible: boolean }) => {
-    return visible
-      ? mockReact.createElement(mockReactNative.Text, { testID: 'mock-smart-review' }, 'review')
-      : null;
-  },
 }));
 
 describe('QuickAddComposer presentation behavior', () => {
@@ -225,7 +221,7 @@ describe('QuickAddComposer presentation behavior', () => {
       tree.root.findByProps({ testID: 'quick-add-sparkle-toggle' }).props.onPress();
     });
 
-    expect(tree.root.findByProps({ accessibilityLabel: 'Parse with AI' })).toBeTruthy();
+    expect(tree.root.findByProps({ accessibilityLabel: 'Add with Smart add' })).toBeTruthy();
     expect(tree.root.findAllByProps({ accessibilityLabel: 'Decrease quantity' })).toHaveLength(0);
     expect(tree.root.findAllByProps({ accessibilityLabel: 'Change store section' })).toHaveLength(
       0
@@ -286,7 +282,9 @@ describe('QuickAddComposer presentation behavior', () => {
       });
 
       expect(getCategorizeMock()).toHaveBeenCalledTimes(1);
-      expect(getCategorizeMock()).toHaveBeenCalledWith([uncachedName], 'generic', ['Produce']);
+      expect(getCategorizeMock()).toHaveBeenCalledWith([uncachedName], 'generic', ['Produce'], {
+        premiumHint: { isPremium: true, isLoading: false },
+      });
     });
 
     it('does not fire for inputs shorter than 3 characters', async () => {
@@ -343,7 +341,9 @@ describe('QuickAddComposer presentation behavior', () => {
       });
 
       expect(getCategorizeMock()).toHaveBeenCalledTimes(1);
-      expect(getCategorizeMock()).toHaveBeenCalledWith(['milkshake'], undefined, undefined);
+      expect(getCategorizeMock()).toHaveBeenCalledWith(['milkshake'], undefined, undefined, {
+        premiumHint: { isPremium: true, isLoading: false },
+      });
     });
 
     it('does not fire in smart mode', async () => {

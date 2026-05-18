@@ -1,20 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  Dimensions,
-  Keyboard,
-  Platform,
-  type KeyboardEvent,
-  type KeyboardEventEasing,
-  type LayoutChangeEvent,
-} from 'react-native';
+import { Dimensions, type LayoutChangeEvent } from 'react-native';
 import { Gesture } from 'react-native-gesture-handler';
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import {
   cancelAnimation,
-  Easing,
   Extrapolation,
   interpolate,
   runOnJS,
-  useAnimatedKeyboard,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
@@ -34,34 +26,6 @@ import { modalEnterTiming, modalExitTiming, motionMs } from '../../motion/preset
 import type { UseModalSheetOptions, UseModalSheetResult } from './modalSheet.types';
 
 const REDUCED = distance.reducedSheetTravel;
-
-function mapKeyboardEasing(name: KeyboardEventEasing | undefined) {
-  switch (name) {
-    case 'easeIn':
-      return Easing.in(Easing.ease);
-    case 'easeOut':
-      return Easing.out(Easing.ease);
-    case 'easeInEaseOut':
-      return Easing.inOut(Easing.ease);
-    case 'linear':
-      return Easing.linear;
-    case 'keyboard':
-    default:
-      return Easing.bezier(0.42, 0, 0.58, 1);
-  }
-}
-
-/** RN iOS keyboard events use seconds; guard if a future RN reports ms. */
-function keyboardDurationMs(e: { duration?: number }): number {
-  let d = e.duration;
-  if (d == null || d === 0) {
-    d = 0.25;
-  }
-  const ms = d > 10 ? Math.round(d) : Math.round(d * 1000);
-  const clamped = Math.max(16, Math.min(ms, 5000));
-  // keyboardWillChangeFrame often omits duration (0) → was clamping to 1ms and snapping
-  return clamped < 50 ? 250 : clamped;
-}
 
 export function useModalSheet({
   visible,
@@ -87,14 +51,18 @@ export function useModalSheet({
 
   /** When syncKeyboardLift: 0 during sheet slide-in; 1 after enter animation completes. */
   const keyboardLiftEnabledSV = useSharedValue(1);
-  /** JS-thread mirror for Keyboard.metrics() sync on enter (cannot read SV on JS). */
+  /** JS-thread mirror so the visibility effect can decide whether to suppress initial lift. */
   const keyboardLiftEnabledRef = useRef(1);
   /**
-   * iOS: driven by Keyboard keyboardWillChangeFrame / keyboardWillHide with system duration+easing.
-   * Android still uses useAnimatedKeyboard for the sheet transform.
+   * Keyboard height is tracked natively (UI-thread, frame-by-frame) by react-native-keyboard-controller.
+   * `kbTranslateY` is the negative translateY-style height the library exposes; flip it to a
+   * positive pixel value when we want the absolute amount of lift to apply.
+   *
+   * Replaces the previous deprecated `useAnimatedKeyboard` + fabricated `Easing.bezier(0.42, 0, 0.58, 1)`
+   * approximation; the bar/sheet now follow Apple's actual private spring curve, including during
+   * interactive (drag-down) keyboard dismissal.
    */
-  const keyboardInsetIOS = useSharedValue(0);
-  const keyboard = useAnimatedKeyboard();
+  const { height: kbTranslateY } = useReanimatedKeyboardAnimation();
 
   const emitEnterAnimationStart = useCallback(() => {
     onEnterAnimationStartRef.current?.();
@@ -112,17 +80,14 @@ export function useModalSheet({
 
   /**
    * Stable identity for runOnJS (avoids Hermes/Reanimated stale runOnJS symbol after renames).
-   * Body kept on a ref so lift enable + Keyboard.metrics() sync stay current.
+   * Body kept on a ref so lift enable stays current. The library tracks `kbTranslateY` independently,
+   * so no manual `Keyboard.metrics()` sync is needed — flipping the multiplier 0→1 immediately uses
+   * the height the library has already been observing.
    */
   const enterCompleteWithKeyboardLiftWorkRef = useRef<() => void>(() => {});
   useEffect(() => {
     enterCompleteWithKeyboardLiftWorkRef.current = () => {
       keyboardLiftEnabledRef.current = 1;
-      const m = Keyboard.metrics();
-      if (m && m.height > 0) {
-        cancelAnimation(keyboardInsetIOS);
-        keyboardInsetIOS.value = m.height;
-      }
       keyboardLiftEnabledSV.value = 1;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -132,7 +97,7 @@ export function useModalSheet({
         });
       });
     };
-  }, [emitPresented, keyboardInsetIOS, keyboardLiftEnabledSV]);
+  }, [emitPresented, keyboardLiftEnabledSV]);
 
   const runEnterCompleteWithKeyboardLiftStable = useCallback(() => {
     enterCompleteWithKeyboardLiftWorkRef.current();
@@ -193,13 +158,9 @@ export function useModalSheet({
   }));
 
   const sheetAnimatedStyle = useAnimatedStyle(() => {
-    const kbRaw =
-      syncKeyboardLift && Platform.OS === 'ios'
-        ? keyboardInsetIOS.value
-        : syncKeyboardLift
-          ? keyboard.height.value
-          : 0;
-    const kb = kbRaw * keyboardLiftEnabledSV.value;
+    /** Library exposes `height` as a negative translateY-style value; flip to a positive height. */
+    const kbHeight = syncKeyboardLift ? -kbTranslateY.value : 0;
+    const kb = kbHeight * keyboardLiftEnabledSV.value;
     return {
       transform: [{ translateY: translateY.value - kb }],
     };
@@ -212,41 +173,6 @@ export function useModalSheet({
     return () => sub.remove();
   }, [windowH]);
 
-  useEffect(() => {
-    if (!syncKeyboardLift || Platform.OS !== 'ios') return;
-
-    const applyFrame = (e: KeyboardEvent) => {
-      // Always update keyboardInsetIOS while the modal is visible. Lift is gated in the worklet via
-      // keyboardLiftEnabledSV so the sheet does not jump during slide-in; skipping here dropped
-      // frames that fired before enter completed (logs showed skip with h=75 while liftEnabled=0).
-      if (!visibleRef.current) {
-        return;
-      }
-      const h = e.endCoordinates.height;
-      const durationMs = keyboardDurationMs(e);
-      keyboardInsetIOS.value = withTiming(h, {
-        duration: durationMs,
-        easing: mapKeyboardEasing(e.easing),
-      });
-    };
-
-    const onWillHide = (e: KeyboardEvent) => {
-      if (!visibleRef.current) return;
-      const durationMs = keyboardDurationMs(e);
-      keyboardInsetIOS.value = withTiming(0, {
-        duration: durationMs,
-        easing: mapKeyboardEasing(e.easing),
-      });
-    };
-
-    const subFrame = Keyboard.addListener('keyboardWillChangeFrame', applyFrame);
-    const subHide = Keyboard.addListener('keyboardWillHide', onWillHide);
-    return () => {
-      subFrame.remove();
-      subHide.remove();
-    };
-  }, [syncKeyboardLift, keyboardInsetIOS]);
-
   useLayoutEffect(() => {
     const wasVisible = prevVisibleRef.current;
     prevVisibleRef.current = visible;
@@ -254,7 +180,6 @@ export function useModalSheet({
     if (visible) {
       setIsExiting(false);
       keyboardLiftEnabledRef.current = syncKeyboardLift ? 0 : 1;
-      keyboardInsetIOS.value = 0;
       if (syncKeyboardLift) {
         keyboardLiftEnabledSV.value = 0;
       }
@@ -272,7 +197,6 @@ export function useModalSheet({
     } else if (wasVisible) {
       pendingEnterRef.current = false;
       keyboardLiftEnabledRef.current = 1;
-      keyboardInsetIOS.value = 0;
       if (syncKeyboardLift) {
         keyboardLiftEnabledSV.value = 1;
       }
@@ -288,7 +212,6 @@ export function useModalSheet({
         if (finished) runOnJS(finishExit)();
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- translateY is a Reanimated shared value
   }, [
     visible,
     reduceMotion,

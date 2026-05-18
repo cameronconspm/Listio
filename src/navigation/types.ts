@@ -1,6 +1,6 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import type { CompositeScreenProps } from '@react-navigation/native';
+import type { CompositeScreenProps, NavigatorScreenParams } from '@react-navigation/native';
 
 export type AuthStackParamList = {
   AuthSplash: undefined;
@@ -31,7 +31,7 @@ export type TabsParamList = {
   ListTab: undefined;
   MealsStack: undefined;
   RecipesStack: undefined;
-  ProfileStack: undefined;
+  ProfileStack: NavigatorScreenParams<SettingsStackParamList>;
 };
 
 export type MealsStackParamList = {

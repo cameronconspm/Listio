@@ -5,6 +5,7 @@ import type { StoreProfile, AisleEntry, StoreType, ZoneKey } from '../types/mode
 import { ZONE_KEYS } from '../data/zone';
 import { zoneOrderToAisleOrder } from '../utils/storeUtils';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
+import { throwOnSupabaseFetchError } from '../utils/serviceErrors';
 import { sanitizeCreateStore, sanitizeUpdateStore } from '../utils/sanitizeUserText';
 
 const DEFAULT_ZONE_ORDER: ZoneKey[] = [...ZONE_KEYS];
@@ -96,7 +97,7 @@ export async function getStores(userId: string): Promise<StoreProfile[]> {
     .eq('household_id', householdId)
     .order('created_at', { ascending: true });
 
-  if (error) return [];
+  throwOnSupabaseFetchError(error, 'Could not load stores.');
   return (data ?? []).map(mapRow);
 }
 

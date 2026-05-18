@@ -72,7 +72,7 @@ const INTRO_CYCLE_RESET_DELAY_MS = 120;
 const INTRO_PLAY_EASING = Easing.inOut(Easing.cubic);
 
 /** Auto-advance after two full plays of the active card’s choreography. */
-const AUTO_ADVANCE_MS = INTRO_DOUBLE_CYCLE_MS + 900;
+const AUTO_ADVANCE_MS = Math.round((INTRO_DOUBLE_CYCLE_MS + 900) * 0.75);
 /** After a user-initiated swipe, wait this long before resuming auto-advance so we never fight the user. */
 const AUTO_ADVANCE_RESUME_MS = 7000;
 
@@ -266,6 +266,15 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
     navigateToAuth('Login');
   }, [haptics, preview, handlePreviewDismiss, navigateToAuth]);
 
+  const handleSkipIntro = useCallback(() => {
+    haptics.light();
+    if (preview) {
+      handlePreviewDismiss();
+      return;
+    }
+    navigateToAuth('Login');
+  }, [haptics, preview, handlePreviewDismiss, navigateToAuth]);
+
   const handleClosePreview = useCallback(() => {
     haptics.light();
     handlePreviewDismiss();
@@ -357,7 +366,19 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
             >
               <Ionicons name="close" size={icon.lg} color={theme.textPrimary} />
             </Pressable>
-          ) : null}
+          ) : (
+            <Pressable
+              onPress={handleSkipIntro}
+              style={styles.skipButton}
+              accessibilityRole="button"
+              accessibilityLabel="Skip intro"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={[theme.typography.subhead, { color: theme.textSecondary, fontWeight: '600' }]}>
+                Skip
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         <ScrollView
@@ -1058,6 +1079,13 @@ function createStyles(
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+    },
+    skipButton: {
+      minHeight: 44,
+      minWidth: 44,
+      paddingHorizontal: theme.spacing.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     closeButton: {
       width: lx(32),

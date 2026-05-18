@@ -40,6 +40,48 @@ async function resolveSyncedHouseholdIdForUser(uid: string): Promise<string> {
 
 let householdIdInflight: Promise<string> | null = null;
 let householdIdInflightUid: string | null = null;
+let householdIdResolved: { uid: string; value: string } | null = null;
+let householdResolutionGeneration = 0;
+
+function beginHouseholdResolution(uid: string): Promise<string> {
+  const generation = ++householdResolutionGeneration;
+  return resolveSyncedHouseholdIdForUser(uid)
+    .then((v) => {
+      if (generation === householdResolutionGeneration) {
+        householdIdResolved = { uid, value: v };
+      }
+      return v;
+    })
+    .finally(() => {
+      if (generation === householdResolutionGeneration) {
+        householdIdInflight = null;
+        householdIdInflightUid = null;
+      }
+    });
+}
+
+/**
+ * Kick off household resolution as early as possible (called from AuthContext.applySession).
+ * Subsequent `getCurrentHouseholdId()` calls reuse the inflight/resolved promise instead of
+ * paying for an extra `supabase.auth.getUser()` round-trip.
+ *
+ * Pass `null` to invalidate (sign-out).
+ */
+export function primeHouseholdId(uid: string | null | undefined): void {
+  if (!isSyncEnabled()) return;
+  if (!uid) {
+    householdIdInflight = null;
+    householdIdInflightUid = null;
+    householdIdResolved = null;
+    householdResolutionGeneration += 1;
+    return;
+  }
+  if (householdIdResolved?.uid === uid) return;
+  if (householdIdInflight && householdIdInflightUid === uid) return;
+  householdIdResolved = null;
+  householdIdInflightUid = uid;
+  householdIdInflight = beginHouseholdResolution(uid);
+}
 
 /**
  * Active household for synced list/meals/recipes/stores (Postgres RLS scope).
@@ -48,17 +90,20 @@ let householdIdInflightUid: string | null = null;
 export async function getCurrentHouseholdId(): Promise<string> {
   if (!isSyncEnabled()) return LOCAL_HOUSEHOLD_ID;
 
+  if (householdIdResolved) return householdIdResolved.value;
+  if (householdIdInflight) return householdIdInflight;
+
   const { data: auth } = await supabase.auth.getUser();
   const uid = auth.user?.id;
   if (!uid) throw new Error('Not signed in');
 
+  if (householdIdResolved && (householdIdResolved as { uid: string }).uid === uid) {
+    return (householdIdResolved as { value: string }).value;
+  }
   if (householdIdInflight && householdIdInflightUid === uid) {
     return householdIdInflight;
   }
   householdIdInflightUid = uid;
-  householdIdInflight = resolveSyncedHouseholdIdForUser(uid).finally(() => {
-    householdIdInflight = null;
-    householdIdInflightUid = null;
-  });
+  householdIdInflight = beginHouseholdResolution(uid);
   return householdIdInflight;
 }

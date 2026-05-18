@@ -227,12 +227,46 @@ export function getConsecutiveDateStrings(startDate: string, count: number): str
   return out;
 }
 
-/** Clamp selectedDate to visibleDates. Returns first visible date if selectedDate is outside. */
+/** True if `ymd` is inside the schedule window starting at `startDate` for `length` days. */
+export function scheduleWindowIncludesDate(
+  startDate: string,
+  length: number,
+  ymd: string
+): boolean {
+  return getScheduleDates(startDate, length).some((d) => toDateString(d) === ymd);
+}
+
+/**
+ * Shifts `startDate` as little as possible so `ymd` is inside the window (keeps `length`).
+ */
+export function shiftScheduleStartToIncludeDate(
+  startDate: string,
+  length: number,
+  ymd: string
+): string {
+  if (length < 1) return startDate;
+  if (scheduleWindowIncludesDate(startDate, length, ymd)) return startDate;
+
+  const dates = getScheduleDates(startDate, length);
+  const first = toDateString(dates[0]);
+  const last = toDateString(dates[dates.length - 1]);
+
+  if (ymd < first) return ymd;
+
+  const end = parseYmdLocal(ymd);
+  end.setDate(end.getDate() - (length - 1));
+  return toDateString(end);
+}
+
+/** Clamp selectedDate to visibleDates. Prefers today when the selection is outside the window. */
 export function clampSelectedDateToWindow(
   selectedDate: string,
   visibleDates: Date[]
 ): string {
+  if (visibleDates.length === 0) return selectedDate;
   const selectedInRange = visibleDates.some((d) => toDateString(d) === selectedDate);
-  if (selectedInRange || visibleDates.length === 0) return selectedDate;
+  if (selectedInRange) return selectedDate;
+  const today = toDateString(new Date());
+  if (visibleDates.some((d) => toDateString(d) === today)) return today;
   return toDateString(visibleDates[0]);
 }

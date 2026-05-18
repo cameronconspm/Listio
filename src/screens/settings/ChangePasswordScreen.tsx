@@ -124,7 +124,7 @@ export function ChangePasswordScreen() {
           ]}
         >
           <Text style={[theme.typography.body, { color: theme.textSecondary, textAlign: 'center' }]}>
-            Password management is available when cloud sync is enabled and you are signed in with email.
+            Change your password after you sign in with email.
           </Text>
         </View>
       </Screen>

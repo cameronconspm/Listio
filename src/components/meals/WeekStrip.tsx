@@ -13,6 +13,7 @@ type WeekStripProps = {
 export function WeekStrip({ dates, selectedDateString, onSelectDate }: WeekStripProps) {
   const theme = useTheme();
   const scrollRef = useRef<ScrollView>(null);
+  const todayString = toDateString(new Date());
 
   const styles = useMemo(
     () =>
@@ -24,9 +25,9 @@ export function WeekStrip({ dates, selectedDateString, onSelectDate }: WeekStrip
         },
         dayChip: {
           paddingHorizontal: theme.spacing.md,
-          paddingVertical: theme.spacing.sm,
+          paddingVertical: theme.spacing.xs,
           borderRadius: theme.radius.full,
-          minHeight: 36,
+          minHeight: 44,
           justifyContent: 'center',
           alignItems: 'center',
         },
@@ -59,6 +60,7 @@ export function WeekStrip({ dates, selectedDateString, onSelectDate }: WeekStrip
         {dates.map((d, i) => {
           const dateString = toDateString(d);
           const isSelected = dateString === selectedDateString;
+          const isToday = dateString === todayString;
 
           return (
             <Pressable
@@ -70,14 +72,18 @@ export function WeekStrip({ dates, selectedDateString, onSelectDate }: WeekStrip
                 {
                   backgroundColor: isSelected ? theme.accent + '12' : 'transparent',
                 },
+                isToday && !isSelected && {
+                  borderWidth: 1,
+                  borderColor: theme.accent + '55',
+                },
               ]}
             >
               <Text
                 style={[
                   theme.typography.footnote,
                   {
-                    color: isSelected ? theme.accent : theme.textSecondary,
-                    fontWeight: isSelected ? '600' : '400',
+                    color: isSelected || isToday ? theme.accent : theme.textSecondary,
+                    fontWeight: isSelected || isToday ? '600' : '400',
                   },
                 ]}
               >

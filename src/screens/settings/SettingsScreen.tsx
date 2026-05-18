@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { StyleSheet, ScrollView, ActivityIndicator, Alert, Linking, Modal, Platform, View } from 'react-native';
+import { StyleSheet, ScrollView, ActivityIndicator, Alert, Linking, Modal, Platform, View, Text } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
@@ -23,17 +23,16 @@ import { leaveSettingsHub } from '../../navigation/settingsHubNavigation';
 import { queryKeys } from '../../query/keys';
 import { clearPersistedQueryCache } from '../../query/reactQueryPersistence';
 import {
-  customerInfoHasPremium,
   getRevenueCatIosApiKey,
   isRevenueCatNativeLayerSkipped,
   presentPaywallForPurchase,
   presentAppleSubscriptionManagement,
-  restorePurchases,
 } from '../../services/purchasesService';
+import { restorePurchasesWithUserFeedback } from '../../services/restorePurchasesFlow';
 import { resolveAuthAccountEmail } from '../../constants/officialTestAccount';
 import { shouldShowQaSettingsTools } from '../../constants/qaSettingsTools';
 import { WelcomeIntroScreen } from '../auth/WelcomeIntroScreen';
-import { resetPerfSnapshot } from '../../utils/perf';
+import { getPerfSnapshot, resetPerfSnapshot } from '../../utils/perf';
 import { formatBuildHealthAlert, getBuildHealthSnapshot } from '../../utils/buildHealth';
 import { useAppReview } from '../../context/AppReviewContext';
 import { resetAppReviewState } from '../../services/appReviewService';
@@ -57,6 +56,7 @@ export function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const scrollPaddingTop = tabRootScrollPaddingTop(insets.top, theme.spacing);
   const [searchQuery, setSearchQuery] = useState('');
+  const [perfDiag, setPerfDiag] = useState<string | null>(null);
   const [loadingDemo, setLoadingDemo] = useState(false);
   const [demoError, setDemoError] = useState<string | null>(null);
   const [showDeleteDataConfirm, setShowDeleteDataConfirm] = useState(false);
@@ -74,7 +74,7 @@ export function SettingsScreen() {
 
   const profileSubtitle =
     !isSyncEnabled()
-      ? 'Not connected to cloud sync'
+      ? 'Sign in to use your account'
       : accountEmail
         ? accountEmail
         : 'Loading…';
@@ -182,7 +182,7 @@ export function SettingsScreen() {
           'Demo',
           'Delete data',
           isSyncEnabled()
-            ? 'Remove lists, meals, and recipes from the cloud. Your account stays.'
+            ? 'Remove your lists, meals, and recipes. Your account stays.'
             : 'Remove all lists, meals, and recipes stored on this device',
           ['delete', 'remove', 'wipe', 'erase']
         ),
@@ -271,37 +271,14 @@ export function SettingsScreen() {
     await supabase.auth.signOut();
     await clearPersistedQueryCache();
     queryClient.clear();
+    const { resetAccountBootstrapSession } = await import('../../context/accountBootstrapSession');
+    resetAccountBootstrapSession();
   };
 
   const handleRestorePurchases = async () => {
-    if (Platform.OS !== 'ios') return;
-    if (isRevenueCatNativeLayerSkipped()) {
-      Alert.alert(
-        'Not available',
-        'In-app purchases are disabled in this build (EXPO_PUBLIC_DISABLE_IOS_SUBSCRIPTION_GATE).'
-      );
-      return;
-    }
-    if (!getRevenueCatIosApiKey()) {
-      Alert.alert(
-        'Not configured',
-        'RevenueCat is not configured in this build. Use a development or production build with EXPO_PUBLIC_REVENUECAT_IOS_API_KEY set.'
-      );
-      return;
-    }
     setRestoreBusy(true);
     try {
-      const info = await restorePurchases();
-      if (customerInfoHasPremium(info)) {
-        Alert.alert('Restored', 'Your subscription is active.');
-      } else {
-        Alert.alert(
-          'No subscription found',
-          'We couldn’t find an active subscription for this account.'
-        );
-      }
-    } catch (e) {
-      Alert.alert('Restore failed', e instanceof Error ? e.message : 'Please try again.');
+      await restorePurchasesWithUserFeedback();
     } finally {
       setRestoreBusy(false);
     }
@@ -328,14 +305,14 @@ export function SettingsScreen() {
     if (isRevenueCatNativeLayerSkipped()) {
       Alert.alert(
         'Not available',
-        'In-app purchases are disabled in this build (EXPO_PUBLIC_DISABLE_IOS_SUBSCRIPTION_GATE).'
+        'Subscriptions aren’t available in this build.'
       );
       return;
     }
     if (!getRevenueCatIosApiKey()) {
       Alert.alert(
         'Not configured',
-        'RevenueCat is not configured in this build. Use a build with EXPO_PUBLIC_REVENUECAT_IOS_API_KEY set.'
+        'Subscriptions aren’t set up in this build. Install the App Store version to subscribe.'
       );
       return;
     }
@@ -615,7 +592,7 @@ export function SettingsScreen() {
                     title="Delete data"
                     subtitle={
                       isSyncEnabled()
-                        ? 'Remove lists, meals, and recipes from the cloud. Your account stays.'
+                        ? 'Remove your lists, meals, and recipes. Your account stays.'
                         : 'Remove all lists, meals, and recipes stored on this device'
                     }
                     onPress={handleDeleteDataPress}
@@ -635,13 +612,40 @@ export function SettingsScreen() {
                   />
                 ) : null}
                 {__DEV__ ? (
-                  <ListRow
-                    title="Reset perf snapshot"
-                    subtitle="Clear render counts and timing samples"
-                    onPress={() => resetPerfSnapshot()}
-                    showSeparator={false}
-                    fullWidthDivider
-                  />
+                  <>
+                    <ListRow
+                      title="Show perf snapshot"
+                      subtitle="Render counts and recent timing samples"
+                      onPress={() => setPerfDiag(JSON.stringify(getPerfSnapshot(), null, 2))}
+                      showSeparator
+                      fullWidthDivider
+                    />
+                    <ListRow
+                      title="Reset perf snapshot"
+                      subtitle="Clear render counts and timing samples"
+                      onPress={() => {
+                        resetPerfSnapshot();
+                        setPerfDiag(null);
+                      }}
+                      showSeparator={false}
+                      fullWidthDivider
+                    />
+                    {perfDiag ? (
+                      <Text
+                        selectable
+                        style={[
+                          theme.typography.caption2,
+                          {
+                            color: theme.textSecondary,
+                            paddingHorizontal: theme.spacing.md,
+                            paddingBottom: theme.spacing.sm,
+                          },
+                        ]}
+                      >
+                        {perfDiag}
+                      </Text>
+                    ) : null}
+                  </>
                 ) : null}
               </ListSection>
             ) : null}
@@ -675,7 +679,7 @@ export function SettingsScreen() {
         title="Delete all data?"
         message={
           isSyncEnabled()
-            ? 'This removes your lists, planned meals, and recipes from the cloud. Your sign-in and profile stay.'
+            ? 'This removes your lists, planned meals, and recipes from your account. Your sign-in and profile stay.'
             : 'This permanently removes all lists, meals, and recipes stored on this device.'
         }
         buttons={[

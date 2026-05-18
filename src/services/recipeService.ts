@@ -5,6 +5,7 @@ import { createMeal, setMealIngredients, type MealIngredientInput } from './meal
 import * as local from './localDataService';
 import { normalize } from '../utils/normalize';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
+import { throwOnSupabaseFetchError } from '../utils/serviceErrors';
 import {
   sanitizeDuplicateRecipeName,
   sanitizeRecipeCreate,
@@ -57,7 +58,7 @@ export async function getRecipes(userId: string, options?: GetRecipesOptions): P
   }
 
   const { data, error } = await query;
-  if (error) return [];
+  throwOnSupabaseFetchError(error, 'Could not load recipes.');
 
   let recipes = (data ?? []).map(mapRecipe);
 
@@ -424,7 +425,7 @@ async function getMealIdsForRecipe(recipeId: string): Promise<string[]> {
     .select('id')
     .eq('household_id', householdId)
     .eq('recipe_id', recipeId);
-  if (error) return [];
+  throwOnSupabaseFetchError(error, 'Could not load linked meals.');
   return (data ?? []).map((r) => r.id as string);
 }
 

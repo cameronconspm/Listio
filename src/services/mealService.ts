@@ -4,6 +4,7 @@ import { fetchListItems, insertListItems } from './listService';
 import * as local from './localDataService';
 import { normalize } from '../utils/normalize';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
+import { throwOnSupabaseFetchError } from '../utils/serviceErrors';
 import { sanitizeMealCreate, sanitizeMealIngredientInput, sanitizeMealUpdate } from '../utils/sanitizeUserText';
 import type { Meal, MealIngredient, MealSlot, RecipeCategory, ZoneKey } from '../types/models';
 
@@ -16,7 +17,7 @@ export async function getMeals(userId: string): Promise<Meal[]> {
     .eq('household_id', householdId)
     .order('created_at', { ascending: false });
 
-  if (error) return [];
+  throwOnSupabaseFetchError(error, 'Could not load meals.');
   return (data ?? []).map(mapMeal);
 }
 
@@ -74,7 +75,7 @@ export async function getMealsByDateRange(
     .order('meal_date', { ascending: true })
     .order('created_at', { ascending: true });
 
-  if (error) return [];
+  throwOnSupabaseFetchError(error, 'Could not load meals.');
   return (data ?? []).map(mapMeal);
 }
 
@@ -368,7 +369,7 @@ export async function getMealsByIds(mealIds: string[]): Promise<Meal[]> {
     .select('*')
     .in('id', mealIds);
 
-  if (error) return [];
+  throwOnSupabaseFetchError(error, 'Could not load meals.');
   return (data ?? []).map(mapMeal);
 }
 

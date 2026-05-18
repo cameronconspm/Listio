@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Platform, ActivityIndicator } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
+import { openPlanScreen } from '../../navigation/openPlanScreen';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useQuery, useQueryClient, useIsRestoring, keepPreviousData } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +11,7 @@ import { useTheme } from '../../design/ThemeContext';
 import { tabRootScrollPaddingTop } from '../../design/layout';
 import { useTabRootScrollOnScroll } from '../../navigation/NavigationChromeScrollContext';
 import { Screen } from '../../components/ui/Screen';
+import { QueryLoadErrorPanel } from '../../components/ui/QueryLoadErrorPanel';
 import {
   getScheduleDates,
   toDateString,
@@ -17,6 +19,7 @@ import {
   formatScheduleLabel,
   shiftScheduleWindow,
   clampSelectedDateToWindow,
+  shiftScheduleStartToIncludeDate,
 } from '../../utils/dateUtils';
 import { DaySection } from '../../components/meals/DaySection';
 import { MealsScreenHeader } from '../../components/meals/MealsScreenHeader';
@@ -24,7 +27,7 @@ import { WeekStrip } from '../../components/meals/WeekStrip';
 import { ScheduleConfigSheet } from '../../components/meals/ScheduleConfigSheet';
 import { useMealScheduleConfig, type MealScheduleConfig } from '../../hooks/useMealScheduleConfig';
 import type { Meal } from '../../types/models';
-import { useAuthUserId } from '../../context/AuthUserIdContext';
+import { useAuthUserId } from '../../context/AuthContext';
 import { useLazyMount } from '../../hooks/useLazyMount';
 import { fetchUserPreferences, patchUserPreferencesIfSync } from '../../services/userPreferencesService';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -32,7 +35,9 @@ import { showError } from '../../utils/appToast';
 import { queryKeys } from '../../query/keys';
 import { fetchMealsRangeBundle, MEALS_RANGE_STALE_MS } from '../../query/mealsRangeBundle';
 import { fetchMealDetailBundle, MEAL_DETAIL_STALE_MS } from '../../query/mealDetailBundle';
-import { deleteMeal } from '../../services/mealService';
+import { deleteMeal, getMeals } from '../../services/mealService';
+import { FreeTierUsageBanner } from '../../components/subscription/FreeTierUsageBanner';
+import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { invalidateMealsRange } from '../../query/invalidate';
 
 function getSlotKey(meal: Meal): string {
@@ -56,6 +61,11 @@ export function MealsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<MealsStackParamList>>();
   const { config, setConfig } = useMealScheduleConfig();
   const userId = useAuthUserId();
+  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
+  const tabNavigation = useNavigation<NavigationProp<ParamListBase>>();
+  const handleOpenPlan = useCallback(() => {
+    openPlanScreen(tabNavigation);
+  }, [tabNavigation]);
   const [screenFocused, setScreenFocused] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [scheduleSheetVisible, setScheduleSheetVisible] = useState(false);
@@ -66,14 +76,23 @@ export function MealsScreen() {
 
   const mealsPrefsReady = useRef(false);
   const mealsPrefsHydrated = useRef(false);
+  const scheduleConfigRef = useRef(config);
+  scheduleConfigRef.current = config;
 
   const userReady = typeof userId === 'string' && userId.length > 0;
 
   useFocusEffect(
     useCallback(() => {
       setScreenFocused(true);
+      const today = toDateString(new Date());
+      const { startDate, length } = scheduleConfigRef.current;
+      const nextStart = shiftScheduleStartToIncludeDate(startDate, length, today);
+      if (nextStart !== startDate) {
+        setConfig({ startDate: nextStart, length });
+      }
+      setSelectedDateString(today);
       return () => setScreenFocused(false);
-    }, [])
+    }, [setConfig])
   );
 
   const isRestoringCache = useIsRestoring();
@@ -99,22 +118,18 @@ export function MealsScreen() {
   }, [visibleDates, selectedDateString]);
 
   useEffect(() => {
-    if (visibleDates.length === 0 || mealsPrefsHydrated.current) return;
+    if (mealsPrefsHydrated.current) return;
     let cancelled = false;
     (async () => {
-      const p = await fetchUserPreferences();
+      await fetchUserPreferences();
       if (cancelled) return;
-      const d = p.mealsUi?.lastSelectedDate;
-      if (d && visibleDates.some((v) => toDateString(v) === d)) {
-        setSelectedDateString(d);
-      }
       mealsPrefsReady.current = true;
       mealsPrefsHydrated.current = true;
     })();
     return () => {
       cancelled = true;
     };
-  }, [visibleDates]);
+  }, []);
 
   const debouncedPersistMealsDate = useDebounce(() => {
     if (!mealsPrefsReady.current) return;
@@ -150,8 +165,15 @@ export function MealsScreen() {
     placeholderData: keepPreviousData,
   });
 
+  const totalMealsQuery = useQuery({
+    queryKey: queryKeys.meals(userId ?? ''),
+    queryFn: () => getMeals(userId!),
+    enabled: screenFocused && userReady && !isPremium && !isPremiumLoading,
+    staleTime: MEALS_RANGE_STALE_MS,
+  });
   const bundle = mealsQuery.data;
   const meals = React.useMemo(() => bundle?.meals ?? [], [bundle?.meals]);
+  const totalMealCount = totalMealsQuery.data?.length ?? meals.length;
   const ingredientCounts = bundle?.ingredientCounts ?? {};
   const recipeMetaByRecipeId = bundle?.recipeMetaByRecipeId ?? {};
 
@@ -161,6 +183,8 @@ export function MealsScreen() {
     rangeReady &&
     mealsQuery.data === undefined &&
     (mealsQuery.isPending || isRestoringCache);
+
+  const showInlineSpinner = userId === undefined || listInitialLoad;
 
   useEffect(() => {
     if (mealsQuery.isError) {
@@ -258,14 +282,35 @@ export function MealsScreen() {
 
   const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
 
-  if (userId === undefined || listInitialLoad) {
+  const mealsLoadFailed =
+    userReady && mealsQuery.isError && mealsQuery.data === undefined;
+
+  if (mealsLoadFailed) {
+    const errMsg =
+      mealsQuery.error instanceof Error
+        ? mealsQuery.error.message
+        : 'Could not load meals.';
     return (
       <Screen padded={false} safeTop={false} safeBottom={false}>
         <View style={styles.headerOverlay} pointerEvents="box-none">
           {headerChrome}
         </View>
-        <View style={[styles.loaderWrap, { paddingTop: scrollContentPaddingTop }]}>
-          <ActivityIndicator size="large" color={theme.accent} />
+        <QueryLoadErrorPanel
+          message={errMsg}
+          onRetry={() => void mealsQuery.refetch()}
+        />
+      </Screen>
+    );
+  }
+
+  if (showInlineSpinner) {
+    return (
+      <Screen padded={false} safeTop={false} safeBottom={false}>
+        <View style={styles.headerOverlay} pointerEvents="box-none">
+          {headerChrome}
+        </View>
+        <View style={styles.inlineSpinner}>
+          <ActivityIndicator color={theme.accent} />
         </View>
       </Screen>
     );
@@ -301,6 +346,11 @@ export function MealsScreen() {
           }
           showsVerticalScrollIndicator={false}
         >
+          <FreeTierUsageBanner
+            kind="meal"
+            currentCount={totalMealCount}
+            onPressUpgrade={handleOpenPlan}
+          />
           {showWeekStrip ? (
             <WeekStrip
               dates={visibleDates}
@@ -350,14 +400,13 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 10,
   },
+  inlineSpinner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   /** overflow: visible so WeekStrip horizontal pill bleed can extend to screen edges. */
   scroll: { flex: 1, overflow: 'visible' },
   scrollContent: {},
   planner: {},
-  loaderWrap: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: 280,
-  },
 });

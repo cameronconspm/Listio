@@ -14,6 +14,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { z } from 'https://esm.sh/zod@3';
 import { corsHeaders } from '../_shared/cors.ts';
 import {
+  fetchOpenAiWithTimeout,
+  OpenAiUpstreamTimeoutError,
+  openAiTimeoutResponse,
+} from '../_shared/openaiFetch.ts';
+import {
   MAX_ITEM_STRING,
   ZONE_KEYS,
   normalizeItemText,
@@ -197,21 +202,29 @@ Constraints:
 User text:
 ${text}`;
 
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
-        temperature: 0,
-        // ~80 tokens per item worst-case; cap keeps runaway generations bounded.
-        max_tokens: Math.min(4000, 80 * MAX_ITEMS_OUT),
-      }),
-    });
+    let openaiRes: Response;
+    try {
+      openaiRes = await fetchOpenAiWithTimeout('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+          temperature: 0,
+          // ~80 tokens per item worst-case; cap keeps runaway generations bounded.
+          max_tokens: Math.min(4000, 80 * MAX_ITEMS_OUT),
+        }),
+      });
+    } catch (e) {
+      if (e instanceof OpenAiUpstreamTimeoutError) {
+        return openAiTimeoutResponse(corsHeaders);
+      }
+      throw e;
+    }
 
     if (!openaiRes.ok) {
       const err = await openaiRes.text();

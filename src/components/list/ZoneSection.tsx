@@ -7,6 +7,7 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
@@ -28,6 +29,10 @@ import type { ZoneIconOverrides } from '../../utils/storeUtils';
 import { toBoolean } from '../../utils/normalize';
 import { listDuration } from '../../ui/motion/lists';
 import { spacing } from '../../design/spacing';
+
+/** Rows above this count use a nested non-scrolling FlatList for memory. */
+const ZONE_ITEM_VIRTUALIZE_THRESHOLD = 20;
+const LIST_ITEM_ROW_HEIGHT = 56;
 import { markRender } from '../../utils/perf';
 
 type ZoneSectionProps = {
@@ -250,32 +255,73 @@ function ZoneSectionInner({
           ) : null}
         </View>
         {!collapsed
-          ? items.map((item, index) => {
-              const mealMeta =
-                linkedMealLabels &&
-                linkedMealLabels.size > 0 &&
-                item.linked_meal_ids &&
-                item.linked_meal_ids.length > 0
-                  ? linkedMealRowMetaFromIds(item, linkedMealLabels)
-                  : null;
-              return (
-                <React.Fragment key={item.id}>
-                  {index > 0 && (
+          ? items.length > ZONE_ITEM_VIRTUALIZE_THRESHOLD
+            ? (
+                <FlatList
+                  data={items}
+                  keyExtractor={(item) => item.id}
+                  scrollEnabled={false}
+                  nestedScrollEnabled={Platform.OS === 'android'}
+                  initialNumToRender={14}
+                  maxToRenderPerBatch={14}
+                  windowSize={5}
+                  getItemLayout={(_item, index) => ({
+                    length: LIST_ITEM_ROW_HEIGHT,
+                    offset: LIST_ITEM_ROW_HEIGHT * index,
+                    index,
+                  })}
+                  ItemSeparatorComponent={() => (
                     <View style={[styles.rowDivider, { backgroundColor: theme.divider }]} />
                   )}
-                  <ListItemRow
-                    item={item}
-                    onToggle={onToggleItem}
-                    onDelete={onDeleteItem}
-                    onEdit={onEditItem}
-                    hideEditIcon={hideEditIcon}
-                    isPlanMode={!isShopMode}
-                    linkedMealLabel={mealMeta?.display}
-                    linkedMealAccessibilityLabel={mealMeta?.accessibilityLabel}
-                  />
-                </React.Fragment>
-              );
-            })
+                  renderItem={({ item }) => {
+                    const mealMeta =
+                      linkedMealLabels &&
+                      linkedMealLabels.size > 0 &&
+                      item.linked_meal_ids &&
+                      item.linked_meal_ids.length > 0
+                        ? linkedMealRowMetaFromIds(item, linkedMealLabels)
+                        : null;
+                    return (
+                      <ListItemRow
+                        item={item}
+                        onToggle={onToggleItem}
+                        onDelete={onDeleteItem}
+                        onEdit={onEditItem}
+                        hideEditIcon={hideEditIcon}
+                        isPlanMode={!isShopMode}
+                        linkedMealLabel={mealMeta?.display}
+                        linkedMealAccessibilityLabel={mealMeta?.accessibilityLabel}
+                      />
+                    );
+                  }}
+                />
+              )
+            : items.map((item, index) => {
+                const mealMeta =
+                  linkedMealLabels &&
+                  linkedMealLabels.size > 0 &&
+                  item.linked_meal_ids &&
+                  item.linked_meal_ids.length > 0
+                    ? linkedMealRowMetaFromIds(item, linkedMealLabels)
+                    : null;
+                return (
+                  <React.Fragment key={item.id}>
+                    {index > 0 && (
+                      <View style={[styles.rowDivider, { backgroundColor: theme.divider }]} />
+                    )}
+                    <ListItemRow
+                      item={item}
+                      onToggle={onToggleItem}
+                      onDelete={onDeleteItem}
+                      onEdit={onEditItem}
+                      hideEditIcon={hideEditIcon}
+                      isPlanMode={!isShopMode}
+                      linkedMealLabel={mealMeta?.display}
+                      linkedMealAccessibilityLabel={mealMeta?.accessibilityLabel}
+                    />
+                  </React.Fragment>
+                );
+              })
           : null}
       </ListSection>
     </Animated.View>

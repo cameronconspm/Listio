@@ -49,18 +49,18 @@ export function OnboardingAccountCard({ syncEnabled, email, loading, onHowToEnab
             )
           ) : (
             <Text style={[theme.typography.subhead, { color: theme.textSecondary, marginTop: theme.spacing.xxs }]}>
-              Local only. No cloud account on this device yet.
+              Not signed in yet.
             </Text>
           )}
         </View>
       </View>
       <Text style={[theme.typography.subhead, { color: theme.textSecondary, marginTop: theme.spacing.md, lineHeight: 21 }]}>
         {syncEnabled
-          ? 'Lists, meals, and recipes stay in sync on the devices where you use this account.'
-          : 'Data stays on this device until you enable cloud sync in your project environment.'}
+          ? 'Your list, meals, and recipes are available on every device where you’re signed in.'
+          : 'Sign in to keep your list, meals, and recipes with your account.'}
       </Text>
       {!syncEnabled ? (
-        <SecondaryButton title="How to enable cloud sync" onPress={onHowToEnableSync} style={styles.btn} />
+        <SecondaryButton title="Sign in" onPress={onHowToEnableSync} style={styles.btn} />
       ) : null}
     </View>
   );

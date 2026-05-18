@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { fetchListItems } from '../services/listService';
-import { getDefaultStore, getStores } from '../services/storeService';
+import { getStores } from '../services/storeService';
 import type { ListItem, StoreProfile } from '../types/models';
 import { queryKeys } from './keys';
 
@@ -21,12 +21,13 @@ export type HomeListBundle = {
  * Single fetch used by the home list tab query: list rows + store context.
  * When `queryClient` is passed, stores are loaded via `fetchQuery` so the Store tab shares
  * the same React Query cache (no duplicate `getStores` + instant tab switch).
+ *
+ * Default store is derived from the same `getStores` result — no extra round-trip.
  */
 export async function fetchHomeListBundle(
   userId: string,
   queryClient?: QueryClient
 ): Promise<HomeListBundle> {
-  const listPromise = fetchListItems(userId);
   const storesPromise = queryClient
     ? queryClient.fetchQuery({
         queryKey: queryKeys.stores(userId),
@@ -34,13 +35,17 @@ export async function fetchHomeListBundle(
         staleTime: STORES_QUERY_STALE_MS,
       })
     : getStores(userId);
-  const defaultPromise = getDefaultStore(userId);
 
-  const [listItems, allStores, defaultStore] = await Promise.all([
-    listPromise,
-    storesPromise,
-    defaultPromise,
-  ]);
-  const nextStore = defaultStore ?? allStores[0] ?? null;
-  return { listItems, stores: allStores, store: nextStore };
+  const [listItems, allStores] = await Promise.all([fetchListItems(userId), storesPromise]);
+  const defaultStore = allStores.find((s) => s.is_default) ?? allStores[0] ?? null;
+  return { listItems, stores: allStores, store: defaultStore };
+}
+
+/** Start loading the home bundle as soon as the session is known (before Home tab mounts). */
+export function prefetchHomeListBundle(userId: string, queryClient: QueryClient): void {
+  void queryClient.prefetchQuery({
+    queryKey: queryKeys.homeList(userId),
+    queryFn: () => fetchHomeListBundle(userId, queryClient),
+    staleTime: HOME_LIST_STALE_MS,
+  });
 }

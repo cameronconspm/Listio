@@ -6,7 +6,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import App from './src/App';
 import { initSentry, wrapWithSentry } from './src/services/sentryService';
+import { markAppLaunch } from './src/utils/perf';
 
+markAppLaunch();
 initSentry();
 
 // Keep the native launch screen visible until React renders the first frame.

@@ -95,6 +95,14 @@ export function TabsNavigator() {
       <Tabs.Screen
         name="ProfileStack"
         component={ProfileStack}
+        listeners={({ navigation, route }) => ({
+          tabPress: () => {
+            const nestedRoute = getFocusedRouteNameFromRoute(route);
+            if (nestedRoute != null && nestedRoute !== 'SettingsHub') {
+              navigation.navigate('ProfileStack', { screen: 'SettingsHub' });
+            }
+          },
+        })}
         options={({ route }) => {
           const focused = getFocusedRouteNameFromRoute(route) ?? 'SettingsHub';
           const hideTabBar = focused !== 'SettingsHub';

@@ -1,20 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, Alert, Linking, AppState } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import type { LinkingOptions } from '@react-navigation/native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { ThemeProvider, useTheme } from './design/ThemeContext';
 import { AuthNavigator } from './navigation/AuthNavigator';
 import type { RootStackParamList } from './navigation/types';
 import { buildRootLinkingOptions } from './navigation/linking';
-import {
-  supabase,
-  isSupabaseSyncRequiredButMisconfigured,
-  signOutLocallyIfCorruptRefreshToken,
-} from './services/supabaseClient';
-import { resolveAuthAccountEmail } from './constants/officialTestAccount';
+import { isSupabaseSyncRequiredButMisconfigured } from './services/supabaseClient';
 import { consumeSupabaseAuthFromUrl } from './services/authDeepLink';
 import {
   ensurePurchasesConfigured,
@@ -26,10 +22,10 @@ import {
 } from './services/purchasesService';
 import { isOnboardingCompleted, clearOnboardingCompletion } from './services/onboardingService';
 import { OnboardingControlsProvider } from './context/OnboardingControlsContext';
-import { AuthUserIdProvider } from './context/AuthUserIdContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { AccountBootstrapProvider, useAccountBootstrap } from './context/AccountBootstrapContext';
+import { BootstrapLoadingScreen } from './components/ui/BootstrapLoadingScreen';
 import { QueryProvider } from './query/QueryProvider';
-import { useQueryClient } from '@tanstack/react-query';
-import { clearPersistedQueryCache } from './query/reactQueryPersistence';
 import Toast from 'react-native-toast-message';
 import { navigationRef } from './navigation/navigationRef';
 import {
@@ -48,15 +44,9 @@ import { PremiumEntitlementProvider } from './context/PremiumEntitlementContext'
 import { ContextualPaywallProvider } from './context/ContextualPaywallContext';
 import { AppReviewProvider } from './context/AppReviewContext';
 import { recordAppReviewSession } from './services/appReviewService';
+import { recordColdStartFromLaunch } from './utils/perf';
 import { ensureServerSubscriptionMirror } from './services/subscriptionEntitlementSyncService';
 import { spacing } from './design/spacing';
-
-/** Lazily imported on first sign-in; keeps the import path out of the initial JS bundle. */
-function maybeImportLocalDataOnSignInLazy(uid: string): Promise<void> {
-  return import('./services/localToCloudImportService')
-    .then((m) => m.maybeImportLocalDataOnSignIn(uid))
-    .catch(() => undefined);
-}
 
 /** Avoid top-level `expo-status-bar` — same eager native load as expo-linking. */
 function DeferredStatusBar() {
@@ -90,11 +80,11 @@ function MisconfiguredSupabaseView() {
   return (
     <View style={misconfigStyles.container}>
       <Text style={[theme.typography.title3, misconfigStyles.title, { color: theme.textPrimary }]}>
-        Supabase is not configured
+        Listio isn’t set up yet
       </Text>
       <Text style={[theme.typography.body, misconfigStyles.body, { color: theme.textSecondary }]}>
-        Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to your .env file and restart Expo
-        (npx expo start --clear). This build requires Supabase for sign-in and cloud data.
+        This build can’t connect to Listio yet. If you installed from the App Store, contact support. Developers:
+        add your Listio connection settings to .env and restart the app.
       </Text>
     </View>
   );
@@ -106,35 +96,21 @@ const misconfigStyles = StyleSheet.create({
   body: { opacity: 0.95 },
 });
 
-const loadingStyles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-});
-
-function LoadingGate() {
-  const theme = useTheme();
-  return (
-    <View style={[loadingStyles.container, { backgroundColor: theme.background }]}>
-      <ActivityIndicator size="large" color={theme.accent} />
-    </View>
-  );
-}
-
 function AppShell() {
-  const queryClient = useQueryClient();
+  const { isAuthenticated, userId, userEmail } = useAuth();
   const misconfigured = isSupabaseSyncRequiredButMisconfigured();
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
   /** null = checking RevenueCat; only used when `shouldEnforceIosSubscriptionGate()`. */
   const [subscriptionUnlocked, setSubscriptionUnlocked] = useState<boolean | null>(null);
-  const [purchasesIdentityReady, setPurchasesIdentityReady] = useState<boolean>(
-    !shouldEnforceIosSubscriptionGate()
-  );
+  /** Always ready — RevenueCat identity sync runs in the background and reconciles via listeners. */
+  const purchasesIdentityReady = true;
   const [navReady, setNavReady] = useState(false);
   /** After opening a password-recovery deep link, require a new password before the main app. */
   const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
   const lastConsumedAuthUrlRef = useRef<string | null>(null);
   const appReviewSessionRecordedRef = useRef(false);
+  const coldStartRecordedRef = useRef(false);
   /** Never `undefined` — some navigation + Fabric paths misbehave with linking omitted on first paint. */
   const [linkingOpts, setLinkingOpts] = useState<LinkingOptions<RootStackParamList>>(
     () => buildRootLinkingOptions()
@@ -146,65 +122,6 @@ function AppShell() {
     });
     return () => cancel();
   }, []);
-
-  useEffect(() => {
-    if (misconfigured) return;
-
-    let subscription: { unsubscribe: () => void } | null = null;
-    let cancelled = false;
-
-    const sessionHangMs = 25_000;
-    const sessionTimeoutId = setTimeout(() => {
-      setIsAuthenticated((prev) => (prev === null ? false : prev));
-    }, sessionHangMs);
-
-    void (async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (cancelled) return;
-
-        if (error) {
-          const cleared = await signOutLocallyIfCorruptRefreshToken(error);
-          if (cleared) {
-            await clearPersistedQueryCache();
-            queryClient.clear();
-          }
-          setIsAuthenticated(false);
-        } else {
-          setIsAuthenticated(!!session?.user);
-          const uid = session?.user?.id;
-          if (uid) {
-            void maybeImportLocalDataOnSignInLazy(uid);
-          }
-        }
-      } catch {
-        if (!cancelled) setIsAuthenticated(false);
-      } finally {
-        if (!cancelled) clearTimeout(sessionTimeoutId);
-      }
-
-      if (cancelled) return;
-
-      try {
-        const sub = supabase.auth.onAuthStateChange((_event, nextSession) => {
-          setIsAuthenticated(!!nextSession?.user);
-          const uid = nextSession?.user?.id;
-          if (uid) {
-            void maybeImportLocalDataOnSignInLazy(uid);
-          }
-        });
-        subscription = sub.data.subscription;
-      } catch {
-        setIsAuthenticated(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      clearTimeout(sessionTimeoutId);
-      subscription?.unsubscribe();
-    };
-  }, [misconfigured, queryClient]);
 
   useEffect(() => {
     if (misconfigured) return;
@@ -237,36 +154,24 @@ function AppShell() {
     });
   }, [misconfigured]);
 
+  /**
+   * Sync RevenueCat identity in the background — never gates the loading screen. The
+   * subscribed `subscribePremiumStatusChanges` listener reconciles entitlement state if
+   * RevenueCat returns a different premium status than our optimistic assumption.
+   */
   useEffect(() => {
     if (misconfigured) return;
-    if (!shouldEnforceIosSubscriptionGate()) {
-      setPurchasesIdentityReady(true);
+    if (!shouldEnforceIosSubscriptionGate()) return;
+    if (isAuthenticated === null) return;
+
+    if (isAuthenticated !== true) {
+      void syncPurchasesIdentity(null);
       return;
     }
 
-    let cancelled = false;
-    const syncIdentity = async () => {
-      if (isAuthenticated !== true) {
-        setPurchasesIdentityReady(true);
-        await syncPurchasesIdentity(null);
-        return;
-      }
-
-      setPurchasesIdentityReady(false);
-      const { data: authData } = await supabase.auth.getUser();
-      if (cancelled) return;
-      const user = authData.user;
-      const uid = user?.id ?? null;
-      const accountEmail = resolveAuthAccountEmail(user ?? null);
-      await syncPurchasesIdentity(uid, accountEmail);
-      if (!cancelled) setPurchasesIdentityReady(true);
-    };
-
-    void syncIdentity();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, misconfigured]);
+    if (!userId) return;
+    void syncPurchasesIdentity(userId, userEmail);
+  }, [isAuthenticated, misconfigured, userId, userEmail]);
 
   useEffect(() => {
     if (misconfigured) return;
@@ -325,6 +230,8 @@ function AppShell() {
   );
 
   const bootstrapping = isAuthenticated === true && onboardingComplete === null;
+  const { phase: bootstrapPhase } = useAccountBootstrap();
+
   const showOnboarding =
     isAuthenticated === true &&
     !bootstrapping &&
@@ -399,12 +306,30 @@ function AppShell() {
     onboardingComplete === true &&
     !showOnboarding;
 
-  const mainAppActive =
+  /** Bootstrap gates: auth + onboarding resolved. Home bundle is fetched by BootstrapLoadingScreen. */
+  const mainAppGatesPassed =
     isAuthenticated === true &&
     !bootstrapping &&
     onboardingComplete === true &&
     !showOnboarding &&
     purchasesIdentityReady;
+
+  /** Data + UX gates: only true after BootstrapLoadingScreen has handed off (progress finished). */
+  const mainAppActive = mainAppGatesPassed && bootstrapPhase === 'complete';
+
+  /** Anything outside the auth flow that hasn't finished bootstrapping needs the loading screen. */
+  const needsBootstrapLoading =
+    !misconfigured &&
+    isAuthenticated !== false &&
+    !(isAuthenticated === true && passwordRecoveryPending) &&
+    !showOnboarding &&
+    !mainAppActive;
+
+  useEffect(() => {
+    if (!navReady || !mainAppActive || coldStartRecordedRef.current) return;
+    coldStartRecordedRef.current = true;
+    recordColdStartFromLaunch();
+  }, [navReady, mainAppActive]);
 
   useEffect(() => {
     if (!navReady || !mainAppActive) return;
@@ -420,6 +345,17 @@ function AppShell() {
     if (!mainAppActive || appReviewSessionRecordedRef.current) return;
     appReviewSessionRecordedRef.current = true;
     void recordAppReviewSession();
+  }, [mainAppActive]);
+
+  /** Keep Supabase entitlement mirror warm off the AI hot path. */
+  useEffect(() => {
+    if (!mainAppActive) return;
+    const sub = AppState.addEventListener('change', (status) => {
+      if (status === 'active') {
+        void ensureServerSubscriptionMirror();
+      }
+    });
+    return () => sub.remove();
   }, [mainAppActive]);
 
   // Keep the native launch screen up until we're actually ready to render real UI —
@@ -459,18 +395,16 @@ function AppShell() {
           linking={linkingOpts}
           onReady={() => setNavReady(true)}
         >
-          {isAuthenticated === null ? (
-            <LoadingGate />
-          ) : isAuthenticated === true && passwordRecoveryPending ? (
+          {isAuthenticated === true && passwordRecoveryPending ? (
             <SetPasswordAfterRecoveryScreen
               onFinished={() => setPasswordRecoveryPending(false)}
             />
-          ) : !isAuthenticated ? (
+          ) : isAuthenticated === false ? (
             <AuthNavigator />
-          ) : bootstrapping ? (
-            <LoadingGate />
           ) : showOnboarding ? (
             <OnboardingFlowScreen onFinished={handleOnboardingUiFinished} />
+          ) : needsBootstrapLoading ? (
+            <BootstrapLoadingScreen homeFetchAllowed={mainAppGatesPassed} />
           ) : (
             <PremiumEntitlementProvider isPremium={isPremium} isPremiumLoading={isPremiumLoading}>
               <AppReviewProvider>
@@ -584,16 +518,20 @@ function App() {
   return (
     <RootErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <ThemeProvider>
-          <ThemedAppChrome>
-            <QueryProvider>
-              <AuthUserIdProvider>
-                <AppShell />
-              </AuthUserIdProvider>
-            </QueryProvider>
-            <Toast />
-          </ThemedAppChrome>
-        </ThemeProvider>
+        <KeyboardProvider>
+          <ThemeProvider>
+            <ThemedAppChrome>
+              <QueryProvider>
+                <AuthProvider>
+                  <AccountBootstrapProvider>
+                    <AppShell />
+                  </AccountBootstrapProvider>
+                </AuthProvider>
+              </QueryProvider>
+              <Toast />
+            </ThemedAppChrome>
+          </ThemeProvider>
+        </KeyboardProvider>
       </GestureHandlerRootView>
     </RootErrorBoundary>
   );

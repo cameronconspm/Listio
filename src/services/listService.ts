@@ -3,6 +3,7 @@ import { getCurrentHouseholdId } from './householdService';
 import * as local from './localDataService';
 import type { ListItem, ItemPriority, ZoneKey } from '../types/models';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
+import { throwOnSupabaseFetchError } from '../utils/serviceErrors';
 import { sanitizeListItemInsert, sanitizeListItemUpdate } from '../utils/sanitizeUserText';
 
 export interface ListItemInsert {
@@ -31,7 +32,7 @@ export async function fetchListItems(userId: string): Promise<ListItem[]> {
     .eq('household_id', householdId)
     .order('created_at', { ascending: true });
 
-  if (error) return [];
+  throwOnSupabaseFetchError(error, 'Could not load your list.');
   return (data ?? []).map(mapRow);
 }
 
