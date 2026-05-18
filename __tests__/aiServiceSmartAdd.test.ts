@@ -15,17 +15,31 @@ import {
   getCachedCategorySync,
 } from '../src/services/aiCategoryCache';
 
+jest.mock('../src/services/subscriptionEntitlementSyncService', () => ({
+  ensureServerSubscriptionMirror: jest.fn().mockResolvedValue({ synced: true, isActive: true }),
+  syncSubscriptionEntitlementToServer: jest.fn().mockResolvedValue({ synced: true, isActive: true }),
+}));
+
 jest.mock('../src/services/supabaseClient', () => ({
   supabase: {
     auth: {
       getSession: jest.fn().mockResolvedValue({
-        data: { session: { access_token: 'tok' } },
+        data: {
+          session: {
+            access_token: 'tok',
+            expires_at: 9999999999,
+            user: { id: 'user-1' },
+          },
+        },
         error: null,
       }),
       refreshSession: jest.fn().mockResolvedValue({
-        data: { session: { access_token: 'tok2' } },
+        data: {
+          session: { access_token: 'tok2', expires_at: 9999999999, user: { id: 'user-1' } },
+        },
         error: null,
       }),
+      onAuthStateChange: jest.fn(() => ({ data: { subscription: { unsubscribe: jest.fn() } } })),
     },
     functions: {
       invoke: jest.fn(),

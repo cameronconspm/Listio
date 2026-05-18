@@ -1,6 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { z } from 'https://esm.sh/zod@3';
 import { corsHeaders } from '../_shared/cors.ts';
+import {
+  fetchUserPremiumActive,
+  premiumRequiredResponse,
+} from '../_shared/premiumEntitlement.ts';
 
 const MAX_RECIPE_TEXT_CHARS = 12000;
 const MAX_RECIPE_TEXT_BYTES = 24000;
@@ -21,13 +25,32 @@ const DEFAULT_GLOBAL_PER_HOUR_LIMIT = 5000;
 const DEFAULT_CACHE_TTL_SECONDS = 60 * 60 * 24 * 14;
 
 /** Bump when parser/prompt changes so stale cache entries are not reused. */
-const PARSER_CACHE_VERSION = 'v4';
+const PARSER_CACHE_VERSION = 'v5';
+
+const MAX_FETCH_BYTES = 2 * 1024 * 1024;
+const MAX_FETCH_REDIRECTS = 5;
+const FETCH_TIMEOUT_MS = 15_000;
 
 const RECIPE_CATEGORIES = ['breakfast', 'lunch', 'dinner', 'dessert', 'snack', 'other'] as const;
 
-const RequestSchema = z.object({
-  recipeText: z.string().min(1).max(MAX_RECIPE_TEXT_CHARS),
-});
+const RequestSchema = z
+  .object({
+    recipeText: z.string().max(MAX_RECIPE_TEXT_CHARS).optional(),
+    recipeUrl: z.string().max(MAX_RECIPE_URL).optional(),
+  })
+  .superRefine((data, ctx) => {
+    const text = data.recipeText?.trim() ?? '';
+    const url = data.recipeUrl?.trim() ?? '';
+    const hasText = text.length > 0;
+    const hasUrl = url.length > 0;
+    if (hasText === hasUrl) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Provide exactly one of recipeText or recipeUrl',
+        path: hasText && hasUrl ? ['recipeText'] : [],
+      });
+    }
+  });
 
 const ParsedIngredientSchema = z.object({
   name: z.union([z.string(), z.number(), z.null()]).optional(),
@@ -98,6 +121,139 @@ function coerceNullableFloat(input: unknown): number | null {
 
 function normalizeRecipeText(raw: string): string {
   return raw.replace(/\r\n/g, '\n').replace(/\u0000/g, '').trim();
+}
+
+function decodeBasicHtmlEntities(input: string): string {
+  return input
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = parseInt(n, 10);
+      return Number.isFinite(code) && code > 0 && code < 0x110000 ? String.fromCodePoint(code) : '';
+    });
+}
+
+function htmlToPlainText(html: string): string {
+  const stripped = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ');
+  const decoded = decodeBasicHtmlEntities(stripped);
+  return decoded.replace(/[ \t\f\v]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function isPrivateOrBlockedHostname(host: string): boolean {
+  const h = host.toLowerCase().trim();
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (h === '0.0.0.0' || h === '::1' || h === '[::1]') return true;
+  if (h.endsWith('.local') || h.endsWith('.internal')) return true;
+  if (h === 'metadata.google.internal' || h === 'metadata' || h.includes('metadata.google')) return true;
+  if (h === '169.254.169.254' || h.startsWith('169.254.')) return true;
+
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (ipv4) {
+    const a = parseInt(ipv4[1], 10);
+    const b = parseInt(ipv4[2], 10);
+    const c = parseInt(ipv4[3], 10);
+    const d = parseInt(ipv4[4], 10);
+    if ([a, b, c, d].some((x) => x > 255)) return true;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a === 192 && b === 0 && c === 0) return true;
+    if (a === 192 && b === 0 && c === 2) return true;
+  }
+  return false;
+}
+
+function assertFetchableHttpUrl(urlStr: string): URL {
+  let u: URL;
+  try {
+    u = new URL(urlStr);
+  } catch {
+    throw new Error('Invalid URL');
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw new Error('Only http and https URLs are allowed');
+  }
+  if (u.username || u.password) {
+    throw new Error('URLs with credentials are not allowed');
+  }
+  const host = u.hostname;
+  if (isPrivateOrBlockedHostname(host)) {
+    throw new Error('That URL cannot be imported');
+  }
+  return u;
+}
+
+async function fetchRecipeUrlToPlainText(inputUrl: string): Promise<{ text: string; finalUrl: string }> {
+  let current = assertFetchableHttpUrl(inputUrl).toString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    for (let redirect = 0; redirect <= MAX_FETCH_REDIRECTS; redirect++) {
+      assertFetchableHttpUrl(current);
+      const res = await fetch(current, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'ListioRecipeBot/1.0 (+https://listio.app)',
+          Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        },
+      });
+
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location');
+        if (!loc || redirect >= MAX_FETCH_REDIRECTS) {
+          throw new Error('Too many redirects or missing Location');
+        }
+        current = new URL(loc, current).toString();
+        continue;
+      }
+
+      if (!res.ok) {
+        throw new Error(`Could not fetch page (HTTP ${res.status})`);
+      }
+
+      const buf = new Uint8Array(await res.arrayBuffer());
+      if (buf.byteLength > MAX_FETCH_BYTES) {
+        throw new Error('Page is too large to import');
+      }
+      const ct = (res.headers.get('content-type') ?? '').toLowerCase();
+      const charsetMatch = /charset=([^;]+)/i.exec(ct);
+      const label = charsetMatch ? charsetMatch[1].trim().replace(/^["']|["']$/g, '') : 'utf-8';
+      let text: string;
+      try {
+        text = new TextDecoder(label).decode(buf);
+      } catch {
+        text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+      }
+
+      const plain = ct.includes('html') || ct.includes('xml') || /<html[\s>]/i.test(text.slice(0, 2000))
+        ? htmlToPlainText(text)
+        : normalizeRecipeText(text);
+
+      if (!plain) {
+        throw new Error('No readable text found at that URL');
+      }
+      return { text: plain, finalUrl: current };
+    }
+    throw new Error('Too many redirects');
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function hasSuspiciousControlChars(input: string): boolean {
@@ -213,6 +369,15 @@ function normalizeRecipePayload(raw: unknown) {
 }
 
 type NormalizedRecipe = NonNullable<ReturnType<typeof normalizeRecipePayload>>;
+
+function mergeSourceRecipeUrl(recipe: NormalizedRecipe, sourceUrl: string | null): NormalizedRecipe {
+  if (!sourceUrl) return recipe;
+  const existing = recipe.recipe_url?.trim();
+  if (existing) return recipe;
+  const clamped = clampNullable(sourceUrl, MAX_RECIPE_URL);
+  if (!clamped) return recipe;
+  return { ...recipe, recipe_url: clamped };
+}
 
 function isRecipeEffectivelyEmpty(recipe: NormalizedRecipe): boolean {
   return (
@@ -475,12 +640,36 @@ Deno.serve(async (req) => {
       });
     }
 
-    const normalizedText = normalizeRecipeText(parsedBody.data.recipeText);
+    let normalizedText: string;
+    let sourceUrlForRecipe: string | null = null;
+    const reqData = parsedBody.data;
+    const urlTrim = reqData.recipeUrl?.trim() ?? '';
+    const textTrim = reqData.recipeText?.trim() ?? '';
+
+    if (urlTrim) {
+      try {
+        const { text, finalUrl } = await fetchRecipeUrlToPlainText(urlTrim);
+        normalizedText = normalizeRecipeText(text);
+        sourceUrlForRecipe = finalUrl;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Could not fetch that URL';
+        return new Response(JSON.stringify({ error: msg }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    } else {
+      normalizedText = normalizeRecipeText(textTrim);
+    }
+
     if (!normalizedText) {
-      return new Response(JSON.stringify({ error: 'Recipe text is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({ error: urlTrim ? 'No readable text found at that URL' : 'Recipe text is required' }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
     if (new TextEncoder().encode(normalizedText).byteLength > MAX_RECIPE_TEXT_BYTES) {
       return new Response(JSON.stringify({ error: 'Recipe text too large' }), {
@@ -516,14 +705,19 @@ Deno.serve(async (req) => {
     }
 
     if (cachedRecipe?.recipe_json) {
-      const enrichedCached = enrichRecipeDraftEdge(
-        cachedRecipe.recipe_json as NormalizedRecipe,
-        normalizedText
+      const enrichedCached = mergeSourceRecipeUrl(
+        enrichRecipeDraftEdge(cachedRecipe.recipe_json as NormalizedRecipe, normalizedText),
+        sourceUrlForRecipe
       );
       return new Response(JSON.stringify({ recipe: enrichedCached, cache_hit: true }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    const isPremium = await fetchUserPremiumActive(supabaseAdmin, user.id);
+    if (!isPremium) {
+      return premiumRequiredResponse();
     }
 
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -663,7 +857,10 @@ ${normalizedText}`;
       normalizedRecipe = minimalFallbackRecipeFromText(normalizedText);
     }
 
-    normalizedRecipe = enrichRecipeDraftEdge(normalizedRecipe, normalizedText);
+    normalizedRecipe = mergeSourceRecipeUrl(
+      enrichRecipeDraftEdge(normalizedRecipe, normalizedText),
+      sourceUrlForRecipe
+    );
 
     const nowIso = new Date().toISOString();
     const [{ error: usageLogErr }, { error: cacheUpsertErr }] = await Promise.all([

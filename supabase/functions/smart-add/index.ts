@@ -19,6 +19,11 @@ import {
   normalizeItemText,
   parseOpenAiRow,
 } from '../_shared/categorizeHelpers.ts';
+import { resolveCommonGroceryCategory } from '../_shared/commonGroceryCatalog.ts';
+import {
+  fetchUserPremiumActive,
+  premiumRequiredResponse,
+} from '../_shared/premiumEntitlement.ts';
 
 const MAX_INPUT_CHARS = 12000;
 const MAX_STORE_TYPE = 80;
@@ -107,6 +112,11 @@ Deno.serve(async (req) => {
     }
 
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+
+    const isPremium = await fetchUserPremiumActive(supabaseAdmin, user.id);
+    if (!isPremium) {
+      return premiumRequiredResponse();
+    }
 
     const body = await req.json();
     const parsed = RequestSchema.safeParse(body);
@@ -267,21 +277,30 @@ ${text}`;
         inputText
       );
 
+      const catalog = resolveCommonGroceryCategory(inputText);
+      const useCatalog =
+        catalog &&
+        (row.zone_key === 'other' || (catalog.confidence ?? 0) > row.confidence);
+      const normalized_name = useCatalog ? catalog!.normalized_name : row.normalized_name;
+      const category = useCatalog ? catalog!.category : row.category;
+      const zone_key = useCatalog ? catalog!.zone_key : row.zone_key;
+      const confidence = useCatalog ? catalog!.confidence : row.confidence;
+
       items.push({
         name,
-        normalized_name: row.normalized_name,
+        normalized_name,
         quantity: coerceQuantity(o.quantity ?? o.quantity_value),
         unit: coerceUnit(o.unit ?? o.quantity_unit),
-        zone_key: row.zone_key,
-        category: row.category,
+        zone_key,
+        category,
       });
 
       cachePayloads.push({
         input_text: inputText,
-        normalized_name: row.normalized_name,
-        category: row.category,
-        zone_key: row.zone_key,
-        confidence: row.confidence,
+        normalized_name,
+        category,
+        zone_key,
+        confidence,
         updated_at: nowIso,
       });
     }

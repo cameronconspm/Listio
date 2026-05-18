@@ -2,20 +2,40 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import {
   supabase,
   isSyncEnabled,
-  getSupabaseProjectRef,
-  parseJwtProjectRefFromAccessToken,
   signOutLocallyIfCorruptRefreshToken,
 } from './supabaseClient';
+import {
+  getValidAccessTokenForEdgeInvoke,
+  invalidateEdgeInvocationAuthCache,
+  type EdgeAuthPurpose,
+} from './edgeInvocationAuth';
 import { normalize } from '../utils/normalize';
 import { logger } from '../utils/logger';
 import type { CategorizeItemResult, ParseRecipeResponse, ParsedListItem } from '../types/api';
 import type { ZoneKey } from '../types/models';
-import { MAX_RECIPE_AI_INPUT } from '../constants/textLimits';
+import { MAX_RECIPE_AI_INPUT, MAX_RECIPE_URL } from '../constants/textLimits';
 import {
-  getCachedCategorySync,
   putCachedCategories,
-  type CachedCategoryEntry,
+  resolveCategoryFast,
+  type FastCategoryEntry,
 } from './aiCategoryCache';
+import { canonicalGroceryKey } from './commonGroceryCatalog';
+import { subscriptionPlatformEnforced } from '../constants/subscription';
+import {
+  ensureServerSubscriptionMirror,
+  syncSubscriptionEntitlementToServer,
+} from './subscriptionEntitlementSyncService';
+
+/** Align Supabase mirror with RevenueCat before server-gated AI (paywall usually ran first). */
+async function ensureServerMirrorBeforePremiumAi(): Promise<void> {
+  if (!isSyncEnabled() || !subscriptionPlatformEnforced()) return;
+  await ensureServerSubscriptionMirror();
+}
+
+/** User-visible phrase preserved; this is only trim + lowercase collapse for cache/DB `normalized_name`. */
+export function phraseKeyForCategorize(raw: string): string {
+  return normalize(raw) || raw.trim();
+}
 
 /** Response body is unread until we clone (FunctionsHttpError carries the raw Response). */
 async function readFunctionsHttpErrorDetails(
@@ -60,6 +80,57 @@ function parseEdgeErrorMessage(bodySnippet: string | undefined): string | null {
   return null;
 }
 
+function isPremiumRequiredDetails(details: { status: number; bodySnippet: string } | null): boolean {
+  if (details?.status !== 403) return false;
+  try {
+    const j = JSON.parse(details.bodySnippet) as { code?: unknown };
+    if (j.code === 'premium_required') return true;
+  } catch {
+    /* ignore */
+  }
+  return /premium_required|Listio\+ required/i.test(details.bodySnippet ?? '');
+}
+
+/** After a `premium_required` 403, mirror RevenueCat to Supabase and retry once. */
+async function retryEdgeInvokeAfterPremiumSync<T extends { data: unknown; error: unknown }>(
+  firstError: unknown,
+  retry: () => Promise<T>
+): Promise<T | null> {
+  const details = await readFunctionsHttpErrorDetails(firstError);
+  if (!isPremiumRequiredDetails(details)) return null;
+  const sync = await syncSubscriptionEntitlementToServer();
+  if (!sync?.isActive) return null;
+  return retry();
+}
+
+const SESSION_REFRESH_SIGN_IN_MESSAGES: Record<EdgeAuthPurpose, string> = {
+  categorizeItems: 'Sign in again to categorize items.',
+  parseRecipeFromText: 'Sign in again to use AI recipe parsing.',
+  parseListItemsFromText: 'Sign in again to use Smart add.',
+  syncSubscriptionEntitlement: 'Sign in again to sync subscription.',
+};
+
+/** On 401: refresh session, invalidate edge JWT cache, retry invoke once with a fresh token. */
+async function retryEdgeInvokeAfterSessionRefresh<T extends { data: unknown; error: unknown }>(
+  purpose: EdgeAuthPurpose,
+  firstError: unknown,
+  retry: (accessToken: string) => Promise<T>
+): Promise<T | null> {
+  const details = await readFunctionsHttpErrorDetails(firstError);
+  if (details?.status !== 401) return null;
+
+  const signInMsg = SESSION_REFRESH_SIGN_IN_MESSAGES[purpose];
+  const { error: refreshErr } = await supabase.auth.refreshSession();
+  if (refreshErr && (await signOutLocallyIfCorruptRefreshToken(refreshErr))) {
+    throw new Error(signInMsg);
+  }
+  if (refreshErr) return null;
+
+  invalidateEdgeInvocationAuthCache();
+  const { accessToken: retryToken } = await getValidAccessTokenForEdgeInvoke(purpose);
+  return retry(retryToken);
+}
+
 function userFacingParseRecipeMessage(details: { status: number; bodySnippet: string } | null): string {
   const status = details?.status;
   const fromBody = parseEdgeErrorMessage(details?.bodySnippet);
@@ -75,6 +146,12 @@ function userFacingParseRecipeMessage(details: { status: number; bodySnippet: st
   if (status === 503 || status === 502 || status === 500) {
     return fromBody ?? 'AI recipe parsing is temporarily unavailable. Please try again.';
   }
+  if (status === 403) {
+    return (
+      fromBody ??
+      'Listio+ is required for AI recipe parsing. Try Restore Purchases in Settings → Plan.'
+    );
+  }
   return fromBody ?? 'Could not parse recipe text. Try again.';
 }
 
@@ -82,6 +159,69 @@ export interface CategorizeItemsResponse {
   results: CategorizeItemResult[];
   cache_hits?: number;
   cache_misses?: number;
+  fast_hits?: number;
+  network_ms?: number;
+  total_ms?: number;
+  source_counts?: Record<string, number>;
+}
+
+/** Single __DEV__ log: perf + per-row resolution (via / local_source). */
+function logCategorizeDevSummary(
+  rawItems: string[],
+  results: CategorizeItemResult[],
+  cachedByIdx: (FastCategoryEntry | null)[],
+  ctx: {
+    networkInvoked: boolean;
+    /** Set when logging the sync-disabled early return (uncached → other without edge). */
+    syncDisabledBranch?: boolean;
+    totalMs: number;
+    networkMs?: number;
+    sourceCounts: Record<string, number>;
+    count: number;
+    fastHits: number;
+    networkMisses: number;
+  }
+): void {
+  if (!__DEV__) return;
+  const rows = rawItems.map((raw, i) => {
+    const fast = cachedByIdx[i];
+    const r = results[i];
+    const via = ctx.networkInvoked && fast === null ? 'network' : 'local';
+    let local_source: string | null = null;
+    if (via === 'local') {
+      if (fast) local_source = fast.source;
+      else if (ctx.syncDisabledBranch) local_source = 'sync_off_uncached';
+    }
+    return {
+      input: raw,
+      phrase_key: r?.normalized_name,
+      zone: r?.zone_key,
+      category: r?.category,
+      conf: r?.confidence,
+      via,
+      local_source,
+    };
+  });
+  logger.info('categorizeItems', {
+    perf: {
+      count: ctx.count,
+      fastHits: ctx.fastHits,
+      networkMisses: ctx.networkMisses,
+      totalMs: ctx.totalMs,
+      ...(ctx.networkMs !== undefined ? { networkMs: ctx.networkMs } : {}),
+      sourceCounts: ctx.sourceCounts,
+    },
+    rows,
+  });
+}
+
+function incrementSourceCount(
+  counts: Record<string, number>,
+  source: string | undefined,
+  by = 1
+): void {
+  if (!source) return;
+  counts[source] = (counts[source] ?? 0) + by;
 }
 
 export async function categorizeItems(
@@ -90,43 +230,105 @@ export async function categorizeItems(
   /** Human-readable store section labels in walking order (from the current list / store layout). */
   zoneLabelsInOrder?: string[]
 ): Promise<CategorizeItemsResponse> {
-  if (!isSyncEnabled()) {
-    const results: CategorizeItemResult[] = rawItems.map((input) => ({
-      input,
-      normalized_name: normalize(input),
-      category: 'other',
-      zone_key: 'other',
-      confidence: 0,
-    }));
-    return { results, cache_hits: 0, cache_misses: 0 };
-  }
+  const startedAt = Date.now();
 
   // Resolve anything we already know locally so we can skip the network round-trip
   // entirely (or send only the uncached subset to the edge function).
-  const cachedByIdx: (CachedCategoryEntry | null)[] = rawItems.map((raw) =>
-    getCachedCategorySync(raw)
-  );
-  const missIndices: number[] = [];
-  const missInputs: string[] = [];
+  const cachedByIdx: (FastCategoryEntry | null)[] = rawItems.map((raw) => resolveCategoryFast(raw));
+  const sourceCounts: Record<string, number> = {};
+  const missGroupsByKey = new Map<string, { input: string; indices: number[] }>();
   for (let i = 0; i < rawItems.length; i++) {
-    if (!cachedByIdx[i]) {
-      missIndices.push(i);
-      missInputs.push(rawItems[i]);
+    const fast = cachedByIdx[i];
+    if (fast) {
+      incrementSourceCount(sourceCounts, fast.source);
+    } else {
+      const key = canonicalGroceryKey(rawItems[i]) || normalize(rawItems[i]) || rawItems[i];
+      const existing = missGroupsByKey.get(key);
+      if (existing) {
+        existing.indices.push(i);
+      } else {
+        missGroupsByKey.set(key, { input: rawItems[i], indices: [i] });
+      }
     }
   }
+  const missGroups = Array.from(missGroupsByKey.values());
+  const missInputs = missGroups.map((group) => group.input);
+  const fastHitCount = rawItems.length - missGroups.reduce((sum, group) => sum + group.indices.length, 0);
 
   if (missInputs.length === 0) {
     const results: CategorizeItemResult[] = rawItems.map((raw, i) => {
       const entry = cachedByIdx[i]!;
       return {
         input: raw,
-        normalized_name: entry.normalized_name,
+        normalized_name: phraseKeyForCategorize(raw),
         category: entry.category,
         zone_key: entry.zone_key,
-        confidence: 1,
+        confidence: entry.confidence,
       };
     });
-    return { results, cache_hits: rawItems.length, cache_misses: 0 };
+    const totalMs = Date.now() - startedAt;
+    logCategorizeDevSummary(rawItems, results, cachedByIdx, {
+      networkInvoked: false,
+      totalMs,
+      sourceCounts,
+      count: rawItems.length,
+      fastHits: rawItems.length,
+      networkMisses: 0,
+    });
+    return {
+      results,
+      cache_hits: rawItems.length,
+      cache_misses: 0,
+      fast_hits: rawItems.length,
+      total_ms: totalMs,
+      source_counts: sourceCounts,
+    };
+  }
+
+  if (!isSyncEnabled()) {
+    const results: CategorizeItemResult[] = new Array(rawItems.length);
+    for (let i = 0; i < rawItems.length; i++) {
+      const fast = cachedByIdx[i];
+      if (fast) {
+        results[i] = {
+          input: rawItems[i],
+          normalized_name: phraseKeyForCategorize(rawItems[i]),
+          category: fast.category,
+          zone_key: fast.zone_key,
+          confidence: fast.confidence,
+        };
+      } else {
+        results[i] = {
+          input: rawItems[i],
+          normalized_name: phraseKeyForCategorize(rawItems[i]),
+          category: 'other',
+          zone_key: 'other',
+          confidence: 0,
+        };
+      }
+    }
+    const totalMs = Date.now() - startedAt;
+    const syncDisabledUncached = rawItems.length - fastHitCount;
+    if (syncDisabledUncached > 0) {
+      incrementSourceCount(sourceCounts, 'sync_disabled_uncached', syncDisabledUncached);
+    }
+    logCategorizeDevSummary(rawItems, results, cachedByIdx, {
+      networkInvoked: false,
+      syncDisabledBranch: true,
+      totalMs,
+      sourceCounts,
+      count: rawItems.length,
+      fastHits: fastHitCount,
+      networkMisses: 0,
+    });
+    return {
+      results,
+      cache_hits: fastHitCount,
+      cache_misses: syncDisabledUncached,
+      fast_hits: fastHitCount,
+      total_ms: totalMs,
+      source_counts: sourceCounts,
+    };
   }
 
   const invokeBody = {
@@ -135,73 +337,25 @@ export async function categorizeItems(
     ...(zoneLabelsInOrder?.length ? { zoneLabelsInOrder } : {}),
   };
 
-  const {
-    data: { session: initialSession },
-    error: sessionErr,
-  } = await supabase.auth.getSession();
-  if (sessionErr) {
-    if (await signOutLocallyIfCorruptRefreshToken(sessionErr)) {
-      throw new Error('Sign in again to categorize items.');
-    }
-    throw new Error('Sign in required to categorize items (session could not be loaded).');
-  }
-  let session = initialSession;
+  const { accessToken: firstToken } = await getValidAccessTokenForEdgeInvoke('categorizeItems');
+  const invokeCategorize = (accessToken: string) =>
+    supabase.functions.invoke('categorize-items', {
+      body: invokeBody,
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
 
-  if (!session?.access_token) {
-    throw new Error('Sign in required to categorize items (no access token).');
-  }
-
-  const cfgRef = getSupabaseProjectRef();
-  const jwtRef = parseJwtProjectRefFromAccessToken(session.access_token);
-  if (
-    jwtRef &&
-    cfgRef !== 'not-configured' &&
-    cfgRef !== 'unknown' &&
-    cfgRef !== 'custom-host' &&
-    cfgRef !== 'local' &&
-    jwtRef !== cfgRef
-  ) {
-    throw new Error(
-      'This session does not match this app build. Sign out and sign in again, or reinstall the app from the same environment.'
-    );
-  }
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (session.expires_at != null && session.expires_at - nowSec < 120) {
-    const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
-    if (refreshErr && (await signOutLocallyIfCorruptRefreshToken(refreshErr))) {
-      throw new Error('Sign in again to categorize items.');
-    }
-    if (!refreshErr) {
-      session = refreshed.session ?? session;
-    }
-  }
-
-  if (!session?.access_token) {
-    throw new Error('Session expired; sign in again to categorize items.');
-  }
-
-  /** Let fetchWithAuth set Authorization from getAccessToken() (same path as PostgREST). */
-  const invokeCategorize = () =>
-    supabase.functions.invoke('categorize-items', { body: invokeBody });
-
-  let { data, error } = await invokeCategorize();
+  const networkStartedAt = Date.now();
+  let { data, error } = await invokeCategorize(firstToken);
 
   if (error) {
-    const details = await readFunctionsHttpErrorDetails(error);
-
-    // Gateway / session: refresh once then retry (e.g. expired access token).
-    if (details?.status === 401) {
-      const { data: refData, error: refreshErr } = await supabase.auth.refreshSession();
-      if (refreshErr && (await signOutLocallyIfCorruptRefreshToken(refreshErr))) {
-        throw new Error('Sign in again to categorize items.');
-      }
-      if (refData.session) session = refData.session;
-      if (!refreshErr && session?.access_token) {
-        const second = await invokeCategorize();
-        data = second.data;
-        error = second.error;
-      }
+    const sessionRetry = await retryEdgeInvokeAfterSessionRefresh(
+      'categorizeItems',
+      error,
+      invokeCategorize
+    );
+    if (sessionRetry) {
+      data = sessionRetry.data;
+      error = sessionRetry.error;
     }
   }
 
@@ -218,14 +372,24 @@ export async function categorizeItems(
     throw new Error('Could not categorize items. Try again.');
   }
 
-  // Persist every row the edge function just returned so the next add with the same
-  // normalized name skips the network entirely. Fire-and-forget — never blocks the caller.
+  const edgeSourceCounts =
+    data?.source_counts && typeof data.source_counts === 'object'
+      ? (data.source_counts as Record<string, number>)
+      : {};
+  for (const [source, count] of Object.entries(edgeSourceCounts)) {
+    incrementSourceCount(sourceCounts, source, count);
+  }
+
+  // Persist under each user phrase key so repeat adds with the same wording skip the network.
   void putCachedCategories(
-    networkResults.map((r) => ({
-      normalized_name: r.normalized_name,
-      zone_key: r.zone_key as ZoneKey,
-      category: r.category,
-    }))
+    missGroups.flatMap((group, j) => {
+      const r = networkResults[j];
+      return group.indices.map((idx) => ({
+        normalized_name: phraseKeyForCategorize(rawItems[idx]),
+        zone_key: r.zone_key as ZoneKey,
+        category: r.category,
+      }));
+    })
   );
 
   // Stitch cache hits + network results back into the original caller-visible order.
@@ -235,21 +399,46 @@ export async function categorizeItems(
     if (entry) {
       merged[i] = {
         input: rawItems[i],
-        normalized_name: entry.normalized_name,
+        normalized_name: phraseKeyForCategorize(rawItems[i]),
         category: entry.category,
         zone_key: entry.zone_key,
-        confidence: 1,
+        confidence: entry.confidence,
       };
     }
   }
-  for (let j = 0; j < missIndices.length; j++) {
-    merged[missIndices[j]] = networkResults[j];
+  for (let j = 0; j < missGroups.length; j++) {
+    const networkResult = networkResults[j];
+    for (const idx of missGroups[j].indices) {
+      merged[idx] = {
+        input: rawItems[idx],
+        normalized_name: phraseKeyForCategorize(rawItems[idx]),
+        category: networkResult.category,
+        zone_key: networkResult.zone_key,
+        confidence: networkResult.confidence,
+      };
+    }
   }
+
+  const networkMs = Date.now() - networkStartedAt;
+  const totalMs = Date.now() - startedAt;
+  logCategorizeDevSummary(rawItems, merged, cachedByIdx, {
+    networkInvoked: true,
+    totalMs,
+    networkMs,
+    sourceCounts,
+    count: rawItems.length,
+    fastHits: fastHitCount,
+    networkMisses: missInputs.length,
+  });
 
   return {
     results: merged,
-    cache_hits: rawItems.length - missInputs.length,
+    cache_hits: fastHitCount,
     cache_misses: missInputs.length,
+    fast_hits: fastHitCount,
+    network_ms: networkMs,
+    total_ms: totalMs,
+    source_counts: sourceCounts,
   };
 }
 
@@ -262,27 +451,39 @@ export async function parseRecipeFromText(recipeText: string): Promise<ParseReci
     throw new Error('Recipe text is too long. Please shorten it and try again.');
   }
 
-  const invokeParse = () =>
+  await ensureServerMirrorBeforePremiumAi();
+
+  const { accessToken: parseToken } = await getValidAccessTokenForEdgeInvoke('parseRecipeFromText');
+  const invokeParse = (accessToken: string) =>
     supabase.functions.invoke('parse-recipe', {
       body: {
         recipeText: preparedText,
       },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-  let { data, error } = await invokeParse();
+  let { data, error } = await invokeParse(parseToken);
 
   if (error) {
-    const details = await readFunctionsHttpErrorDetails(error);
-    if (details?.status === 401) {
-      const { error: refreshErr } = await supabase.auth.refreshSession();
-      if (refreshErr && (await signOutLocallyIfCorruptRefreshToken(refreshErr))) {
-        throw new Error('Sign in again to use AI recipe parsing.');
-      }
-      if (!refreshErr) {
-        const second = await invokeParse();
-        data = second.data;
-        error = second.error;
-      }
+    const sessionRetry = await retryEdgeInvokeAfterSessionRefresh(
+      'parseRecipeFromText',
+      error,
+      invokeParse
+    );
+    if (sessionRetry) {
+      data = sessionRetry.data;
+      error = sessionRetry.error;
+    }
+  }
+
+  if (error) {
+    const premiumRetry = await retryEdgeInvokeAfterPremiumSync(error, async () => {
+      const { accessToken } = await getValidAccessTokenForEdgeInvoke('parseRecipeFromText');
+      return invokeParse(accessToken);
+    });
+    if (premiumRetry) {
+      data = premiumRetry.data;
+      error = premiumRetry.error;
     }
   }
 
@@ -297,6 +498,76 @@ export async function parseRecipeFromText(recipeText: string): Promise<ParseReci
   const recipe = data?.recipe;
   if (!recipe || typeof recipe !== 'object') {
     throw new Error('Could not parse recipe text. Try again.');
+  }
+
+  const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+
+  return {
+    recipe: { ...recipe, ingredients },
+    cache_hit: data?.cache_hit === true,
+  };
+}
+
+/**
+ * Fetch a recipe page server-side and parse it with the same pipeline as pasted text.
+ * Uses the same edge auth purpose as `parseRecipeFromText` (single Supabase function).
+ */
+export async function parseRecipeFromUrl(recipeUrl: string): Promise<ParseRecipeResponse> {
+  const prepared = recipeUrl.trim();
+  if (!prepared) {
+    throw new Error('Recipe URL is required.');
+  }
+  if (prepared.length > MAX_RECIPE_URL) {
+    throw new Error('URL is too long.');
+  }
+
+  await ensureServerMirrorBeforePremiumAi();
+
+  const { accessToken: parseToken } = await getValidAccessTokenForEdgeInvoke('parseRecipeFromText');
+  const invokeParse = (accessToken: string) =>
+    supabase.functions.invoke('parse-recipe', {
+      body: {
+        recipeUrl: prepared,
+      },
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+  let { data, error } = await invokeParse(parseToken);
+
+  if (error) {
+    const sessionRetry = await retryEdgeInvokeAfterSessionRefresh(
+      'parseRecipeFromText',
+      error,
+      invokeParse
+    );
+    if (sessionRetry) {
+      data = sessionRetry.data;
+      error = sessionRetry.error;
+    }
+  }
+
+  if (error) {
+    const premiumRetry = await retryEdgeInvokeAfterPremiumSync(error, async () => {
+      const { accessToken } = await getValidAccessTokenForEdgeInvoke('parseRecipeFromText');
+      return invokeParse(accessToken);
+    });
+    if (premiumRetry) {
+      data = premiumRetry.data;
+      error = premiumRetry.error;
+    }
+  }
+
+  if (error) {
+    const details = await readFunctionsHttpErrorDetails(error);
+    if (__DEV__ && details) {
+      logger.warn('parse-recipe-url', details.status, details.bodySnippet.slice(0, 200));
+    }
+    throw new Error(userFacingParseRecipeMessage(details));
+  }
+
+  const recipe = data?.recipe;
+  if (!recipe || typeof recipe !== 'object') {
+    throw new Error('Could not parse recipe from URL. Try again.');
   }
 
   const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
@@ -334,6 +605,9 @@ function userFacingSmartAddMessage(details: { status: number; bodySnippet: strin
   }
   if (status === 503 || status === 502 || status === 500) {
     return fromBody ?? 'Smart add is temporarily unavailable. Please try again.';
+  }
+  if (status === 403) {
+    return fromBody ?? 'Listio+ is required for Smart add. Try Restore Purchases in Settings → Plan.';
   }
   return fromBody ?? 'Could not understand that description. Try again.';
 }
@@ -462,35 +736,39 @@ export async function parseListItemsFromText(
     throw new Error('Smart add is unavailable offline. Try again when connected.');
   }
 
-  const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
-  if (sessionError) {
-    signOutLocallyIfCorruptRefreshToken(sessionError);
-    throw new Error('Sign in again to use Smart add.');
-  }
-  if (!session?.access_token) {
-    throw new Error('Sign in again to use Smart add.');
-  }
+  await ensureServerMirrorBeforePremiumAi();
 
-  // Protect against silent project-ref drift (anon key + session from different projects
-  // produces opaque 401s). Mirrors the guard in `categorizeItems`.
-  const projectRef = getSupabaseProjectRef();
-  const tokenRef = parseJwtProjectRefFromAccessToken(session.access_token);
-  if (projectRef && tokenRef && projectRef !== tokenRef) {
-    throw new Error('Sign in again to use Smart add.');
-  }
+  const { accessToken: smartToken } = await getValidAccessTokenForEdgeInvoke('parseListItemsFromText');
 
   let data: { items?: unknown } | null = null;
-  try {
-    const res = await supabase.functions.invoke<{ items: ParsedListItem[] }>('smart-add', {
+  const smartAddInvokeStarted = Date.now();
+  const invokeSmartAdd = (accessToken: string) =>
+    supabase.functions.invoke<{ items: ParsedListItem[] }>('smart-add', {
       body: {
         text: trimmed,
         ...(storeType ? { storeType } : {}),
         ...(zoneLabelsInOrder?.length ? { zoneLabelsInOrder } : {}),
       },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
+
+  try {
+    let res = await invokeSmartAdd(smartToken);
+    if (res.error) {
+      const sessionRetry = await retryEdgeInvokeAfterSessionRefresh(
+        'parseListItemsFromText',
+        res.error,
+        invokeSmartAdd
+      );
+      if (sessionRetry) res = sessionRetry;
+    }
+    if (res.error) {
+      const premiumRetry = await retryEdgeInvokeAfterPremiumSync(res.error, async () => {
+        const { accessToken } = await getValidAccessTokenForEdgeInvoke('parseListItemsFromText');
+        return invokeSmartAdd(accessToken);
+      });
+      if (premiumRetry) res = premiumRetry;
+    }
     if (res.error) {
       throw res.error;
     }
@@ -527,10 +805,7 @@ export async function parseListItemsFromText(
     const o = raw as Record<string, unknown>;
     const name = typeof o.name === 'string' ? o.name.trim() : '';
     if (!name) continue;
-    const normalizedRaw =
-      typeof o.normalized_name === 'string' && o.normalized_name.trim()
-        ? o.normalized_name.trim()
-        : normalize(name);
+    const normalizedRaw = phraseKeyForCategorize(name);
     const quantityRaw = o.quantity;
     const quantity =
       typeof quantityRaw === 'number' && Number.isFinite(quantityRaw) && quantityRaw > 0
@@ -556,8 +831,22 @@ export async function parseListItemsFromText(
     );
   }
 
+  if (__DEV__) {
+    const invokeMs = Date.now() - smartAddInvokeStarted;
+    logger.info('smart-add', {
+      perf: { invoke_ms: invokeMs, item_count: items.length },
+      rows: items.map((i) => ({
+        name: i.name,
+        phrase_key: i.normalized_name,
+        zone: i.zone_key,
+        category: i.category,
+        via: 'edge',
+      })),
+    });
+  }
+
   // Populate the local category cache so subsequent single-item adds of these names
-  // hit the optimistic fast path in HomeScreen.handleComposerSubmit.
+  // can insert after a synchronous cache hit in HomeScreen.handleComposerSubmit.
   void putCachedCategories(
     items.map((i) => ({
       normalized_name: i.normalized_name,

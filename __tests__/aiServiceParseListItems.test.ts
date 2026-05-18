@@ -8,18 +8,33 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import { parseListItemsFromText } from '../src/services/aiService';
 import { supabase } from '../src/services/supabaseClient';
 import { __resetCategoryCacheForTests } from '../src/services/aiCategoryCache';
+import { invalidateEdgeInvocationAuthCache } from '../src/services/edgeInvocationAuth';
+
+jest.mock('../src/services/subscriptionEntitlementSyncService', () => ({
+  ensureServerSubscriptionMirror: jest.fn().mockResolvedValue({ synced: true, isActive: true }),
+  syncSubscriptionEntitlementToServer: jest.fn().mockResolvedValue({ synced: true, isActive: true }),
+}));
 
 jest.mock('../src/services/supabaseClient', () => ({
   supabase: {
     auth: {
       getSession: jest.fn().mockResolvedValue({
-        data: { session: { access_token: 'tok' } },
+        data: {
+          session: {
+            access_token: 'tok',
+            expires_at: 9999999999,
+            user: { id: 'user-1' },
+          },
+        },
         error: null,
       }),
       refreshSession: jest.fn().mockResolvedValue({
-        data: { session: { access_token: 'tok2' } },
+        data: {
+          session: { access_token: 'tok2', expires_at: 9999999999, user: { id: 'user-1' } },
+        },
         error: null,
       }),
+      onAuthStateChange: jest.fn(() => ({ data: { subscription: { unsubscribe: jest.fn() } } })),
     },
     functions: {
       invoke: jest.fn(),
@@ -43,6 +58,23 @@ describe('parseListItemsFromText (smart-add)', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     __resetCategoryCacheForTests();
+    invalidateEdgeInvocationAuthCache();
+    (supabase.auth.getSession as jest.Mock).mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'tok',
+          expires_at: 9999999999,
+          user: { id: 'user-1' },
+        },
+      },
+      error: null,
+    });
+    (supabase.auth.refreshSession as jest.Mock).mockResolvedValue({
+      data: {
+        session: { access_token: 'tok2', expires_at: 9999999999, user: { id: 'user-1' } },
+      },
+      error: null,
+    });
   });
 
   it('invokes only the smart-add edge function and returns ParsedListItem[]', async () => {
@@ -116,6 +148,68 @@ describe('parseListItemsFromText (smart-add)', () => {
     expect(invokeMock).not.toHaveBeenCalledWith('categorize-items', expect.anything());
   });
 
+  it('retries smart-add once after 401 by refreshing session and invalidating edge JWT cache', async () => {
+    const unauthorizedResponse = new Response(
+      JSON.stringify({ error: 'JWT expired' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    );
+    const unauthorizedErr = new FunctionsHttpError(unauthorizedResponse);
+    const successPayload = {
+      data: {
+        items: [
+          {
+            name: 'Milk',
+            normalized_name: 'milk',
+            quantity: 1,
+            unit: 'gal',
+            zone_key: 'dairy_eggs',
+            category: 'Dairy',
+          },
+        ],
+      },
+      error: null,
+    };
+
+    const getSessionMock = supabase.auth.getSession as jest.Mock;
+    const refreshSessionMock = supabase.auth.refreshSession as jest.Mock;
+    refreshSessionMock.mockImplementationOnce(async () => {
+      getSessionMock.mockResolvedValue({
+        data: {
+          session: {
+            access_token: 'tok2',
+            expires_at: 9999999999,
+            user: { id: 'user-1' },
+          },
+        },
+        error: null,
+      });
+      return {
+        data: {
+          session: { access_token: 'tok2', expires_at: 9999999999, user: { id: 'user-1' } },
+        },
+        error: null,
+      };
+    });
+
+    invokeMock
+      .mockResolvedValueOnce({ data: null, error: unauthorizedErr })
+      .mockResolvedValueOnce(successPayload);
+
+    const rows = await parseListItemsFromText('milk', 'generic', []);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe('Milk');
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      2,
+      'smart-add',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer tok2' },
+      })
+    );
+    expect(refreshSessionMock).toHaveBeenCalledTimes(1);
+  });
+
   it('forwards storeType and zoneLabelsInOrder in the body', async () => {
     invokeMock.mockResolvedValue({
       data: {
@@ -135,13 +229,17 @@ describe('parseListItemsFromText (smart-add)', () => {
 
     await parseListItemsFromText('milk', 'kroger', ['Produce', 'Dairy & Eggs']);
 
-    expect(invokeMock).toHaveBeenCalledWith('smart-add', {
-      body: {
-        text: 'milk',
-        storeType: 'kroger',
-        zoneLabelsInOrder: ['Produce', 'Dairy & Eggs'],
-      },
-    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      'smart-add',
+      expect.objectContaining({
+        body: {
+          text: 'milk',
+          storeType: 'kroger',
+          zoneLabelsInOrder: ['Produce', 'Dairy & Eggs'],
+        },
+        headers: { Authorization: 'Bearer tok' },
+      })
+    );
   });
 
   it('throws a user-friendly error when smart-add returns zero items', async () => {
@@ -233,7 +331,8 @@ describe('parseListItemsFromText (smart-add)', () => {
     ]);
 
     const invokedNames = invokeMock.mock.calls.map((args) => args[0]);
-    expect(invokedNames).toEqual(['smart-add', 'parse-recipe', 'categorize-items']);
+    // `categorize-items` is skipped when names resolve entirely via the local fast path.
+    expect(invokedNames).toEqual(['smart-add', 'parse-recipe']);
   });
 
   it('defaults missing fields to safe values', async () => {

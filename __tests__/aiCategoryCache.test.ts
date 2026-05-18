@@ -14,6 +14,7 @@ import {
   getCachedCategorySync,
   hydrateCategoryCache,
   putCachedCategories,
+  resolveCategoryFast,
 } from '../src/services/aiCategoryCache';
 
 const STORAGE_KEY = '@listio/ai_category_cache_v1';
@@ -128,6 +129,88 @@ describe('aiCategoryCache', () => {
     });
     expect(getCachedCategorySync('  Chicken Breasts ')).toMatchObject({
       zone_key: 'meat_seafood',
+    });
+  });
+
+  it('resolves common groceries locally without a prior cache write', async () => {
+    await hydrateCategoryCache();
+
+    expect(resolveCategoryFast('bananna')).toMatchObject({
+      normalized_name: 'bananas',
+      zone_key: 'produce',
+    });
+    expect(resolveCategoryFast('organic bananas')).toMatchObject({
+      normalized_name: 'bananas',
+      zone_key: 'produce',
+    });
+    expect(resolveCategoryFast('2 lb chicken breast')).toMatchObject({
+      normalized_name: 'chicken breasts',
+      zone_key: 'meat_seafood',
+    });
+    expect(resolveCategoryFast('dish soap')).toMatchObject({
+      normalized_name: 'dish soap',
+      zone_key: 'household_cleaning',
+    });
+  });
+
+  it('can fuzzy match previous user cache entries', async () => {
+    await hydrateCategoryCache();
+    await putCachedCategories([
+      { normalized_name: 'rainbow sprinkles', zone_key: 'pantry', category: 'Baking' },
+    ]);
+
+    expect(resolveCategoryFast('rainbow sprinkle')).toMatchObject({
+      normalized_name: 'rainbow sprinkles',
+      zone_key: 'pantry',
+    });
+  });
+
+  it('leaves uncertain items unresolved for AI fallback', async () => {
+    await hydrateCategoryCache();
+
+    expect(resolveCategoryFast('kombu strips')).toBeNull();
+  });
+
+  it('resolves pantry staples and seasonings from the common catalog', async () => {
+    await hydrateCategoryCache();
+
+    expect(resolveCategoryFast('salt')).toMatchObject({
+      normalized_name: 'salt',
+      zone_key: 'pantry',
+      category: 'Spices',
+    });
+    expect(resolveCategoryFast('pepper')).toMatchObject({
+      normalized_name: 'black pepper',
+      zone_key: 'pantry',
+      category: 'Spices',
+    });
+    expect(resolveCategoryFast('garlic powder')).toMatchObject({
+      normalized_name: 'garlic powder',
+      zone_key: 'pantry',
+      category: 'Spices',
+    });
+    expect(resolveCategoryFast('bell pepper')).toMatchObject({
+      normalized_name: 'bell peppers',
+      zone_key: 'produce',
+      category: 'Vegetables',
+    });
+    expect(resolveCategoryFast('soy sauce')).toMatchObject({
+      zone_key: 'pantry',
+      category: 'Condiments',
+    });
+  });
+
+  it('prefers catalog over a stale cached other entry', async () => {
+    await hydrateCategoryCache();
+    await putCachedCategories([
+      { normalized_name: 'salt', zone_key: 'other', category: 'other' },
+    ]);
+
+    expect(resolveCategoryFast('salt')).toMatchObject({
+      normalized_name: 'salt',
+      zone_key: 'pantry',
+      category: 'Spices',
+      source: 'catalog_exact',
     });
   });
 });

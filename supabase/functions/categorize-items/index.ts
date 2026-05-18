@@ -6,7 +6,14 @@ import {
   ZONE_KEYS,
   normalizeItemText as normalize,
   parseOpenAiRow,
+  type ZoneKey,
 } from '../_shared/categorizeHelpers.ts';
+import {
+  resolveCommonGroceryCategory,
+  resolveFromCategoryEntries,
+} from '../_shared/commonGroceryCatalog.ts';
+import { tokensForFuzzyCacheLookup } from '../_shared/groceryResolverCore.ts';
+import { fetchUserPremiumActive } from '../_shared/premiumEntitlement.ts';
 
 const MAX_ITEMS = 50;
 const MAX_STORE_TYPE = 80;
@@ -23,6 +30,10 @@ const RequestSchema = z.object({
 });
 
 type Result = { input: string; normalized_name: string; category: string; zone_key: string; confidence: number };
+
+function incrementSourceCount(counts: Record<string, number>, source: string, by = 1): void {
+  counts[source] = (counts[source] ?? 0) + by;
+}
 
 function expandResultsToRawOrder(
   rawItems: string[],
@@ -113,8 +124,9 @@ Deno.serve(async (req) => {
     }
 
     const resultsByIndex: (Result | null)[] = new Array(uniqueInputs.length);
-    const cacheMissInputs: string[] = [];
-    const cacheMissIndices: number[] = [];
+    let cacheMissInputs: string[] = [];
+    let cacheMissIndices: number[] = [];
+    const sourceCounts: Record<string, number> = {};
 
     // Batched cache read: one round-trip for all unique inputs instead of one per item.
     // For a 10-item Smart Add this collapses 10 SELECTs into a single .in(...) query and
@@ -125,6 +137,7 @@ Deno.serve(async (req) => {
       category: string;
       zone_key: string;
       confidence: number | string | null;
+      updated_at?: string;
     };
 
     let cachedByInput: Map<string, CachedRow> = new Map();
@@ -161,13 +174,145 @@ Deno.serve(async (req) => {
           zone_key: cached.zone_key,
           confidence: Number(cached.confidence ?? 0.9),
         };
+        incrementSourceCount(sourceCounts, 'edge_cache');
       } else {
         cacheMissInputs.push(inputText);
         cacheMissIndices.push(i);
       }
     }
 
+    const deterministicCachePayloads: {
+      input_text: string;
+      normalized_name: string;
+      category: string;
+      zone_key: string;
+      confidence: number;
+      updated_at: string;
+    }[] = [];
+
     if (cacheMissInputs.length > 0) {
+      const nextMissInputs: string[] = [];
+      const nextMissIndices: number[] = [];
+      const nowIso = new Date().toISOString();
+
+      for (let j = 0; j < cacheMissInputs.length; j++) {
+        const inputText = cacheMissInputs[j];
+        const deterministic = resolveCommonGroceryCategory(inputText);
+        if (deterministic) {
+          const idx = cacheMissIndices[j];
+          resultsByIndex[idx] = {
+            input: seen.get(inputText) ?? inputText,
+            normalized_name: deterministic.normalized_name,
+            category: deterministic.category,
+            zone_key: deterministic.zone_key,
+            confidence: deterministic.confidence,
+          };
+          deterministicCachePayloads.push({
+            input_text: inputText,
+            normalized_name: deterministic.normalized_name,
+            category: deterministic.category,
+            zone_key: deterministic.zone_key,
+            confidence: deterministic.confidence,
+            updated_at: nowIso,
+          });
+          incrementSourceCount(sourceCounts, 'edge_catalog');
+        } else {
+          nextMissInputs.push(inputText);
+          nextMissIndices.push(cacheMissIndices[j]);
+        }
+      }
+
+      cacheMissInputs = nextMissInputs;
+      cacheMissIndices = nextMissIndices;
+    }
+
+    if (deterministicCachePayloads.length > 0) {
+      const { error: deterministicCacheError } = await supabaseAdmin
+        .from('ai_item_cache')
+        .upsert(deterministicCachePayloads, { onConflict: 'input_text' });
+      if (deterministicCacheError) {
+        console.error('categorize-items: deterministic cache upsert failed', deterministicCacheError);
+      }
+    }
+
+    if (cacheMissInputs.length > 0) {
+      const fuzzyTokens = tokensForFuzzyCacheLookup(cacheMissInputs);
+      let fuzzyRows: CachedRow[] = [];
+      if (fuzzyTokens.length > 0) {
+        const orClause = fuzzyTokens.map((t) => `normalized_name.ilike.%${t}%`).join(',');
+        const { data } = await supabaseUser
+          .from('ai_item_cache')
+          .select('input_text, normalized_name, category, zone_key, confidence, updated_at')
+          .or(orClause)
+          .order('updated_at', { ascending: false })
+          .order('normalized_name', { ascending: true })
+          .limit(200);
+        if (Array.isArray(data)) fuzzyRows = data as CachedRow[];
+      }
+      const fuzzyEntries = fuzzyRows
+        .filter((row) => {
+          const conf = Number(row.confidence ?? 0);
+          return (
+            row.normalized_name &&
+            row.category &&
+            row.zone_key &&
+            !(row.zone_key === 'other' && (conf <= 0.55 || Number.isNaN(conf)))
+          );
+        })
+        .sort((a, b) => {
+          const byName = a.normalized_name.localeCompare(b.normalized_name);
+          if (byName !== 0) return byName;
+          return String(a.updated_at ?? '').localeCompare(String(b.updated_at ?? ''));
+        })
+        .map((row) => ({
+          normalized_name: row.normalized_name,
+          category: row.category,
+          zone_key: row.zone_key as ZoneKey,
+        }));
+
+      if (fuzzyEntries.length > 0) {
+        const nextMissInputs: string[] = [];
+        const nextMissIndices: number[] = [];
+        for (let j = 0; j < cacheMissInputs.length; j++) {
+          const inputText = cacheMissInputs[j];
+          const fuzzy = resolveFromCategoryEntries(inputText, fuzzyEntries);
+          if (fuzzy) {
+            const idx = cacheMissIndices[j];
+            resultsByIndex[idx] = {
+              input: seen.get(inputText) ?? inputText,
+              normalized_name: fuzzy.normalized_name,
+              category: fuzzy.category,
+              zone_key: fuzzy.zone_key,
+              confidence: fuzzy.confidence,
+            };
+            incrementSourceCount(sourceCounts, 'edge_cache');
+          } else {
+            nextMissInputs.push(inputText);
+            nextMissIndices.push(cacheMissIndices[j]);
+          }
+        }
+        cacheMissInputs = nextMissInputs;
+        cacheMissIndices = nextMissIndices;
+      }
+    }
+
+    if (cacheMissInputs.length > 0) {
+      const isPremium = await fetchUserPremiumActive(supabaseAdmin, user.id);
+      if (!isPremium) {
+        for (let j = 0; j < cacheMissInputs.length; j++) {
+          const inputText = cacheMissInputs[j];
+          const idx = cacheMissIndices[j];
+          const normalized_name = normalize(inputText);
+          resultsByIndex[idx] = {
+            input: seen.get(inputText) ?? inputText,
+            normalized_name,
+            category: 'other',
+            zone_key: 'other',
+            confidence: 0.35,
+          };
+          incrementSourceCount(sourceCounts, 'free_tier_fallback');
+        }
+      } else {
       const openaiKey = Deno.env.get('OPENAI_API_KEY');
       if (!openaiKey) {
         console.error('categorize-items: OPENAI_API_KEY missing');
@@ -212,6 +357,7 @@ Deno.serve(async (req) => {
           ? ` This store's sections in walking order: ${zoneLabelsInOrder.join(' → ')}. Prefer zone_key that best matches the item to one of these sections (semantic match to the allowed zone_key list below).`
           : '';
       const prompt = `You are a grocery classifier.${storePath} Return a JSON object with a single key "results" whose value is an array of objects. Each object has: normalized_name (lowercase, no brand), category (short string), zone_key (exactly one of: ${ZONE_KEYS.join(', ')}), confidence (0-1).
+Examples: salt, black pepper, garlic powder, soy sauce, olive oil → zone_key pantry; bell pepper, fresh garlic, lemons → zone_key produce.
 One object per item, in the same order as the list. No other keys or text.
 Items to classify:
 ${cacheMissInputs.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
@@ -300,6 +446,7 @@ ${cacheMissInputs.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
           zone_key,
           confidence,
         };
+        incrementSourceCount(sourceCounts, 'openai');
       }
 
       const [upsertRes, logRes] = await Promise.all([
@@ -317,6 +464,7 @@ ${cacheMissInputs.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
       if (logRes.error) {
         console.error('categorize-items: failed to log OpenAI usage', logRes.error);
       }
+      }
     }
 
     const results = expandResultsToRawOrder(rawItems, uniqueInputs, resultsByIndex);
@@ -327,6 +475,7 @@ ${cacheMissInputs.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
         results,
         cache_hits: cacheHits,
         cache_misses: cacheMissInputs.length,
+        source_counts: sourceCounts,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
