@@ -1,8 +1,12 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import Toast from 'react-native-toast-message';
 import { useTheme } from '../../design/ThemeContext';
+import { useReduceMotion } from '../../ui/motion/useReduceMotion';
+import { motionMs } from '../../ui/motion/presets';
+import { listDuration } from '../../ui/motion/lists';
 
 type ToastVariant = 'success' | 'error' | 'info';
 
@@ -14,6 +18,9 @@ type ToastMessageProps = {
 
 function ToastMessage({ text1, text2, variant }: ToastMessageProps) {
   const theme = useTheme();
+  const reduceMotion = useReduceMotion();
+  const entering = FadeIn.duration(motionMs(listDuration.filterContent, reduceMotion));
+  const exiting = FadeOut.duration(motionMs(listDuration.remove, reduceMotion));
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -31,6 +38,10 @@ function ToastMessage({ text1, text2, variant }: ToastMessageProps) {
           alignItems: 'center',
           alignSelf: 'center',
           ...theme.shadows.floating,
+        },
+        outer: {
+          width: '100%',
+          alignItems: 'center',
         },
         iconWrap: {
           width: 34,
@@ -68,23 +79,29 @@ function ToastMessage({ text1, text2, variant }: ToastMessageProps) {
         : 'information-circle';
 
   return (
-    <View style={styles.card}>
-      <View style={[styles.iconWrap, { backgroundColor: `${tone}18` }]}>
-        <Ionicons name={iconName} size={21} color={tone} />
+    <Animated.View
+      entering={reduceMotion ? undefined : entering}
+      exiting={reduceMotion ? undefined : exiting}
+      style={styles.outer}
+    >
+      <View style={styles.card}>
+        <View style={[styles.iconWrap, { backgroundColor: `${tone}18` }]}>
+          <Ionicons name={iconName} size={21} color={tone} />
+        </View>
+        <View style={styles.copy}>
+          {text1 ? (
+            <Text style={styles.title} numberOfLines={1}>
+              {text1}
+            </Text>
+          ) : null}
+          {text2 ? (
+            <Text style={styles.message} numberOfLines={2}>
+              {text2}
+            </Text>
+          ) : null}
+        </View>
       </View>
-      <View style={styles.copy}>
-        {text1 ? (
-          <Text style={styles.title} numberOfLines={1}>
-            {text1}
-          </Text>
-        ) : null}
-        {text2 ? (
-          <Text style={styles.message} numberOfLines={2}>
-            {text2}
-          </Text>
-        ) : null}
-      </View>
-    </View>
+    </Animated.View>
   );
 }
 

@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheet } from '../ui/BottomSheet';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
+import { AnimatedQuantityValue } from '../ui/AnimatedQuantityValue';
 import { PressableScale } from '../ui/PressableScale';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppConfirmationDialog } from '../ui/AppConfirmationDialog';
@@ -959,15 +960,14 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
               >
                 <Ionicons name="remove" size={16} color={theme.textPrimary} />
               </PressableScale>
-              <Text
+              <AnimatedQuantityValue
+                value={quantity}
                 style={[
                   theme.typography.body,
                   styles.inlineStepperValue,
                   { color: theme.textPrimary },
                 ]}
-              >
-                {quantity}
-              </Text>
+              />
               <PressableScale
                 onPress={incrementQty}
                 style={styles.inlineStepperBtn}

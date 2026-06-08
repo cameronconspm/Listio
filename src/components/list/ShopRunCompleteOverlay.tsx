@@ -8,9 +8,10 @@ import {
   useWindowDimensions,
   Platform,
 } from 'react-native';
-import Animated, { FadeIn, ZoomIn, useReducedMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ZoomIn, useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
+import { backdropTiming, motionMs } from '../../ui/motion/presets';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { Button } from '../ui/Button';
 import { Mascot } from '../brand/Mascot';
@@ -108,6 +109,8 @@ export function ShopRunCompleteOverlay({
   const badgeEntering = rm
     ? FadeIn.duration(240)
     : ZoomIn.springify().damping(13).stiffness(170).mass(0.9).delay(60);
+  const backdropEntering = FadeIn.duration(backdropTiming(rm).duration ?? 220);
+  const backdropExiting = FadeOut.duration(motionMs(180, rm));
 
   const itemWord = totalItems === 1 ? 'item' : 'items';
   const aisleWord = aisleCount === 1 ? 'aisle' : 'aisles';
@@ -122,7 +125,14 @@ export function ShopRunCompleteOverlay({
       accessibilityViewIsModal
     >
       <View style={styles.root} accessibilityLabel="Shopping run complete">
-        <Pressable style={styles.backdrop} onPress={onKeep} accessibilityRole="button" accessibilityLabel="Dismiss" />
+        <Animated.View entering={backdropEntering} exiting={backdropExiting} style={styles.backdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={onKeep}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+          />
+        </Animated.View>
         <Animated.View entering={cardEntering} style={styles.card}>
           <View style={styles.heroWrap}>
             <Animated.View entering={badgeEntering}>

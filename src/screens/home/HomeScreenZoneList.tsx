@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,10 +12,21 @@ import {
   type FlatListProps,
   type ViewabilityConfig,
 } from 'react-native';
-import { createAnimatedComponent } from 'react-native-reanimated';
-import type { SharedValue } from 'react-native-reanimated';
+import Animated, {
+  createAnimatedComponent,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 import { useTheme } from '../../design/ThemeContext';
+import {
+  itemLayoutTransition,
+  rowInsertPreset,
+  rowRemovePreset,
+} from '../../ui/motion/lists';
+import { fadeThrough } from '../../ui/motion/navigation';
 import { ListStatsHeader } from '../../components/list/ListStatsHeader';
 import { ListSummaryStrip } from '../../components/list/ListSummaryStrip';
 import { ZoneSection } from '../../components/list/ZoneSection';
@@ -137,6 +148,25 @@ export function HomeScreenZoneList({
   listScrollShared,
 }: Props) {
   const theme = useTheme();
+  const listContentOpacity = useSharedValue(1);
+  const contentTransitionMountRef = useRef(true);
+
+  useEffect(() => {
+    if (contentTransitionMountRef.current) {
+      contentTransitionMountRef.current = false;
+      return;
+    }
+    listContentOpacity.value = withTiming(0.94, fadeThrough(reduceMotion), (finished) => {
+      if (finished) {
+        listContentOpacity.value = withTiming(1, fadeThrough(reduceMotion));
+      }
+    });
+  }, [filterZone, shoppingMode, listContentOpacity, reduceMotion]);
+
+  const listContentFadeStyle = useAnimatedStyle(() => ({
+    opacity: listContentOpacity.value,
+  }));
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -385,7 +415,7 @@ export function HomeScreenZoneList({
 
   return (
     <AnimatedFlatList
-      style={styles.list}
+      style={[styles.list, listContentFadeStyle]}
       data={sections}
       extraData={extraData}
       keyExtractor={(s) => s.zone}
@@ -491,25 +521,31 @@ const RenderZoneSection = React.memo(function RenderZoneSection({
     [onEnterZoneClearMode, zone]
   );
   return (
-    <ZoneSection
-      zoneKey={zone}
-      items={item.items}
-      collapsed={collapsed}
-      reduceMotion={reduceMotion}
-      onToggleCollapsed={handleToggleCollapsed}
-      onToggleItem={onToggleItem}
-      onDeleteItem={onDeleteItem}
-      onEditItem={onEditItem}
-      onRequestDeleteZone={onRequestDeleteZone}
-      zoneClearMode={zoneClearMode}
-      onEnterZoneClearMode={handleEnterZoneClearMode}
-      onExitZoneClearMode={onExitZoneClearMode}
-      isCurrent={isCurrent}
-      isShopMode={isShopMode}
-      remaining={remaining}
-      hideEditIcon={hideEditIcon}
-      linkedMealLabels={linkedMealLabels}
-      zoneIconOverrides={zoneIconOverrides}
-    />
+    <Animated.View
+      entering={reduceMotion ? undefined : rowInsertPreset(reduceMotion)}
+      exiting={reduceMotion ? undefined : rowRemovePreset(reduceMotion)}
+      layout={reduceMotion ? undefined : itemLayoutTransition}
+    >
+      <ZoneSection
+        zoneKey={zone}
+        items={item.items}
+        collapsed={collapsed}
+        reduceMotion={reduceMotion}
+        onToggleCollapsed={handleToggleCollapsed}
+        onToggleItem={onToggleItem}
+        onDeleteItem={onDeleteItem}
+        onEditItem={onEditItem}
+        onRequestDeleteZone={onRequestDeleteZone}
+        zoneClearMode={zoneClearMode}
+        onEnterZoneClearMode={handleEnterZoneClearMode}
+        onExitZoneClearMode={onExitZoneClearMode}
+        isCurrent={isCurrent}
+        isShopMode={isShopMode}
+        remaining={remaining}
+        hideEditIcon={hideEditIcon}
+        linkedMealLabels={linkedMealLabels}
+        zoneIconOverrides={zoneIconOverrides}
+      />
+    </Animated.View>
   );
 });

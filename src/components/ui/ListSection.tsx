@@ -73,7 +73,18 @@ export function ListSection({
   }
 
   return (
-    <View style={[wrapperStyle, { backgroundColor: theme.surface, borderRadius: theme.radius.card, ...theme.shadows.card }]}>
+    <View
+      style={[
+        wrapperStyle,
+        {
+          backgroundColor: theme.surfaceRaised,
+          borderRadius: theme.radius.card,
+          borderWidth: 1,
+          borderColor: theme.surfaceBorder,
+          ...theme.shadows.card,
+        },
+      ]}
+    >
       {content}
     </View>
   );

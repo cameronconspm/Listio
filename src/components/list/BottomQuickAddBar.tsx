@@ -22,6 +22,7 @@ import Animated from 'react-native-reanimated';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useTheme } from '../../design/ThemeContext';
 import { GlassControl, GlassInputBar, GlassMenu } from '../ui/GlassPrimitives';
+import { AnimatedQuantityValue } from '../ui/AnimatedQuantityValue';
 import { PressableScale } from '../ui/PressableScale';
 import { AppConfirmationDialog } from '../ui/AppConfirmationDialog';
 import { useHaptics } from '../../hooks/useHaptics';
@@ -511,11 +512,10 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
                       style={[theme.typography.body, styles.qtyInput, { color: theme.textPrimary }]}
                     />
                   ) : (
-                    <Text
+                    <AnimatedQuantityValue
+                      value={quantity}
                       style={[theme.typography.body, { color: theme.textPrimary, fontWeight: '600' }]}
-                    >
-                      {quantity}
-                    </Text>
+                    />
                   )}
                 </PressableScale>
               </GlassControl>

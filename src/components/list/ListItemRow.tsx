@@ -5,7 +5,12 @@ import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeabl
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useTheme } from '../../design/ThemeContext';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
-import { checkStatePreset } from '../../ui/motion/lists';
+import {
+  checkStatePreset,
+  itemLayoutTransition,
+  rowInsertPreset,
+  rowRemovePreset,
+} from '../../ui/motion/lists';
 import { useHaptics } from '../../hooks/useHaptics';
 import { toBoolean } from '../../utils/normalize';
 import { getRowSecondarySegments } from '../../utils/rowSecondaryLine';
@@ -16,6 +21,7 @@ import { markRender } from '../../utils/perf';
 import { isPendingListItemId } from '../../utils/listItemPending';
 
 const MIN_TOUCH_TARGET = 44;
+const AnimatedText = Animated.createAnimatedComponent(Text);
 
 type ListItemRowProps = {
   item: ListItem;
@@ -48,18 +54,40 @@ function ListItemRowInner({
   const reduceMotion = useReduceMotion();
   const checked = toBoolean(item.is_checked);
   const checkProgress = useSharedValue(checked ? 1 : 0);
+  const rowPending = isPendingListItemId(item.id);
+  const pendingOpacity = useSharedValue(rowPending ? 0.62 : 1);
 
   useEffect(() => {
     checkProgress.value = withTiming(checked ? 1 : 0, checkStatePreset(reduceMotion));
   }, [checked, checkProgress, reduceMotion]);
 
+  useEffect(() => {
+    pendingOpacity.value = withTiming(rowPending ? 0.62 : 1, checkStatePreset(reduceMotion));
+  }, [rowPending, pendingOpacity, reduceMotion]);
+
+  const rowAnimStyle = useAnimatedStyle(() => ({
+    opacity: pendingOpacity.value,
+  }));
+
   const leadingAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: 0.94 + 0.06 * checkProgress.value }],
-    opacity: 0.75 + 0.25 * checkProgress.value,
+    transform: [{ scale: 0.88 + 0.12 * checkProgress.value }],
+    opacity: 0.7 + 0.3 * checkProgress.value,
+  }));
+
+  const titleAnimStyle = useAnimatedStyle(() => ({
+    opacity: 1 - 0.4 * checkProgress.value,
+  }));
+
+  const secondaryAnimStyle = useAnimatedStyle(() => ({
+    opacity: 1 - 0.4 * checkProgress.value,
   }));
 
   const handleToggle = () => {
-    haptics.light();
+    if (!checked) {
+      haptics.success();
+    } else {
+      haptics.light();
+    }
     onToggle(item.id, !checked);
   };
 
@@ -104,94 +132,97 @@ function ListItemRowInner({
   };
 
   const handleRowPress = isPlanMode ? undefined : handleToggle;
-  const rowPending = isPendingListItemId(item.id);
 
   return (
-    <View style={styles.swipeableWrapper}>
+    <Animated.View
+      entering={reduceMotion ? undefined : rowInsertPreset(reduceMotion)}
+      exiting={reduceMotion ? undefined : rowRemovePreset(reduceMotion)}
+      layout={reduceMotion ? undefined : itemLayoutTransition}
+      style={styles.swipeableWrapper}
+    >
       <ReanimatedSwipeable
         enabled={!rowPending}
         renderRightActions={rowPending ? undefined : renderRightActions}
         friction={2}
         overshootRight={false}
       >
-        <Pressable
-          style={[
-            styles.row,
-            { backgroundColor: theme.surface },
-            rowPending ? { opacity: 0.62 } : undefined,
-          ]}
-          onPress={rowPending ? undefined : handleRowPress}
-          disabled={rowPending}
-          accessibilityState={rowPending ? { disabled: true } : undefined}
-          accessibilityLabel={rowPending ? `${item.name}, saving to your list` : undefined}
-        >
-          <View style={styles.toggleArea}>
-            {!isPlanMode && (
-              <Animated.View style={[styles.leadingWrapper, leadingAnimStyle]}>
-                <Ionicons
-                  name={checked ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={24}
-                  color={checked ? theme.accent : theme.textSecondary}
-                />
-              </Animated.View>
-            )}
-            <View style={styles.textBlock}>
-              <Text
-                style={[
-                  theme.typography.body,
-                  styles.itemTitle,
-                  { color: theme.textPrimary },
-                  !isPlanMode && checked ? styles.checkedText : undefined,
-                ]}
-                numberOfLines={2}
-              >
-                {item.name}
-              </Text>
-              {secondarySegments.length > 0 ? (
-                <View
-                  style={[styles.secondaryPillsRow, !isPlanMode && checked ? styles.secondaryPillsChecked : undefined]}
-                  accessible
-                  accessibilityRole="text"
-                  accessibilityLabel={secondaryA11y}
+        <Animated.View style={rowAnimStyle}>
+          <Pressable
+            style={styles.row}
+            onPress={rowPending ? undefined : handleRowPress}
+            disabled={rowPending}
+            accessibilityState={rowPending ? { disabled: true } : undefined}
+            accessibilityLabel={rowPending ? `${item.name}, saving to your list` : undefined}
+          >
+            <View style={styles.toggleArea}>
+              {!isPlanMode && (
+                <Animated.View style={[styles.leadingWrapper, leadingAnimStyle]}>
+                  <Ionicons
+                    name={checked ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={24}
+                    color={checked ? theme.accent : theme.textSecondary}
+                  />
+                </Animated.View>
+              )}
+              <View style={styles.textBlock}>
+                <AnimatedText
+                  style={[
+                    theme.typography.body,
+                    styles.itemTitle,
+                    { color: theme.textPrimary },
+                    titleAnimStyle,
+                    !isPlanMode && checked ? styles.checkedText : undefined,
+                  ]}
+                  numberOfLines={2}
                 >
-                  {secondarySegments.map((segment, index) =>
-                    segment.kind === 'meal' ? (
-                      <View
-                        key={index}
-                        style={[styles.metaPill, styles.mealMetaPill, { backgroundColor: theme.accent + '18' }]}
-                        accessibilityElementsHidden
-                        importantForAccessibility="no-hide-descendants"
-                      >
-                        <Ionicons name="restaurant-outline" size={13} color={theme.accent} style={styles.mealMetaIcon} />
-                        <Text style={[theme.typography.caption1, { color: theme.textPrimary }]} numberOfLines={1}>
-                          {segment.text}
-                        </Text>
-                      </View>
-                    ) : (
-                      <View key={index} style={[styles.metaPill, { backgroundColor: theme.textSecondary + '16' }]}>
-                        <Text style={[theme.typography.caption1, { color: theme.textPrimary }]} numberOfLines={1}>
-                          {segment.text}
-                        </Text>
-                      </View>
-                    )
-                  )}
-                </View>
-              ) : null}
+                  {item.name}
+                </AnimatedText>
+                {secondarySegments.length > 0 ? (
+                  <Animated.View
+                    style={[styles.secondaryPillsRow, secondaryAnimStyle]}
+                    accessible
+                    accessibilityRole="text"
+                    accessibilityLabel={secondaryA11y}
+                  >
+                    {secondarySegments.map((segment, index) =>
+                      segment.kind === 'meal' ? (
+                        <View
+                          key={index}
+                          style={[styles.metaPill, styles.mealMetaPill, { backgroundColor: theme.accent + '18' }]}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no-hide-descendants"
+                        >
+                          <Ionicons name="restaurant-outline" size={13} color={theme.accent} style={styles.mealMetaIcon} />
+                          <Text style={[theme.typography.caption1, { color: theme.textPrimary }]} numberOfLines={1}>
+                            {segment.text}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View key={index} style={[styles.metaPill, { backgroundColor: theme.textSecondary + '16' }]}>
+                          <Text style={[theme.typography.caption1, { color: theme.textPrimary }]} numberOfLines={1}>
+                            {segment.text}
+                          </Text>
+                        </View>
+                      )
+                    )}
+                  </Animated.View>
+                ) : null}
+              </View>
             </View>
-          </View>
-          {!hideEditIcon && !isPlanMode && (
-            <TouchableOpacity
-              onPress={handleEdit}
-              disabled={rowPending}
-              style={[styles.editBtn, { backgroundColor: theme.surface }]}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            >
-              <Ionicons name="pencil-outline" size={20} color={theme.textSecondary} />
-            </TouchableOpacity>
-          )}
-        </Pressable>
+            {!hideEditIcon && !isPlanMode && (
+              <TouchableOpacity
+                onPress={handleEdit}
+                disabled={rowPending}
+                style={styles.editBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="pencil-outline" size={20} color={theme.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </Pressable>
+        </Animated.View>
       </ReanimatedSwipeable>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -236,9 +267,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     marginTop: spacing.xxs,
   },
-  secondaryPillsChecked: {
-    opacity: 0.6,
-  },
   metaPill: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 5,
@@ -264,7 +292,6 @@ const styles = StyleSheet.create({
   },
   checkedText: {
     textDecorationLine: 'line-through',
-    opacity: 0.6,
   },
   swipeActionsOuter: {
     flexDirection: 'row',

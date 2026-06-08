@@ -13,7 +13,7 @@ jest.mock('../src/utils/appToast', () => ({
 }));
 
 jest.mock('../src/hooks/useHaptics', () => {
-  const handle = { success: jest.fn(), light: jest.fn(), selection: jest.fn() };
+  const handle = { success: jest.fn(), celebrate: jest.fn(), light: jest.fn(), selection: jest.fn() };
   return { appHaptics: handle, useHaptics: () => handle };
 });
 
@@ -35,7 +35,7 @@ describe('milestone celebrations (un-gated rewards)', () => {
     expect(showSuccess).not.toHaveBeenCalled();
 
     await processListItemsMilestone(listOf(3));
-    expect(appHaptics.success).toHaveBeenCalledTimes(1);
+    expect(appHaptics.celebrate).toHaveBeenCalledTimes(1);
     expect(showSuccess).toHaveBeenCalledTimes(1);
     expect(showSuccess.mock.calls[0][1]).toMatch(/taking shape/i);
 
@@ -68,7 +68,7 @@ describe('milestone celebrations (un-gated rewards)', () => {
     await processListItemsMilestone(listOf(3));
     await processMealSavedMilestone();
     showSuccess.mockClear();
-    appHaptics.success.mockClear();
+    appHaptics.celebrate.mockClear();
 
     // The recipe is the third and final milestone — this should graduate.
     await processRecipeSavedMilestone();

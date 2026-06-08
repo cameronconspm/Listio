@@ -4,7 +4,6 @@ import {
   Text,
   Pressable,
   StyleSheet,
-  LayoutAnimation,
   Platform,
   UIManager,
   FlatList,
@@ -29,13 +28,15 @@ import type { ListItem, ZoneKey } from '../../types/models';
 import { linkedMealRowMetaFromIds, type LinkedMealRowMeta } from '../../utils/mealLabel';
 import type { ZoneIconOverrides } from '../../utils/storeUtils';
 import { toBoolean } from '../../utils/normalize';
-import { listDuration } from '../../ui/motion/lists';
+import { checkStatePreset, listDuration, sectionExpandTransition } from '../../ui/motion/lists';
 import { spacing } from '../../design/spacing';
+import { markRender } from '../../utils/perf';
 
 /** Rows above this count use a nested non-scrolling FlatList for memory. */
 const ZONE_ITEM_VIRTUALIZE_THRESHOLD = 20;
 const LIST_ITEM_ROW_HEIGHT = 56;
-import { markRender } from '../../utils/perf';
+
+const AnimatedText = Animated.createAnimatedComponent(Text);
 
 type ZoneSectionProps = {
   zoneKey: ZoneKey;
@@ -104,8 +105,14 @@ function ZoneSectionInner({
   const zoneSoft = zoneSoftColor(zoneKey, theme.colorScheme);
   const chevronRot = useSharedValue(collapsed ? 0 : 1);
   const wiggleRot = useSharedValue(0);
+  const sectionComplete = items.length > 0 && items.every((it) => toBoolean(it.is_checked));
+  const completeProgress = useSharedValue(sectionComplete ? 1 : 0);
 
   const isClearActive = zoneClearMode === zoneKey;
+
+  useEffect(() => {
+    completeProgress.value = withTiming(sectionComplete ? 1 : 0, checkStatePreset(reduceMotion));
+  }, [sectionComplete, completeProgress, reduceMotion]);
 
   useEffect(() => {
     chevronRot.value = withTiming(collapsed ? 0 : 1, {
@@ -140,16 +147,19 @@ function ZoneSectionInner({
     transform: [{ rotate: `${wiggleRot.value}deg` }],
   }));
 
-  if (items.length === 0) return null;
+  const iconCompleteStyle = useAnimatedStyle(() => ({
+    opacity: 1 - 0.55 * completeProgress.value,
+  }));
 
-  const sectionComplete = items.every((it) => toBoolean(it.is_checked));
+  const titleCompleteStyle = useAnimatedStyle(() => ({
+    opacity: 1 - 0.4 * completeProgress.value,
+  }));
+
+  if (items.length === 0) return null;
 
   const handleHeaderPress = () => {
     if (zoneClearMode != null) {
       onExitZoneClearMode?.();
-    }
-    if (!reduceMotion) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
     onToggleCollapsed();
   };
@@ -173,6 +183,7 @@ function ZoneSectionInner({
 
   return (
     <Animated.View
+      layout={reduceMotion ? undefined : sectionExpandTransition}
       style={[styles.sectionOuter, wiggleStyle]}
       onAccessibilityEscape={isClearActive ? onExitZoneClearMode : undefined}
     >
@@ -204,11 +215,11 @@ function ZoneSectionInner({
             }}
           >
             <View style={styles.headerLeft}>
-              <View
+              <Animated.View
                 style={[
                   styles.iconChip,
                   { backgroundColor: zoneSoft },
-                  sectionComplete ? styles.iconChipComplete : undefined,
+                  iconCompleteStyle,
                 ]}
               >
                 {iconResult.type === 'emoji' ? (
@@ -216,8 +227,8 @@ function ZoneSectionInner({
                 ) : (
                   <ZoneGlyph zone={zoneKey} size={17} color={zoneHue} />
                 )}
-              </View>
-              <Text
+              </Animated.View>
+              <AnimatedText
                 style={[
                   theme.typography.caption1,
                   {
@@ -225,11 +236,12 @@ function ZoneSectionInner({
                     textTransform: 'uppercase',
                     letterSpacing: 0.5,
                   },
+                  titleCompleteStyle,
                   sectionComplete ? styles.sectionTitleComplete : undefined,
                 ]}
               >
                 {label}
-              </Text>
+              </AnimatedText>
             </View>
             <View style={styles.headerRight}>
               {isShopMode && remaining > 0 ? (
@@ -259,9 +271,10 @@ function ZoneSectionInner({
             </Pressable>
           ) : null}
         </View>
-        {!collapsed
-          ? items.length > ZONE_ITEM_VIRTUALIZE_THRESHOLD
-            ? (
+        {!collapsed ? (
+          <Animated.View layout={reduceMotion ? undefined : sectionExpandTransition}>
+            {items.length > ZONE_ITEM_VIRTUALIZE_THRESHOLD
+              ? (
                 <FlatList
                   data={items}
                   keyExtractor={(item) => item.id}
@@ -326,8 +339,9 @@ function ZoneSectionInner({
                     />
                   </React.Fragment>
                 );
-              })
-          : null}
+              })}
+          </Animated.View>
+        ) : null}
       </ListSection>
     </Animated.View>
   );
@@ -412,15 +426,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: spacing.sm,
   },
-  iconChipComplete: {
-    opacity: 0.45,
-  },
   zoneEmoji: {
     fontSize: 16,
   },
   sectionTitleComplete: {
     textDecorationLine: 'line-through',
-    opacity: 0.6,
   },
   headerRight: {
     flexDirection: 'row',

@@ -8,6 +8,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { GlassView } from '../../../components/ui/GlassView';
 import { useTheme } from '../../../design/ThemeContext';
+import { useHaptics } from '../../../hooks/useHaptics';
 import { useReduceMotion } from '../../motion/useReduceMotion';
 import { segmentPillSpring, segmentPillTiming, segmentPressIn, segmentPressOut } from '../../motion/controls';
 import { spacing } from '../../../design/spacing';
@@ -33,6 +34,7 @@ export function SegmentedPillControl<T extends string>({
   onChange,
 }: SegmentedPillControlProps<T>) {
   const theme = useTheme();
+  const haptics = useHaptics();
   const reduceMotion = useReduceMotion();
   const segmentCount = segments.length;
 
@@ -134,7 +136,12 @@ export function SegmentedPillControl<T extends string>({
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
                   style={styles.segment}
-                  onPress={() => onChange(seg.key)}
+                  onPress={() => {
+                    if (seg.key !== value) {
+                      haptics.selection();
+                    }
+                    onChange(seg.key);
+                  }}
                   onPressIn={() => {
                     pressedSv.value = withTiming(1, segmentPressIn(reduceMotion));
                   }}

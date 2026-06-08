@@ -33,7 +33,7 @@ const GRADUATION_CELEBRATION = {
 };
 
 function celebrate(title: string, message: string): void {
-  appHaptics.success();
+  appHaptics.celebrate();
   showSuccess(message, title);
 }
 
