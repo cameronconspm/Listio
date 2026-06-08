@@ -29,6 +29,7 @@ import { linkedMealRowMetaFromIds, type LinkedMealRowMeta } from '../../utils/me
 import type { ZoneIconOverrides } from '../../utils/storeUtils';
 import { toBoolean } from '../../utils/normalize';
 import { checkStatePreset, listDuration, sectionExpandTransition } from '../../ui/motion/lists';
+import { useHaptics } from '../../hooks/useHaptics';
 import { spacing } from '../../design/spacing';
 import { markRender } from '../../utils/perf';
 
@@ -99,6 +100,7 @@ function ZoneSectionInner({
 }: ZoneSectionProps) {
   if (__DEV__) markRender('ZoneSection');
   const theme = useTheme();
+  const haptics = useHaptics();
   const label = ZONE_LABELS[zoneKey];
   const iconResult = getZoneDisplayIcon(zoneKey, zoneIconOverrides);
   const zoneHue = zoneColor(zoneKey, theme.colorScheme);
@@ -161,7 +163,13 @@ function ZoneSectionInner({
     if (zoneClearMode != null) {
       onExitZoneClearMode?.();
     }
+    haptics.selection();
     onToggleCollapsed();
+  };
+
+  const handleEnterClearMode = () => {
+    haptics.selection();
+    onEnterZoneClearMode?.();
   };
 
   const shopCurrentChrome =
@@ -192,7 +200,7 @@ function ZoneSectionInner({
           <Pressable
             style={[headerStyle, styles.headerTap]}
             onPress={handleHeaderPress}
-            onLongPress={onRequestDeleteZone && onEnterZoneClearMode ? onEnterZoneClearMode : undefined}
+            onLongPress={onRequestDeleteZone && onEnterZoneClearMode ? handleEnterClearMode : undefined}
             delayLongPress={450}
             accessibilityRole="button"
             accessibilityLabel={
@@ -307,6 +315,7 @@ function ZoneSectionInner({
                         onEdit={onEditItem}
                         hideEditIcon={hideEditIcon}
                         isPlanMode={!isShopMode}
+                        swipeToCheck={isShopMode}
                         linkedMealLabel={mealMeta?.display}
                         linkedMealAccessibilityLabel={mealMeta?.accessibilityLabel}
                       />
@@ -334,6 +343,7 @@ function ZoneSectionInner({
                       onEdit={onEditItem}
                       hideEditIcon={hideEditIcon}
                       isPlanMode={!isShopMode}
+                      swipeToCheck={isShopMode}
                       linkedMealLabel={mealMeta?.display}
                       linkedMealAccessibilityLabel={mealMeta?.accessibilityLabel}
                     />

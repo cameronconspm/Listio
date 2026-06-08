@@ -32,6 +32,8 @@ type ListItemRowProps = {
   hideEditIcon?: boolean;
   /** When true, Plan mode: no checkbox, leading icon, row tap = edit. */
   isPlanMode?: boolean;
+  /** Shop mode: swipe right to reveal check action. */
+  swipeToCheck?: boolean;
   /** Compact meal label for the row chip (e.g. "Sun · dinner") */
   linkedMealLabel?: string;
   /** Full meal phrase for VoiceOver (e.g. "Sunday dinner") */
@@ -45,6 +47,7 @@ function ListItemRowInner({
   onEdit,
   hideEditIcon = false,
   isPlanMode = false,
+  swipeToCheck = false,
   linkedMealLabel,
   linkedMealAccessibilityLabel,
 }: ListItemRowProps) {
@@ -96,6 +99,23 @@ function ListItemRowInner({
     onDelete(item.id);
   };
 
+  const renderLeftActions =
+    swipeToCheck && !isPlanMode && !checked && !rowPending
+      ? () => (
+          <View style={styles.swipeActionsOuterLeft}>
+            <TouchableOpacity
+              style={[styles.swipeActionCircle, { backgroundColor: theme.accent + '25' }]}
+              onPress={handleToggle}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Check off ${item.name}`}
+            >
+              <Ionicons name="checkmark" size={20} color={theme.accent} />
+            </TouchableOpacity>
+          </View>
+        )
+      : undefined;
+
   const renderRightActions = () => (
     <View style={styles.swipeActionsOuter}>
       <TouchableOpacity
@@ -142,8 +162,10 @@ function ListItemRowInner({
     >
       <ReanimatedSwipeable
         enabled={!rowPending}
+        renderLeftActions={renderLeftActions}
         renderRightActions={rowPending ? undefined : renderRightActions}
         friction={2}
+        overshootLeft={false}
         overshootRight={false}
       >
         <Animated.View style={rowAnimStyle}>
@@ -300,6 +322,13 @@ const styles = StyleSheet.create({
     paddingRight: spacing.sm,
     gap: spacing.sm,
     minWidth: MIN_TOUCH_TARGET * 2 + spacing.sm + spacing.sm,
+  },
+  swipeActionsOuterLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingLeft: spacing.sm,
+    minWidth: MIN_TOUCH_TARGET + spacing.sm + spacing.sm,
   },
   swipeActionCircle: {
     width: MIN_TOUCH_TARGET,

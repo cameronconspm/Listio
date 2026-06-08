@@ -1,14 +1,18 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useHeaderHeight } from '@react-navigation/elements';
 import Animated, {
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { useTheme } from '../../design/ThemeContext';
+import { cardShellStyle } from '../ui/Card';
 import { useHaptics } from '../../hooks/useHaptics';
+import { useReduceMotion } from '../../ui/motion/useReduceMotion';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
 
@@ -19,6 +23,8 @@ type NearbyStorePromptBannerProps = {
   onAdd: () => void;
   onDismiss: () => void;
 };
+
+const OFFSCREEN_Y = -140;
 
 /**
  * Non-blocking slide-in over list content. Anchored below the stack header (transparent chrome)
@@ -33,44 +39,70 @@ export function NearbyStorePromptBanner({
 }: NearbyStorePromptBannerProps) {
   const theme = useTheme();
   const haptics = useHaptics();
+  const reduceMotion = useReduceMotion();
   const headerHeight = useHeaderHeight();
   const bannerTop = headerHeight + theme.spacing.sm;
-  const translateY = useSharedValue(-140);
+  const translateY = useSharedValue(OFFSCREEN_Y);
+  const opacity = useSharedValue(0);
+  const [mounted, setMounted] = useState(visible);
   const didHapticRef = useRef(false);
 
+  const finishHide = () => setMounted(false);
+
   useEffect(() => {
-    translateY.value = withSpring(visible ? 0 : -140, { damping: 20, stiffness: 220 });
-    if (visible && !didHapticRef.current) {
-      didHapticRef.current = true;
-      haptics.light();
+    if (visible) {
+      setMounted(true);
+      if (reduceMotion) {
+        translateY.value = withTiming(0, { duration: 220 });
+        opacity.value = withTiming(1, { duration: 160 });
+      } else {
+        translateY.value = withSpring(0, { damping: 20, stiffness: 220 });
+        opacity.value = withTiming(1, { duration: 220 });
+      }
+      if (!didHapticRef.current) {
+        didHapticRef.current = true;
+        haptics.light();
+      }
+      return;
     }
-    if (!visible) {
-      didHapticRef.current = false;
+
+    didHapticRef.current = false;
+    if (reduceMotion) {
+      opacity.value = withTiming(0, { duration: 120 });
+      translateY.value = withTiming(OFFSCREEN_Y, { duration: 180 }, (finished) => {
+        if (finished) {
+          runOnJS(finishHide)();
+        }
+      });
+    } else {
+      opacity.value = withTiming(0, { duration: 180 });
+      translateY.value = withSpring(OFFSCREEN_Y, { damping: 22, stiffness: 260 }, (finished) => {
+        if (finished) {
+          runOnJS(finishHide)();
+        }
+      });
     }
-  }, [visible, translateY, haptics]);
+  }, [visible, translateY, opacity, haptics, reduceMotion]);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
+    opacity: opacity.value,
   }));
 
-  if (!visible) {
+  if (!mounted) {
     return null;
   }
 
   return (
     <Animated.View
       style={[styles.outer, { top: bannerTop }, animStyle]}
-      pointerEvents="box-none"
+      pointerEvents={visible ? 'box-none' : 'none'}
       accessibilityElementsHidden={!visible}
     >
       <View
         style={[
           styles.card,
-          {
-            backgroundColor: theme.surface,
-            borderColor: theme.divider,
-            shadowColor: theme.textPrimary,
-          },
+          cardShellStyle(theme, 'raised', 'status'),
         ]}
       >
         <View style={styles.row}>
@@ -125,12 +157,8 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
   },
   row: {
     flexDirection: 'row',

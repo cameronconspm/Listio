@@ -3,6 +3,7 @@ import { View, Text, Pressable, TouchableOpacity, StyleSheet } from 'react-nativ
 import { Ionicons } from '@expo/vector-icons';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useTheme } from '../../design/ThemeContext';
+import { cardShellStyle } from '../ui/Card';
 import { useHaptics } from '../../hooks/useHaptics';
 import type { Recipe, RecipeCategory } from '../../types/models';
 import { formatRecipeDurationMinutes } from '../../utils/formatRecipeDuration';
@@ -104,7 +105,7 @@ function RecipeCardInner({ recipe, ingredientCount, onPress, onFavorite, onEdit,
   );
 
   return (
-    <View style={[styles.cardOuter, { borderRadius: theme.radius.card }, theme.shadows.card]}>
+    <View style={[styles.cardOuter, { borderRadius: theme.radius.card }]}>
       <View style={[styles.swipeClip, { borderRadius: theme.radius.card }]}>
         <ReanimatedSwipeable
           renderLeftActions={renderLeftActions}
@@ -117,10 +118,8 @@ function RecipeCardInner({ recipe, ingredientCount, onPress, onFavorite, onEdit,
             onPress={onPress}
             style={({ pressed }) => [
               styles.cardInner,
-              {
-                backgroundColor: theme.surface,
-                opacity: pressed ? 0.9 : 1,
-              },
+              cardShellStyle(theme, 'raised', 'interactive'),
+              pressed ? { opacity: 0.92 } : undefined,
             ]}
           >
             <View style={styles.headerRow}>
@@ -170,14 +169,14 @@ export const RecipeCard = React.memo(RecipeCardInner);
 
 const styles = StyleSheet.create({
   cardOuter: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.comfort,
   },
   swipeClip: {
     overflow: 'hidden' as const,
   },
   /** Rounded + overflow so the translated swipe row keeps card corners (avoids a square trailing edge). */
   cardInner: {
-    padding: spacing.md,
+    padding: spacing.base,
     borderRadius: radius.card,
     overflow: 'hidden' as const,
   },

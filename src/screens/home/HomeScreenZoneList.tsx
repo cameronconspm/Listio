@@ -21,6 +21,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 import { useTheme } from '../../design/ThemeContext';
+import { useHaptics } from '../../hooks/useHaptics';
 import {
   itemLayoutTransition,
   rowInsertPreset,
@@ -148,6 +149,7 @@ export function HomeScreenZoneList({
   listScrollShared,
 }: Props) {
   const theme = useTheme();
+  const haptics = useHaptics();
   const listContentOpacity = useSharedValue(1);
   const contentTransitionMountRef = useRef(true);
 
@@ -156,9 +158,11 @@ export function HomeScreenZoneList({
       contentTransitionMountRef.current = false;
       return;
     }
-    listContentOpacity.value = withTiming(0.94, fadeThrough(reduceMotion), (finished) => {
+    const through = fadeThrough(reduceMotion);
+    listContentOpacity.value = withTiming(0.94, through, (finished) => {
+      'worklet';
       if (finished) {
-        listContentOpacity.value = withTiming(1, fadeThrough(reduceMotion));
+        listContentOpacity.value = withTiming(1, through);
       }
     });
   }, [filterZone, shoppingMode, listContentOpacity, reduceMotion]);
@@ -166,6 +170,11 @@ export function HomeScreenZoneList({
   const listContentFadeStyle = useAnimatedStyle(() => ({
     opacity: listContentOpacity.value,
   }));
+
+  const handleRefresh = useCallback(() => {
+    haptics.light();
+    onRefresh();
+  }, [haptics, onRefresh]);
 
   const styles = useMemo(
     () =>
@@ -426,7 +435,7 @@ export function HomeScreenZoneList({
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
-          onRefresh={onRefresh}
+          onRefresh={handleRefresh}
           tintColor={themeAccent}
           progressViewOffset={Platform.OS === 'android' ? scrollContentInsetTop : undefined}
         />

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Pressable, StyleSheet } from 'react-nativ
 import { Ionicons } from '@expo/vector-icons';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useTheme } from '../../design/ThemeContext';
+import { cardShellStyle } from '../ui/Card';
 import { useHaptics } from '../../hooks/useHaptics';
 import type { Meal } from '../../types/models';
 import { spacing } from '../../design/spacing';
@@ -89,11 +90,7 @@ export function MealSlotRow({
       <Pressable
         style={[
           styles.mealTile,
-          {
-            backgroundColor: theme.background,
-            borderColor: theme.divider,
-          },
-          theme.shadows.sm,
+          cardShellStyle(theme, 'nested', 'interactive'),
         ]}
         onPress={onPressMeal}
         accessibilityRole="button"
@@ -173,7 +170,7 @@ export function MealSlotRow({
 
 const styles = StyleSheet.create({
   filledWrap: {
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.comfort,
     paddingHorizontal: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
@@ -183,8 +180,7 @@ const styles = StyleSheet.create({
   },
   mealTile: {
     borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md,
+    padding: spacing.base,
   },
   mealTitleRow: {
     flexDirection: 'row',

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, type ViewStyle } from 'react-native';
 import { useTheme } from '../../design/ThemeContext';
 import { GlassSurface } from './GlassSurface';
+import { cardShellStyle, type CardSurface, type CardTone } from './Card';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
 
@@ -14,6 +15,9 @@ type ListSectionProps = {
   children: React.ReactNode;
   /** When true, wrap in GlassSurface. Default true. */
   glass?: boolean;
+  /** Surface treatment — overrides `glass` when set. */
+  surface?: CardSurface;
+  tone?: CardTone;
   /** When true, use overflow visible (e.g. for swipe actions). Default false. */
   overflowVisible?: boolean;
   /** Tighter vertical padding and section theme.spacing. Default false. */
@@ -28,11 +32,14 @@ export function ListSection({
   headerRight,
   children,
   glass = true,
+  surface,
+  tone = 'default',
   overflowVisible = false,
   dense = false,
   style,
 }: ListSectionProps) {
   const theme = useTheme();
+  const resolvedSurface = surface ?? (glass ? 'glass' : 'raised');
   const content = (
     <View style={dense ? styles.contentDense : styles.content}>
       {title || headerRight ? (
@@ -64,7 +71,7 @@ export function ListSection({
     style,
   ];
 
-  if (glass) {
+  if (resolvedSurface === 'glass') {
     return (
       <GlassSurface style={wrapperStyle} borderRadius={theme.radius.glass}>
         {content}
@@ -76,13 +83,8 @@ export function ListSection({
     <View
       style={[
         wrapperStyle,
-        {
-          backgroundColor: theme.surfaceRaised,
-          borderRadius: theme.radius.card,
-          borderWidth: 1,
-          borderColor: theme.surfaceBorder,
-          ...theme.shadows.card,
-        },
+        cardShellStyle(theme, resolvedSurface, tone),
+        { borderRadius: theme.radius.card },
       ]}
     >
       {content}
@@ -117,6 +119,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.base,
   },
 });
