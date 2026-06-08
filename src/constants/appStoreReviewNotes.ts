@@ -5,6 +5,7 @@ import {
   FREE_MEALS_LIMIT,
   FREE_RECIPES_LIMIT,
 } from '../services/freeTierLimits';
+import { FREE_AI_TASTE_USES } from '../services/aiFeatureTaste';
 
 /**
  * Copy-paste into App Store Connect → App Review Information → Notes.
@@ -18,15 +19,16 @@ Demo account
 
 Free tier (no subscription required)
 - Up to ${FREE_LIST_ITEMS_LIMIT} items on the grocery list
-- Up to ${FREE_MEALS_LIMIT} planned meal
-- Up to ${FREE_RECIPES_LIMIT} saved recipe
+- Up to ${FREE_MEALS_LIMIT} planned meals
+- Up to ${FREE_RECIPES_LIMIT} saved recipes
+- ${FREE_AI_TASTE_USES} free uses each of Smart add and recipe import
 - Basic list add and local categorization cache work without subscribing
 
 Listio+ (subscription)
 - Unlimited list items, meals, and recipes
 - Use on all devices when signed in
-- Smart add, recipe URL import, paste-to-import ingredients
-- Subscribe via contextual paywall (e.g. add a 4th list item) or Settings → Plan
+- Unlimited Smart add, recipe URL import, paste-to-import ingredients
+- Subscribe via contextual paywall (e.g. exceed a free limit or use Smart add a 3rd time) or Settings → Plan
 - Restore purchases: Settings → Restore purchases
 
 Legal URLs (also set in App Store Connect metadata)

@@ -11,7 +11,12 @@ export type UseModalSheetOptions = {
    * BottomSheet keyboardLift="reanimated".
    */
   syncKeyboardLift?: boolean;
-  /** Fires on the JS thread the moment the slide-in animation starts (after measured height is applied). Use to focus fields in sync with the sheet motion. */
+  /**
+   * Fires on the JS thread the moment the slide-in animation starts (after measured height is applied).
+   * With `syncKeyboardLift`, focus text fields here so the keyboard rises in parallel with the sheet —
+   * the live keyboard inset is already baked into the translateY math, so both animations resolve to
+   * the final keyboard-anchored position as one fluid motion.
+   */
   onEnterAnimationStart?: () => void;
   /** Fires once when the enter animation has fully completed (translateY at rest). */
   onPresented?: () => void;

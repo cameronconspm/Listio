@@ -20,6 +20,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useTheme } from '../../design/ThemeContext';
 import { ZONE_LABELS } from '../../data/zone';
+import { zoneColor, zoneSoftColor } from '../../data/zoneColors';
+import { ZoneGlyph } from '../brand/ZoneGlyph';
 import { getZoneDisplayIcon } from '../../utils/storeUtils';
 import { ListItemRow } from './ListItemRow';
 import { ListSection } from '../ui/ListSection';
@@ -98,6 +100,8 @@ function ZoneSectionInner({
   const theme = useTheme();
   const label = ZONE_LABELS[zoneKey];
   const iconResult = getZoneDisplayIcon(zoneKey, zoneIconOverrides);
+  const zoneHue = zoneColor(zoneKey, theme.colorScheme);
+  const zoneSoft = zoneSoftColor(zoneKey, theme.colorScheme);
   const chevronRot = useSharedValue(collapsed ? 0 : 1);
   const wiggleRot = useSharedValue(0);
 
@@ -200,18 +204,19 @@ function ZoneSectionInner({
             }}
           >
             <View style={styles.headerLeft}>
-              {iconResult.type === 'emoji' ? (
-                <Text style={[styles.zoneEmoji, styles.zoneIcon]}>{iconResult.value}</Text>
-              ) : (
-                <Ionicons
-                  name={
-                    (typeof iconResult.value === 'string' ? iconResult.value : 'ellipsis-horizontal') as keyof typeof Ionicons.glyphMap
-                  }
-                  size={18}
-                  color={isCurrent ? theme.accent : theme.textSecondary}
-                  style={styles.zoneIcon}
-                />
-              )}
+              <View
+                style={[
+                  styles.iconChip,
+                  { backgroundColor: zoneSoft },
+                  sectionComplete ? styles.iconChipComplete : undefined,
+                ]}
+              >
+                {iconResult.type === 'emoji' ? (
+                  <Text style={styles.zoneEmoji}>{iconResult.value}</Text>
+                ) : (
+                  <ZoneGlyph zone={zoneKey} size={17} color={zoneHue} />
+                )}
+              </View>
               <Text
                 style={[
                   theme.typography.caption1,
@@ -399,11 +404,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  zoneIcon: {
+  iconChip: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: spacing.sm,
   },
+  iconChipComplete: {
+    opacity: 0.45,
+  },
   zoneEmoji: {
-    fontSize: 18,
+    fontSize: 16,
   },
   sectionTitleComplete: {
     textDecorationLine: 'line-through',

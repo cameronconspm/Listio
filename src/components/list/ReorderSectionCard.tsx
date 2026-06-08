@@ -1,8 +1,9 @@
-import React, { type ComponentProps } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
 import { ZONE_LABELS } from '../../data/zone';
+import { zoneColor, zoneSoftColor } from '../../data/zoneColors';
+import { ZoneGlyph } from '../brand/ZoneGlyph';
 import { getZoneDisplayIcon } from '../../utils/storeUtils';
 import type { ListItem, ZoneKey } from '../../types/models';
 import type { ZoneIconOverrides } from '../../utils/storeUtils';
@@ -33,18 +34,16 @@ export function ReorderSectionCard({
   const label = ZONE_LABELS[zoneKey];
   const iconResult = getZoneDisplayIcon(zoneKey, zoneIconOverrides);
   const count = items.length;
+  const zoneHue = zoneColor(zoneKey, theme.colorScheme);
+  const zoneSoft = zoneSoftColor(zoneKey, theme.colorScheme);
 
   const content = (
     <View style={styles.content}>
-      <View style={[styles.iconWrap, { backgroundColor: theme.textSecondary + '15' }]}>
+      <View style={[styles.iconWrap, { backgroundColor: zoneSoft }]}>
         {iconResult.type === 'emoji' ? (
           <Text style={styles.emojiIcon}>{iconResult.value}</Text>
         ) : (
-          <Ionicons
-            name={iconResult.value as ComponentProps<typeof Ionicons>['name']}
-            size={20}
-            color={theme.textSecondary}
-          />
+          <ZoneGlyph zone={zoneKey} size={22} color={zoneHue} />
         )}
       </View>
       <View style={styles.textBlock}>

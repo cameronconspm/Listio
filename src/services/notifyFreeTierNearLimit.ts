@@ -3,18 +3,18 @@ import type { FreeTierKind } from './freeTierLimits';
 import { freeTierUsageSummary } from './freeTierLimits';
 import { markNearLimitToastShown, wasNearLimitToastShown } from './freeTierNearLimitStore';
 
-const NEAR_LIMIT_TITLE = 'Almost at your free limit';
+const NEAR_LIMIT_TITLE = 'One spot to go';
 
 function nearLimitMessage(kind: FreeTierKind): string {
   switch (kind) {
     case 'list':
-      return 'You have 1 item left on your free list. Listio+ adds unlimited items.';
+      return 'Just one spot left on your free list. Listio+ makes it unlimited.';
     case 'meal':
-      return 'You have 1 meal slot left on the free plan. Listio+ lets you plan your whole week.';
+      return 'One meal slot left on the free plan. Listio+ opens up your whole week.';
     case 'recipe':
-      return 'You have 1 recipe slot left on the free plan. Listio+ saves unlimited recipes.';
+      return 'One recipe slot left on the free plan. Listio+ saves them all.';
     default:
-      return 'You are almost at your free plan limit.';
+      return "You're almost at your free limit.";
   }
 }
 

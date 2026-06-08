@@ -5,12 +5,13 @@ import {
   shouldEnforceIosSubscriptionGate,
 } from './purchasesService';
 import { ensureServerSubscriptionMirror } from './subscriptionEntitlementSyncService';
+import {
+  FREE_LIST_ITEMS_LIMIT,
+  FREE_MEALS_LIMIT,
+  FREE_RECIPES_LIMIT,
+} from '../constants/freeTierCaps';
 
-/** Post-onboarding free-tier ceilings. Exceeding any of these prompts the
- *  contextual paywall on every subsequent attempt until the user subscribes. */
-export const FREE_LIST_ITEMS_LIMIT = 3;
-export const FREE_MEALS_LIMIT = 1;
-export const FREE_RECIPES_LIMIT = 1;
+export { FREE_LIST_ITEMS_LIMIT, FREE_MEALS_LIMIT, FREE_RECIPES_LIMIT };
 
 export type FreeTierKind = 'list' | 'meal' | 'recipe';
 
@@ -70,7 +71,12 @@ export function freeTierUsageBannerText(summary: FreeTierUsageSummary): string {
   return `${summary.used} of ${summary.limit} ${label} · Free plan`;
 }
 
-async function resolvePremiumBeforeFreeTierCheck(
+/**
+ * Shared premium resolver for client-side gates. Returns `true` when the caller
+ * should be treated as premium (and skip any free-tier / free-taste check):
+ * known premium, gate disabled, or a fresh RevenueCat check confirms it.
+ */
+export async function resolvePremiumForGate(
   isKnownPremium?: boolean,
   isPremiumLoading?: boolean
 ): Promise<boolean> {
@@ -106,7 +112,7 @@ export async function ensureFreeTierCapacity(
 ): Promise<boolean> {
   if (additional <= 0) return true;
 
-  const premium = await resolvePremiumBeforeFreeTierCheck(isKnownPremium, isPremiumLoading);
+  const premium = await resolvePremiumForGate(isKnownPremium, isPremiumLoading);
   if (premium) return true;
 
   const limit = LIMIT_BY_KIND[kind];

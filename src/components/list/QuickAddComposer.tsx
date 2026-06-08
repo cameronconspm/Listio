@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheet } from '../ui/BottomSheet';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
+import { PressableScale } from '../ui/PressableScale';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { AppConfirmationDialog } from '../ui/AppConfirmationDialog';
 import { useHaptics } from '../../hooks/useHaptics';
@@ -35,7 +36,6 @@ import {
 } from '../../utils/parseItems';
 import { titleCaseWords } from '../../utils/titleCaseWords';
 import { UNITS, type Unit } from '../../data/units';
-import { TextField } from '../ui/TextField';
 import { useRecentSuggestions } from '../../hooks/useRecentSuggestions';
 import type { ListItem, ZoneKey } from '../../types/models';
 import { ZONE_LABELS } from '../../data/zone';
@@ -47,7 +47,7 @@ import { parseListItemsFromText, categorizeItems } from '../../services/aiServic
 import { resolveCategoryFast } from '../../services/aiCategoryCache';
 import type { ParsedListItem } from '../../types/api';
 import { AI_SMART_CATEGORIZATION_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDisclosure';
-import { ensurePremiumViaContextualPaywall } from '../../context/contextualPaywallRef';
+import { ensureAiFeatureAccess, commitAiTaste } from '../../services/aiFeatureTaste';
 import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { DuplicateResolutionPanel } from './DuplicateResolutionPanel';
 import type { DuplicateMatch } from '../../utils/duplicateDetection';
@@ -131,6 +131,8 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
   const [addItemsDialogItems, setAddItemsDialogItems] = useState<ParsedItem[] | null>(null);
   const [brandPreference, setBrandPreference] = useState('');
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  /** Drives the accent focus border on the name input — visual confirmation of which field is active. */
+  const [nameFocused, setNameFocused] = useState(false);
   /** Add flow: null = Auto (AI section). */
   const [zoneOverride, setZoneOverride] = useState<ZoneKey | null>(null);
   const [editZoneKey, setEditZoneKey] = useState<ZoneKey>('other');
@@ -408,8 +410,8 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       setError('Smart add is unavailable right now');
       return;
     }
-    const premiumOk = await ensurePremiumViaContextualPaywall('smart_add');
-    if (!premiumOk) return;
+    const gate = await ensureAiFeatureAccess('smart_add', 'smart_add', isPremium, isPremiumLoading);
+    if (!gate.allowed) return;
     setSmartBusy(true);
     setError(null);
     const abort = { cancelled: false };
@@ -425,6 +427,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
         );
         return;
       }
+      if (gate.usesFreeAllowance) await commitAiTaste('smart_add');
       // Directly bulk-insert the pre-categorized rows. Single-item Add has no extra
       // confirmation step either — the user has already tapped "Parse with AI" as an
       // explicit confirmation of intent. Presenting a second Modal alert on top of
@@ -438,7 +441,15 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       if (!abort.cancelled) setSmartBusy(false);
       if (smartParseAbortRef.current === abort) smartParseAbortRef.current = null;
     }
-  }, [text, onBulkAddPreCategorized, storeType, zoneLabelsInOrder, performSmartBulkAdd]);
+  }, [
+    text,
+    onBulkAddPreCategorized,
+    storeType,
+    zoneLabelsInOrder,
+    performSmartBulkAdd,
+    isPremium,
+    isPremiumLoading,
+  ]);
 
   const toggleSmartMode = useCallback(() => {
     if (!smartAvailable) return;
@@ -630,7 +641,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
     setUnit(u);
   }, []);
 
-  const showSecondaryFields = !!editingItem || detailsExpanded;
+  /** Sheet height hint: collapsed (add, no details) is short; otherwise full form. */
   const formCompact = !editingItem && !detailsExpanded;
 
   const sectionPickerLabel = editingItem
@@ -660,13 +671,59 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
   const scrollMaxHeight = Math.max(120, windowHeight * 0.9 - 200);
   const footerPaddingBottom = Math.max(insets.bottom, CTA_GUTTER_PX);
 
+  // ── New design (iOS Reminders / Settings inspired) ─────────────────────
+  // Hero name → inline note (edit/expanded) → single grouped meta card.
+  // The whole modal reads as: "what is this thing" + "details about it".
+
+  const showNoteField = !smartMode && (!!editingItem || detailsExpanded);
+  const showBrandRow = !smartMode && (!!editingItem || detailsExpanded);
+  const showMetaCard = !smartMode;
+
+  const renderMetaRow = (
+    key: string,
+    iconName: React.ComponentProps<typeof Ionicons>['name'],
+    label: string,
+    rightSlot: React.ReactNode,
+    onPress?: () => void,
+    isExpanded?: boolean
+  ) => {
+    /** Subtle tinted square matching iOS settings/reminders row affordance. */
+    const tint = theme.accent + (theme.colorScheme === 'dark' ? '26' : '1A');
+    const inner = (
+      <View style={styles.metaRow}>
+        <View style={[styles.metaIcon, { backgroundColor: tint }]}>
+          <Ionicons name={iconName} size={16} color={theme.accent} />
+        </View>
+        <Text style={[theme.typography.body, styles.metaLabel, { color: theme.textPrimary }]}>
+          {label}
+        </Text>
+        <View style={styles.metaSpacer} />
+        {rightSlot}
+      </View>
+    );
+    if (onPress) {
+      return (
+        <PressableScale
+          key={key}
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          accessibilityState={isExpanded != null ? { expanded: isExpanded } : undefined}
+        >
+          {inner}
+        </PressableScale>
+      );
+    }
+    return <View key={key}>{inner}</View>;
+  };
+
   const formFieldsEl = (
     <View style={styles.content}>
       {error ? (
         <View
           style={[
             styles.errorBanner,
-            { backgroundColor: theme.danger + '15', marginBottom: theme.spacing.sm },
+            { backgroundColor: theme.danger + '15' },
           ]}
         >
           <Ionicons
@@ -679,13 +736,18 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
         </View>
       ) : null}
 
-      <View style={styles.inputRow}>
+      {/* ── Hero name input ────────────────────────────────────────────── */}
+      <View style={styles.heroBlock}>
         <TextInput
           ref={inputRef}
           testID="quick-add-item-input"
           value={text}
           onChangeText={handleTextChange}
-          onBlur={handleBlur}
+          onFocus={() => setNameFocused(true)}
+          onBlur={() => {
+            setNameFocused(false);
+            handleBlur();
+          }}
           onSubmitEditing={editingItem ? handleSubmit : undefined}
           onKeyPress={handleKeyPress}
           placeholder={
@@ -693,69 +755,114 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
               ? 'Item name'
               : smartMode
                 ? 'Describe what you need — e.g. a gallon of milk, two pounds of chicken, some avocados'
-                : 'e.g. Chicken Breasts'
+                : 'Item name'
           }
           placeholderTextColor={theme.textSecondary}
           keyboardAppearance={theme.colorScheme}
-          multiline
-          numberOfLines={editingItem ? undefined : smartMode ? 4 : 1}
-          scrollEnabled={!!editingItem || smartMode}
+          multiline={smartMode}
+          numberOfLines={smartMode ? 4 : 1}
+          scrollEnabled={smartMode}
           blurOnSubmit={!!editingItem}
           returnKeyType={smartMode ? 'default' : 'done'}
           style={[
-            theme.typography.body,
-            styles.itemInput,
-            smartMode && styles.itemInputSmart,
-            {
-              color: theme.textPrimary,
+            smartMode ? theme.typography.body : theme.typography.title2,
+            smartMode ? styles.smartInput : styles.heroInput,
+            smartMode && {
               backgroundColor: theme.surface,
-              borderColor: error ? theme.danger : smartMode ? theme.accent : theme.divider,
-              flex: 1,
+              borderColor: error ? theme.danger : theme.accent,
             },
+            { color: theme.textPrimary },
           ]}
         />
-        {smartAvailable ? (
-          <TouchableOpacity
+        {smartAvailable && !smartMode ? (
+          <PressableScale
             onPress={toggleSmartMode}
             disabled={smartBusy}
             style={[
-              styles.sparkleBtn,
+              styles.heroSmartBtn,
               {
-                backgroundColor: smartMode ? theme.accent + '20' : theme.surface,
-                borderColor: smartMode ? theme.accent : theme.divider,
+                backgroundColor: theme.surface,
+                borderColor: theme.divider,
                 opacity: smartBusy ? 0.5 : 1,
               },
             ]}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
-            accessibilityLabel={smartMode ? 'Turn off smart add' : 'Turn on smart add'}
-            accessibilityState={{ selected: smartMode }}
+            accessibilityLabel="Turn on smart add"
+            accessibilityState={{ selected: false }}
             testID="quick-add-sparkle-toggle"
           >
-            <Ionicons
-              name="sparkles"
-              size={18}
-              color={smartMode ? theme.accent : theme.textSecondary}
-            />
-          </TouchableOpacity>
+            <Ionicons name="sparkles" size={16} color={theme.textSecondary} />
+          </PressableScale>
+        ) : null}
+        {smartMode ? (
+          <PressableScale
+            onPress={toggleSmartMode}
+            disabled={smartBusy}
+            style={[
+              styles.heroSmartBtn,
+              {
+                backgroundColor: theme.accent + '20',
+                borderColor: theme.accent,
+                opacity: smartBusy ? 0.5 : 1,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Turn off smart add"
+            accessibilityState={{ selected: true }}
+            testID="quick-add-sparkle-toggle"
+          >
+            <Ionicons name="sparkles" size={16} color={theme.accent} />
+          </PressableScale>
         ) : null}
       </View>
 
+      {/* Hairline that gently underlines the hero (focused = accent). */}
+      {!smartMode ? (
+        <View
+          style={[
+            styles.heroDivider,
+            {
+              backgroundColor: error
+                ? theme.danger
+                : nameFocused
+                  ? theme.accent
+                  : theme.divider,
+            },
+          ]}
+        />
+      ) : null}
+
+      {/* ── Inline note ────────────────────────────────────────────────── */}
+      {showNoteField ? (
+        <TextInput
+          value={note}
+          onChangeText={setNote}
+          placeholder="Add a note"
+          placeholderTextColor={theme.textSecondary}
+          keyboardAppearance={theme.colorScheme}
+          multiline
+          style={[
+            theme.typography.body,
+            styles.noteInput,
+            { color: theme.textPrimary },
+          ]}
+        />
+      ) : null}
+
+      {/* ── Smart-mode disclosure ──────────────────────────────────────── */}
       {smartMode && !editingItem ? (
         <Text
           style={[
             theme.typography.footnote,
-            {
-              color: theme.textSecondary,
-              marginTop: theme.spacing.sm,
-              lineHeight: 18,
-            },
+            styles.smartDisclosure,
+            { color: theme.textSecondary },
           ]}
         >
           {AI_SMART_CATEGORIZATION_DISCLOSURE_LEAD}
         </Text>
       ) : null}
 
+      {/* ── Recent suggestions (add mode only) ─────────────────────────── */}
       {!editingItem && !smartMode && recentSuggestions.length > 0 ? (
         <RNScrollView
           horizontal
@@ -792,111 +899,170 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
         </RNScrollView>
       ) : null}
 
-      {smartMode ? null : (
-        <>
-          <View style={styles.qtyRow}>
-            <Text
-              style={[theme.typography.footnote, styles.qtyLabel, { color: theme.textSecondary }]}
-            >
-              Qty
-            </Text>
+      {/* ── Grouped meta card ──────────────────────────────────────────── */}
+      {showMetaCard ? (
+        <View
+          style={[
+            styles.metaCard,
+            {
+              backgroundColor: theme.background,
+              borderColor: theme.divider,
+            },
+          ]}
+        >
+          {/* Section */}
+          {renderMetaRow(
+            'section',
+            'basket-outline',
+            'Section',
+            <>
+              <Text
+                style={[
+                  theme.typography.body,
+                  styles.metaValueText,
+                  { color: openDropdown === 'section' ? theme.accent : theme.textSecondary },
+                ]}
+                numberOfLines={1}
+              >
+                {sectionPickerLabel}
+              </Text>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={openDropdown === 'section' ? theme.accent : theme.textSecondary}
+                style={styles.metaChevron}
+              />
+            </>,
+            openZonePicker,
+            openDropdown === 'section'
+          )}
+
+          <View style={[styles.metaDivider, { backgroundColor: theme.divider }]} />
+
+          {/* Quantity (inline stepper, no nav) */}
+          {renderMetaRow(
+            'quantity',
+            'apps-outline',
+            'Quantity',
             <View
               style={[
-                styles.stepper,
-                { backgroundColor: theme.background, borderColor: theme.divider },
+                styles.inlineStepper,
+                { backgroundColor: theme.surface, borderColor: theme.divider },
               ]}
             >
-              <TouchableOpacity
+              <PressableScale
                 onPress={decrementQty}
-                style={styles.stepperBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.inlineStepperBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                 accessibilityRole="button"
                 accessibilityLabel="Decrease quantity"
               >
-                <Ionicons name="remove" size={18} color={theme.textPrimary} />
-              </TouchableOpacity>
+                <Ionicons name="remove" size={16} color={theme.textPrimary} />
+              </PressableScale>
               <Text
-                style={[theme.typography.body, styles.stepperValue, { color: theme.textPrimary }]}
+                style={[
+                  theme.typography.body,
+                  styles.inlineStepperValue,
+                  { color: theme.textPrimary },
+                ]}
               >
                 {quantity}
               </Text>
-              <TouchableOpacity
+              <PressableScale
                 onPress={incrementQty}
-                style={styles.stepperBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.inlineStepperBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                 accessibilityRole="button"
                 accessibilityLabel="Increase quantity"
               >
-                <Ionicons name="add" size={18} color={theme.textPrimary} />
-              </TouchableOpacity>
+                <Ionicons name="add" size={16} color={theme.textPrimary} />
+              </PressableScale>
             </View>
-            <Pressable
-              onPress={openUnitPicker}
-              style={({ pressed }) => [
-                styles.unitDropdown,
-                {
-                  backgroundColor: theme.background,
-                  borderColor: theme.divider,
-                  opacity: pressed ? 0.85 : 1,
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Change unit"
-              accessibilityState={{ expanded: openDropdown === 'unit' }}
-            >
-              <Text style={[theme.typography.body, { color: theme.textPrimary }]}>
+          )}
+
+          <View style={[styles.metaDivider, { backgroundColor: theme.divider }]} />
+
+          {/* Unit */}
+          {renderMetaRow(
+            'unit',
+            'options-outline',
+            'Unit',
+            <>
+              <Text
+                style={[
+                  theme.typography.body,
+                  styles.metaValueText,
+                  {
+                    color: openDropdown === 'unit' ? theme.accent : theme.textSecondary,
+                    fontWeight: '500',
+                  },
+                ]}
+              >
                 {displayUnit}
               </Text>
               <Ionicons
-                name={openDropdown === 'unit' ? 'chevron-up' : 'chevron-down'}
-                size={18}
-                color={theme.textSecondary}
+                name="chevron-forward"
+                size={16}
+                color={openDropdown === 'unit' ? theme.accent : theme.textSecondary}
+                style={styles.metaChevron}
               />
-            </Pressable>
-          </View>
-        </>
-      )}
+            </>,
+            openUnitPicker,
+            openDropdown === 'unit'
+          )}
 
-      {!editingItem && !smartMode ? (
-        <TouchableOpacity
-          onPress={toggleDetails}
-          style={styles.addDetailsBtn}
-          hitSlop={{ top: 8, bottom: 8 }}
-          accessibilityRole="button"
-          accessibilityLabel={detailsExpanded ? 'Hide optional details' : 'Add optional details'}
-        >
-          <Text style={[theme.typography.footnote, { color: theme.accent }]}>
-            {detailsExpanded ? 'Hide details' : 'Add details'}
-          </Text>
-          <Ionicons
-            name={detailsExpanded ? 'chevron-up' : 'chevron-down'}
-            size={16}
-            color={theme.accent}
-          />
-        </TouchableOpacity>
+          {/* Brand (edit mode or expanded add mode) */}
+          {showBrandRow ? (
+            <>
+              <View style={[styles.metaDivider, { backgroundColor: theme.divider }]} />
+              {renderMetaRow(
+                'brand',
+                'pricetag-outline',
+                'Brand',
+                <TextInput
+                  value={brandPreference}
+                  onChangeText={setBrandPreference}
+                  onBlur={() => {
+                    const trimmed = brandPreference.trim();
+                    if (trimmed !== brandPreference) setBrandPreference(trimmed);
+                  }}
+                  placeholder="Any"
+                  placeholderTextColor={theme.textSecondary}
+                  keyboardAppearance={theme.colorScheme}
+                  returnKeyType="done"
+                  style={[
+                    theme.typography.body,
+                    styles.brandInlineInput,
+                    { color: theme.textPrimary },
+                  ]}
+                />
+              )}
+            </>
+          ) : null}
+        </View>
       ) : null}
 
-      {showSecondaryFields && !smartMode ? (
-        <View style={styles.secondaryBlock}>
-          <TextField
-            value={brandPreference}
-            onChangeText={setBrandPreference}
-            placeholder="Brand (optional)"
-            containerStyle={styles.secondaryFieldBrand}
-            formatOnBlur="titleWords"
-            {...(Platform.OS === 'ios'
-              ? { multiline: true, scrollEnabled: false, blurOnSubmit: false }
-              : {})}
-          />
-          <TextField
-            value={note}
-            onChangeText={setNote}
-            placeholder="Note (optional)"
-            multiline
-            numberOfLines={2}
-            containerStyle={styles.secondaryFieldNote}
-          />
-        </View>
+      {/* Reveal note + brand for add mode */}
+      {!editingItem && !smartMode && !detailsExpanded ? (
+        <TouchableOpacity
+          onPress={toggleDetails}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: theme.spacing.xs,
+            marginTop: theme.spacing.md,
+            paddingVertical: theme.spacing.xs,
+            alignSelf: 'center',
+          }}
+          hitSlop={{ top: 8, bottom: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Add note and brand"
+        >
+          <Ionicons name="add-circle-outline" size={16} color={theme.accent} />
+          <Text style={[theme.typography.footnote, { color: theme.accent }]}>
+            Add note & brand
+          </Text>
+        </TouchableOpacity>
       ) : null}
     </View>
   );
@@ -967,42 +1133,6 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
           contentInsetAdjustmentBehavior: 'never' as const,
         })}
       >
-        {smartMode ? null : (
-          <Pressable
-            style={({ pressed }) => [
-              styles.sectionSummaryCard,
-              {
-                backgroundColor: theme.background,
-                borderColor: theme.divider,
-              },
-              pressed && { opacity: 0.75 },
-            ]}
-            onPress={openZonePicker}
-            accessibilityRole="button"
-            accessibilityLabel="Change store section"
-            accessibilityState={{ expanded: openDropdown === 'section' }}
-          >
-            <View style={styles.zoneRowLabels}>
-              <Text style={[theme.typography.footnote, { color: theme.textSecondary }]}>
-                Section
-              </Text>
-              <Text
-                style={[
-                  theme.typography.body,
-                  { color: theme.textPrimary, marginTop: theme.spacing.xs },
-                ]}
-                numberOfLines={1}
-              >
-                {sectionPickerLabel}
-              </Text>
-            </View>
-            <Ionicons
-              name={openDropdown === 'section' ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={theme.textSecondary}
-            />
-          </Pressable>
-        )}
         {formFieldsEl}
       </ScrollView>
       {footerCtaEl}
@@ -1063,7 +1193,14 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
         visible={visible}
         onClose={handleDismiss}
         onDismissed={onSheetDismissed}
-        onPresented={() => {
+        onEnterAnimationStart={() => {
+          /**
+           * Focus in lockstep with the slide-in (not after `onPresented`) so the keyboard rises in
+           * parallel with the sheet. The reanimated keyboard lift in `useModalSheet` is now active
+           * from the first frame, so both animations resolve to the final keyboard-anchored
+           * position as a single fluid motion — matching the bottom add bar's behavior instead of
+           * the previous two-step "sheet settles, then keyboard snaps it upward" sequence.
+           */
           inputRef.current?.focus();
         }}
         onExitAnimationStart={() => {

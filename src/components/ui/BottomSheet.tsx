@@ -49,12 +49,14 @@ type BottomSheetProps = {
   surfaceVariant?: 'glass' | 'solid';
   /** When false, sheet body has no horizontal padding (use when children manage their own insets). */
   padContent?: boolean;
-  /** Called the moment the slide-in starts (after measured height is applied, before withTiming). */
-  onEnterAnimationStart?: () => void;
   /**
-   * Called after the sheet slide-in completes. With keyboardLift="reanimated", focus text fields here so the
-   * keyboard animates only after the sheet rests (avoids the keyboard window covering a sliding sheet).
+   * Called the moment the slide-in starts (after measured height is applied, before withTiming).
+   * With keyboardLift="reanimated", focus text fields here so the keyboard rises in parallel with
+   * the sheet's slide-in (one fluid motion to its keyboard-anchored resting position) instead of
+   * snapping up after the sheet has already settled.
    */
+  onEnterAnimationStart?: () => void;
+  /** Called after the sheet slide-in completes (translateY at rest). */
   onPresented?: () => void;
   /** Called the moment the slide-out starts (same frame as modal exit timing). Blur/dismiss keyboard here with KAV. */
   onExitAnimationStart?: () => void;

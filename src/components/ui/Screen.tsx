@@ -6,7 +6,11 @@ import { useTheme } from '../../design/ThemeContext';
 type ScreenProps = {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
-  /** If true, apply horizontal padding (`theme.spacing.lg`). Default true. */
+  /**
+   * If true, apply horizontal padding (`theme.spacing.md`). Default true.
+   * `spacing.md` matches the List/Meals/Recipes tab roots so cards and
+   * content read at the same width across every screen in the app.
+   */
   padded?: boolean;
   /** If true, use safe area insets for top/bottom. Default true. */
   safe?: boolean;
@@ -27,7 +31,7 @@ export function Screen({ children, style, padded = true, safe = true, safeTop = 
     ...(safe && safeTop && { paddingTop: insets.top }),
     ...(safe && safeBottom && { paddingBottom: insets.bottom }),
     ...(padded && {
-      paddingHorizontal: theme.spacing.lg,
+      paddingHorizontal: theme.spacing.md,
     }),
   };
 

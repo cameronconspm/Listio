@@ -4,7 +4,7 @@ describe('contextualPaywallDismissToast', () => {
   it('returns list-specific copy for list_limit', () => {
     const { title, message } = contextualPaywallDismissToast('list_limit');
     expect(title).toMatch(/free plan/i);
-    expect(message).toMatch(/3 items/);
+    expect(message).toMatch(/50 items/);
   });
 
   it('returns smart add copy that mentions entry is preserved', () => {

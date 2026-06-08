@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, Alert, Linking, AppState } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
+import { appFontAssets } from './design/fonts';
 import type { LinkingOptions } from '@react-navigation/native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -450,6 +452,18 @@ function applyNotificationHandler(
 const SPLASH_SAFETY_TIMEOUT_MS = __DEV__ ? 60_000 : 20_000;
 
 function App() {
+  // Load the brand display typeface before mounting AppShell so titles never
+  // flash in the system font first. The native splash stays up until ready, and
+  // a load failure falls through to the system font rather than blocking boot.
+  const [fontsLoaded, fontsError] = useFonts(appFontAssets);
+  const fontsReady = fontsLoaded || !!fontsError;
+
+  useEffect(() => {
+    if (fontsError) {
+      logger.warnRelease('expo-font: brand typeface failed to load', fontsError);
+    }
+  }, [fontsError]);
+
   useEffect(() => {
     const t = setTimeout(() => {
       // If this fires in the wild it means AppShell never reached a terminal state
@@ -524,7 +538,7 @@ function App() {
               <QueryProvider>
                 <AuthProvider>
                   <AccountBootstrapProvider>
-                    <AppShell />
+                    {fontsReady ? <AppShell /> : null}
                   </AccountBootstrapProvider>
                 </AuthProvider>
               </QueryProvider>

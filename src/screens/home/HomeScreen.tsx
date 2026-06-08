@@ -58,6 +58,7 @@ import { HomeScreenZoneList } from './HomeScreenZoneList';
 import { ShopRunCompleteOverlay } from '../../components/list/ShopRunCompleteOverlay';
 import { markRender, time, timeAsync } from '../../utils/perf';
 import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
+import { maybePromptNotificationsAfterFirstWin } from '../../services/notificationFirstWinPrompt';
 import { shouldEnforceIosSubscriptionGate } from '../../services/purchasesService';
 import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { useAppReview } from '../../context/AppReviewContext';
@@ -920,7 +921,7 @@ export function HomeScreen() {
       const aisleCount = new Set(items.map((i) => i.zone_key)).size;
       setShopRunCompleteStats({ totalItems: items.length, aisleCount });
       setShopRunCompleteVisible(true);
-      haptics.success();
+      haptics.celebrate();
     }
   }, [
     listBlocking,
@@ -931,12 +932,21 @@ export function HomeScreen() {
     haptics,
   ]);
 
+  // After a finished shop run, ask for notifications on the FIRST win (deferred
+  // out of onboarding). If that prompt doesn't show, fall back to the review ask.
+  const promptAfterShopRunComplete = useCallback(() => {
+    void (async () => {
+      const shownNotifPrompt = await maybePromptNotificationsAfterFirstWin();
+      if (!shownNotifPrompt) maybePromptForReview('shop_run_complete');
+    })();
+  }, [maybePromptForReview]);
+
   const dismissShopRunComplete = useCallback(() => {
     setShopRunCompleteVisible(false);
     setShopRunCompleteStats(null);
     setCollapsedZones(new Set());
-    maybePromptForReview('shop_run_complete');
-  }, [maybePromptForReview]);
+    promptAfterShopRunComplete();
+  }, [promptAfterShopRunComplete]);
 
   const handleRemoveCheckedFromCelebration = useCallback(async () => {
     const uid = userId;
@@ -950,9 +960,9 @@ export function HomeScreen() {
       setShopRunCompleteVisible(false);
       setShopRunCompleteStats(null);
       setCollapsedZones(new Set());
-      maybePromptForReview('shop_run_complete');
+      promptAfterShopRunComplete();
     }
-  }, [userId, removeCheckedItems, haptics, maybePromptForReview]);
+  }, [userId, removeCheckedItems, haptics, promptAfterShopRunComplete]);
 
   const collapseAll = useCallback(() => {
     const zonesToCollapse = sections.map((s) => s.zone);
@@ -1034,13 +1044,7 @@ export function HomeScreen() {
           />
         </View>
         {items.length === 0 ? (
-          <HomeScreenEmptyState
-            scrollContentPaddingTop={0}
-            onAddFirstItem={() => {
-              setComposerVisible(true);
-              requestAnimationFrame(() => composerRef.current?.focus());
-            }}
-          />
+          <HomeScreenEmptyState scrollContentPaddingTop={0} />
         ) : (
           <View style={[styles.container, { backgroundColor: theme.background }]}>
             <HomeScreenZoneList

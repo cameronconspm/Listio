@@ -49,10 +49,6 @@ export function useModalSheet({
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
-  /** When syncKeyboardLift: 0 during sheet slide-in; 1 after enter animation completes. */
-  const keyboardLiftEnabledSV = useSharedValue(1);
-  /** JS-thread mirror so the visibility effect can decide whether to suppress initial lift. */
-  const keyboardLiftEnabledRef = useRef(1);
   /**
    * Keyboard height is tracked natively (UI-thread, frame-by-frame) by react-native-keyboard-controller.
    * `kbTranslateY` is the negative translateY-style height the library exposes; flip it to a
@@ -76,31 +72,6 @@ export function useModalSheet({
     if (visibleRef.current) {
       onPresentedRef.current?.();
     }
-  }, []);
-
-  /**
-   * Stable identity for runOnJS (avoids Hermes/Reanimated stale runOnJS symbol after renames).
-   * Body kept on a ref so lift enable stays current. The library tracks `kbTranslateY` independently,
-   * so no manual `Keyboard.metrics()` sync is needed — flipping the multiplier 0→1 immediately uses
-   * the height the library has already been observing.
-   */
-  const enterCompleteWithKeyboardLiftWorkRef = useRef<() => void>(() => {});
-  useEffect(() => {
-    enterCompleteWithKeyboardLiftWorkRef.current = () => {
-      keyboardLiftEnabledRef.current = 1;
-      keyboardLiftEnabledSV.value = 1;
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            emitPresented();
-          });
-        });
-      });
-    };
-  }, [emitPresented, keyboardLiftEnabledSV]);
-
-  const runEnterCompleteWithKeyboardLiftStable = useCallback(() => {
-    enterCompleteWithKeyboardLiftWorkRef.current();
   }, []);
 
   const reduceMotion = useReduceMotion();
@@ -159,8 +130,7 @@ export function useModalSheet({
 
   const sheetAnimatedStyle = useAnimatedStyle(() => {
     /** Library exposes `height` as a negative translateY-style value; flip to a positive height. */
-    const kbHeight = syncKeyboardLift ? -kbTranslateY.value : 0;
-    const kb = kbHeight * keyboardLiftEnabledSV.value;
+    const kb = syncKeyboardLift ? -kbTranslateY.value : 0;
     return {
       transform: [{ translateY: translateY.value - kb }],
     };
@@ -179,10 +149,6 @@ export function useModalSheet({
 
     if (visible) {
       setIsExiting(false);
-      keyboardLiftEnabledRef.current = syncKeyboardLift ? 0 : 1;
-      if (syncKeyboardLift) {
-        keyboardLiftEnabledSV.value = 0;
-      }
       measuredHeightRef.current = 0;
       sheetHeightSV.value = 0;
       backdropDimTravelSV.value = 0;
@@ -191,15 +157,16 @@ export function useModalSheet({
         cancelAnimationFrame(enterRafOuterRef.current);
         enterRafOuterRef.current = null;
       }
+      /**
+       * Initial offscreen position. `windowHeight` is always larger than any sheet height + keyboard
+       * height, so `translateY - kb` stays below the screen regardless of whether the keyboard is
+       * already raised when the modal opens (e.g. duplicate-recovery from the bottom add bar).
+       */
       const tPrepare = reduceMotion ? REDUCED : windowHeight;
       cancelAnimation(translateY);
       translateY.value = tPrepare;
     } else if (wasVisible) {
       pendingEnterRef.current = false;
-      keyboardLiftEnabledRef.current = 1;
-      if (syncKeyboardLift) {
-        keyboardLiftEnabledSV.value = 1;
-      }
       if (enterRafOuterRef.current != null) {
         cancelAnimationFrame(enterRafOuterRef.current);
         enterRafOuterRef.current = null;
@@ -222,8 +189,6 @@ export function useModalSheet({
     sheetHeightSV,
     backdropDimTravelSV,
     translateY,
-    syncKeyboardLift,
-    keyboardLiftEnabledSV,
   ]);
 
   const dismissFromGesture = useCallback(() => {
@@ -305,18 +270,32 @@ export function useModalSheet({
           const hFinal = measuredHeightRef.current;
           pendingEnterRef.current = false;
           cancelAnimation(translateY);
-          translateY.value = hFinal;
+          /**
+           * Add the live keyboard height into the initial offscreen position when keyboard-sync is
+           * on. Visible y = translateY − kb, so starting at `hFinal + kb` keeps the sheet fully
+           * below the screen even if the keyboard was already up (duplicate-recovery from the
+           * bottom add bar). When the keyboard is down (typical edit-from-row path), kb = 0 and
+           * this collapses to the original `hFinal` value.
+           */
+          const currentKbAbs = syncKeyboardLift ? Math.max(0, -kbTranslateY.value) : 0;
+          translateY.value = hFinal + currentKbAbs;
           backdropDimTravelSV.value = hFinal;
           emitEnterAnimationStart();
-          translateY.value = withTiming(0, modalEnterTiming(reduceMotion), (finished) => {
-            if (finished) {
-              if (syncKeyboardLift) {
-                runOnJS(runEnterCompleteWithKeyboardLiftStable)();
-              } else {
-                runOnJS(emitPresented)();
-              }
-            }
-          });
+          const onEnterFinished = (finished?: boolean) => {
+            if (!finished) return;
+            runOnJS(emitPresented)();
+          };
+          /**
+           * Spring presentation (UIKit-style) on full motion, fast linear fallback for Reduce Motion.
+           * `spring.sheetSnap` clamps overshoot so the sheet settles cleanly without bounce —
+           * visually equivalent to a tuned cubic easeOut but with the natural decel curve users
+           * expect from Apple sheets (matches the gesture-return spring already used by this hook).
+           */
+          if (reduceMotion) {
+            translateY.value = withTiming(0, modalEnterTiming(reduceMotion), onEnterFinished);
+          } else {
+            translateY.value = withSpring(0, spring.sheetSnap, onEnterFinished);
+          }
         });
       });
     },
@@ -326,8 +305,8 @@ export function useModalSheet({
       reduceMotion,
       emitPresented,
       emitEnterAnimationStart,
-      runEnterCompleteWithKeyboardLiftStable,
       syncKeyboardLift,
+      kbTranslateY,
       backdropDimTravelSV,
     ]
   );

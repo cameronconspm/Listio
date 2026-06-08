@@ -186,7 +186,7 @@ export function PlanScreen() {
           />
           <ListRow
             title="Smart add"
-            subtitle="Add several items from one description"
+            subtitle="Describe your run, get a sorted list"
             showSeparator
             fullWidthDivider
           />

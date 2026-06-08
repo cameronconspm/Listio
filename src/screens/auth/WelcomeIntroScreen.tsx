@@ -16,7 +16,9 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated, {
   Easing,
+  Extrapolation,
   interpolate,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -29,6 +31,7 @@ import Animated, {
 import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme, type AppTheme } from '../../design/ThemeContext';
+import { horizontalScrollInsetBleed } from '../../design/layout';
 import { scaleFontPx, scaleLayoutPx } from '../../design/layoutMetrics';
 import { Button } from '../../components/ui/Button';
 import { onboardingPageGradient } from '../onboarding/onboardingTokens';
@@ -190,12 +193,14 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
   const navigatingRef = useRef(false);
 
   const [activePage, setActivePage] = useState(0);
-  const scrollRef = useRef<ScrollView | null>(null);
+  const scrollRef = useRef<Animated.ScrollView>(null);
   /**
    * Timestamp of the last user-initiated scroll. Auto-advance is suppressed
    * until `Date.now() - lastUserInteractionRef.current > AUTO_ADVANCE_RESUME_MS`.
    */
   const lastUserInteractionRef = useRef(0);
+  /** Live horizontal scroll offset, driven on the UI thread for parallax animations. */
+  const scrollX = useSharedValue(0);
 
   /**
    * Single animation driver for whichever card is currently active. Inactive
@@ -297,10 +302,44 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
     [theme.layoutScale],
   );
   /**
-   * Each paging page spans the full ScrollView width (window width with `heroWrap` bleed).
-   * Preview chrome sits on the page gradient — no outer “frame” card.
+   * Carousel card sizing. Cards are intentionally narrower than the screen so the
+   * next card peeks clearly at the trailing edge — same feel as featured shelves
+   * in the iOS App Store. Scales across iPhone SE → iPad:
+   *  - Card width is capped at `cardMaxWidth`; extra width on wide screens turns
+   *    into more peek (and centers the first card) instead of stretching cards.
+   *  - Per-card scale + opacity animation (see HeroCard) emphasizes the focused
+   *    card on any screen size, so the layout reads correctly even on tablets.
    */
-  const pageWidth = windowWidth;
+  /**
+   * `cardNeighborPeek` is the visible portion of the *neighbor* card on each
+   * side of the focused (centered) card. With symmetric side padding and a
+   * `cardGap` between cards, the geometry works out to:
+   *   sidePad   = (windowWidth - cardWidth) / 2
+   *   peek/side = sidePad - cardGap
+   * So `cardWidth = windowWidth - 2 * (peek + cardGap)`. Solving for cardWidth
+   * with a guaranteed minimum peek gives the formula below.
+   */
+  const cardGap = theme.spacing.md;
+  const cardMaxWidth = scaleLayoutPx(theme.layoutScale, 380);
+  const cardNeighborPeek = scaleLayoutPx(theme.layoutScale, 40);
+  const cardWidth = Math.min(
+    Math.max(0, windowWidth - (cardGap + cardNeighborPeek) * 2),
+    cardMaxWidth,
+  );
+  const pageStride = cardWidth + cardGap;
+  /**
+   * Symmetric side padding so the focused card sits dead-center on screen with
+   * equal peek of the neighboring card on either side. Math: when scrollX = N *
+   * pageStride, card N's center sits at sidePad + cardWidth/2 in content space,
+   * which equals windowWidth/2 in view space → centered.
+   */
+  const heroSidePad = Math.max(horizontalPadding, (windowWidth - cardWidth) / 2);
+  const heroLeadingPad = heroSidePad;
+  const heroTrailingPad = heroSidePad;
+  const heroSnapOffsets = useMemo(
+    () => CARDS.map((_, index) => index * pageStride),
+    [pageStride],
+  );
 
   /**
    * Auto-advance the carousel. Respects reduce-motion (no auto), and pauses
@@ -308,15 +347,15 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
    * page from under them.
    */
   useEffect(() => {
-    if (reduceMotion || pageWidth <= 0 || CARDS.length <= 1) return;
+    if (reduceMotion || pageStride <= 0 || CARDS.length <= 1) return;
     const timer = setTimeout(() => {
       const elapsedSinceUser = Date.now() - lastUserInteractionRef.current;
       if (elapsedSinceUser < AUTO_ADVANCE_RESUME_MS) return;
       const next = (activePage + 1) % CARDS.length;
-      scrollRef.current?.scrollTo({ x: next * pageWidth, y: 0, animated: true });
+      scrollRef.current?.scrollTo({ x: next * pageStride, y: 0, animated: true });
     }, AUTO_ADVANCE_MS);
     return () => clearTimeout(timer);
-  }, [activePage, pageWidth, reduceMotion]);
+  }, [activePage, pageStride, reduceMotion]);
 
   const handleScrollBeginDrag = useCallback(() => {
     lastUserInteractionRef.current = Date.now();
@@ -324,14 +363,21 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
 
   const handleMomentumScrollEnd = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (pageWidth <= 0) return;
+      if (pageStride <= 0) return;
       const x = e.nativeEvent.contentOffset.x;
-      const page = Math.round(x / pageWidth);
+      const page = Math.round(x / pageStride);
       const clamped = Math.max(0, Math.min(CARDS.length - 1, page));
       if (clamped !== activePage) setActivePage(clamped);
     },
-    [activePage, pageWidth]
+    [activePage, pageStride]
   );
+
+  /** UI-thread scroll handler so per-card scale/opacity animations stay at 60fps during drag. */
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollX.value = event.contentOffset.x;
+    },
+  });
 
   const styles = useMemo(
     () =>
@@ -392,37 +438,42 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           >
-            <ScrollView
+            <Animated.ScrollView
               ref={scrollRef}
               horizontal
               nestedScrollEnabled
-              pagingEnabled
               showsHorizontalScrollIndicator={false}
+              onScroll={scrollHandler}
               onScrollBeginDrag={handleScrollBeginDrag}
               onMomentumScrollEnd={handleMomentumScrollEnd}
               scrollEventThrottle={16}
               decelerationRate="fast"
+              snapToOffsets={heroSnapOffsets}
+              snapToAlignment="start"
+              disableIntervalMomentum
+              contentContainerStyle={[
+                styles.heroScrollContent,
+                { paddingLeft: heroLeadingPad, paddingRight: heroTrailingPad },
+              ]}
             >
               {CARDS.map((card, index) => (
-                <View key={card.id} style={[styles.heroPage, { width: pageWidth }]}>
-                  <View style={styles.heroHeader}>
-                    <Ionicons name={card.headerIcon} size={icon.sm} color={theme.accent} />
-                    <Text style={styles.heroHeaderText}>{card.headerText}</Text>
-                  </View>
-                  <View style={styles.heroPreviewPanel}>
-                    <FeatureCardBody
-                      kind={card.id}
-                      isActive={index === activePage}
-                      cycle={cycle}
-                      styles={styles}
-                      theme={theme}
-                      icons={icon}
-                    />
-                  </View>
-                  <Text style={styles.caption}>{card.caption}</Text>
-                </View>
+                <HeroCard
+                  key={card.id}
+                  card={card}
+                  index={index}
+                  width={cardWidth}
+                  isLast={index === CARDS.length - 1}
+                  gap={cardGap}
+                  isActive={index === activePage}
+                  cycle={cycle}
+                  scrollX={scrollX}
+                  pageStride={pageStride}
+                  styles={styles}
+                  theme={theme}
+                  icons={icon}
+                />
               ))}
-            </ScrollView>
+            </Animated.ScrollView>
             <View
               style={styles.dotsRow}
               accessibilityRole="tablist"
@@ -465,9 +516,82 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
   );
 }
 
-// --- Card body dispatcher ------------------------------------------------
+// --- Carousel card -------------------------------------------------------
 
 type Styles = ReturnType<typeof createStyles>;
+
+type HeroCardProps = {
+  card: FeatureCardMeta;
+  index: number;
+  width: number;
+  isLast: boolean;
+  gap: number;
+  isActive: boolean;
+  cycle: SharedValue<number>;
+  scrollX: SharedValue<number>;
+  pageStride: number;
+  styles: Styles;
+  theme: AppTheme;
+  icons: IntroIconSizes;
+};
+
+/**
+ * One slide in the welcome carousel. Renders the per-card header, faux preview
+ * panel, and caption. Drives a scroll-tracked scale + opacity animation so the
+ * focused card pops while neighbors recede — same visual language as iOS App
+ * Store featured shelves.
+ */
+function HeroCard({
+  card,
+  index,
+  width,
+  isLast,
+  gap,
+  isActive,
+  cycle,
+  scrollX,
+  pageStride,
+  styles,
+  theme,
+  icons,
+}: HeroCardProps) {
+  const cardAnim = useAnimatedStyle(() => {
+    if (pageStride <= 0) return { transform: [{ scale: 1 }], opacity: 1 };
+    const dist = Math.abs(scrollX.value / pageStride - index);
+    const scale = interpolate(dist, [0, 1], [1, 0.86], Extrapolation.CLAMP);
+    const opacity = interpolate(dist, [0, 1], [1, 0.45], Extrapolation.CLAMP);
+    return { transform: [{ scale }], opacity };
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.heroPage,
+        { width },
+        isLast ? null : { marginRight: gap },
+        cardAnim,
+      ]}
+    >
+      <View style={styles.heroHeader}>
+        <Ionicons name={card.headerIcon} size={icons.sm} color={theme.accent} />
+        <Text style={styles.heroHeaderText}>{card.headerText}</Text>
+      </View>
+      <View style={styles.heroPreviewPanel}>
+        <FeatureCardBody
+          kind={card.id}
+          isActive={isActive}
+          cycle={cycle}
+          styles={styles}
+          theme={theme}
+          icons={icons}
+        />
+      </View>
+      <Text style={styles.caption}>{card.caption}</Text>
+    </Animated.View>
+  );
+}
+
+// --- Card body dispatcher ------------------------------------------------
 
 type IntroIconSizes = {
   xs: number;
@@ -592,8 +716,9 @@ function ListZoneRowView({
   theme,
   icons,
 }: ListZoneRowViewProps) {
-  const rowEnterStart = 0.16 + index * 0.07;
-  const rowEnterEnd = rowEnterStart + 0.1;
+  /** Rows snap in within the first ~250ms of each cycle so cards never look empty on enter. */
+  const rowEnterStart = index * 0.02;
+  const rowEnterEnd = rowEnterStart + 0.05;
   const checkStart = 0.44 + index * 0.1;
   const checkEnd = checkStart + 0.09;
 
@@ -796,8 +921,9 @@ function MealPlanRowView({
   theme,
   icons,
 }: MealPlanRowViewProps) {
-  const popStart = animIndex >= 0 ? (STAGGER_MS * animIndex) / CYCLE_MS : 0;
-  const popEnd = animIndex >= 0 ? (STAGGER_MS * animIndex + BEAT_MS) / CYCLE_MS : 0;
+  /** Snappy enter: rows visible within ~200ms of cycle start so the card is never blank on reset. */
+  const popStart = animIndex >= 0 ? animIndex * 0.025 : 0;
+  const popEnd = animIndex >= 0 ? popStart + 0.05 : 0;
 
   const rowStyle = useAnimatedStyle(() => {
     if (!isActive) return { opacity: 1, transform: [{ translateY: 0 }] };
@@ -953,8 +1079,9 @@ function RecipeIntroCardView({
   theme,
   icons,
 }: RecipeIntroCardViewProps) {
-  const cardEnterStart = (STAGGER_MS * index) / CYCLE_MS;
-  const cardEnterEnd = (STAGGER_MS * index + BEAT_MS) / CYCLE_MS;
+  /** Snappy enter: cards visible within ~200ms of cycle start so the card is never blank on reset. */
+  const cardEnterStart = index * 0.025;
+  const cardEnterEnd = cardEnterStart + 0.05;
   const metaStart = (STAGGER_MS * index + BEAT_MS * 0.55) / CYCLE_MS;
   const metaEnd = (STAGGER_MS * index + BEAT_MS * 1.15) / CYCLE_MS;
 
@@ -1040,18 +1167,24 @@ function createStyles(
   /** Shorter phones: tighter preview so copy + hero fit above pinned CTAs without crowding. */
   const introTight = windowHeight < 820;
   const introVeryTight = windowHeight < 700;
+  /**
+   * Density tokens. Cards are intentionally tight — they're a *preview* of the
+   * real UI, not the UI itself. Defaults are denser than the screens they
+   * mimic so the carousel + copy + CTAs all fit above the keyboard-safe area
+   * on regular phones; tight breakpoints shave further for SE-class devices.
+   */
   const previewPanelPadding = introVeryTight
     ? theme.spacing.xs
     : introTight
       ? theme.spacing.sm
-      : theme.spacing.md;
+      : theme.spacing.sm;
   const heroWrapVertical = introVeryTight
-    ? theme.spacing.sm
+    ? theme.spacing.xs
     : introTight
-      ? theme.spacing.md
-      : theme.spacing.lg;
-  const listBodyGap = introTight ? theme.spacing.xs : theme.spacing.sm;
-  const listRowPadY = introVeryTight ? theme.spacing.xs : theme.spacing.sm;
+      ? theme.spacing.sm
+      : theme.spacing.md;
+  const listBodyGap = introTight ? theme.spacing.xs : theme.spacing.xs;
+  const listRowPadY = introVeryTight ? theme.spacing.xxs : theme.spacing.xs;
   const copyLineMaxW = Math.min(lx(340), windowWidth - horizontalPadding * 2);
   const mealsFooterMaxW = Math.min(lx(260), windowWidth - horizontalPadding * 2);
 
@@ -1062,9 +1195,11 @@ function createStyles(
       paddingTop: insets.top + (isCompactHeight ? theme.spacing.md : theme.spacing.lg),
       paddingHorizontal: horizontalPadding,
     },
+    // overflow: visible so carousel cards can extend to screen edges (Meals week strip pattern).
     introScroll: {
       flex: 1,
       minHeight: 0,
+      overflow: 'visible',
     },
     introScrollContent: {
       flexGrow: 1,
@@ -1117,12 +1252,14 @@ function createStyles(
     },
     heroWrap: {
       paddingVertical: heroWrapVertical,
-      marginHorizontal: -horizontalPadding,
+      ...horizontalScrollInsetBleed(horizontalPadding),
+    },
+    heroScrollContent: {
+      alignItems: 'flex-start',
     },
     heroPage: {
       alignItems: 'stretch',
       justifyContent: 'flex-start',
-      paddingHorizontal: horizontalPadding,
       paddingTop: theme.spacing.xs,
       paddingBottom: theme.spacing.sm,
     },
@@ -1139,13 +1276,11 @@ function createStyles(
       textTransform: 'uppercase',
       color: theme.textSecondary,
     },
-    /** Grey surface for the faux in-app preview only (not the full-bleed “window” chrome). */
+    /** Grey surface for the faux in-app preview (borderless — carousel cards bleed like list pills). */
     heroPreviewPanel: {
       width: '100%',
       borderRadius: theme.radius.md,
       backgroundColor: theme.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.divider,
       padding: previewPanelPadding,
       overflow: 'hidden',
     },

@@ -506,8 +506,9 @@ export function RecipesScreen() {
         />
         <EmptyState
           icon="book-outline"
+          mascot="empty"
           title="No recipes yet"
-          message="Save your go-to meals and reuse them any time."
+          message="Save the meals you make on repeat — then drop them onto your week in a tap."
           glass={false}
         >
             <PrimaryButton
@@ -561,7 +562,7 @@ export function RecipesScreen() {
         <EmptyState
           icon="book-outline"
           title={FILTERED_EMPTY_MESSAGES[filter] ?? 'No recipes match'}
-          message="Try a different filter or create a new recipe."
+          message="Nothing here under this filter. Try another, or start a fresh one."
           glass={false}
         >
           <PrimaryButton
@@ -618,8 +619,8 @@ export function RecipesScreen() {
           searchNoMatches ? (
             <EmptyState
               icon="search-outline"
-              title="No matches"
-              message="Try another name or ingredient, or clear the search field."
+              title="Nothing matches that"
+              message="Try another name or ingredient, or clear the search to see them all."
               glass={false}
             />
           ) : null

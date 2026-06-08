@@ -3,11 +3,14 @@ import { View, Text, StyleSheet, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
 import { GlassSurface } from './GlassSurface';
+import { Mascot, type MascotMood } from '../brand/Mascot';
 import { spacing } from '../../design/spacing';
 type EmptyStateProps = {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   message: string;
+  /** When set, show the Listio mascot instead of the generic icon circle. */
+  mascot?: MascotMood;
   /** When true, wrap in GlassSurface. Default true. */
   glass?: boolean;
   style?: ViewStyle;
@@ -15,11 +18,12 @@ type EmptyStateProps = {
   children?: React.ReactNode;
 };
 
-/** Centered empty state: icon + title + message. Optional glass card wrapper. */
+/** Centered empty state: icon (or mascot) + title + message. Optional glass card wrapper. */
 export function EmptyState({
   icon,
   title,
   message,
+  mascot,
   glass = true,
   style,
   children,
@@ -28,9 +32,13 @@ export function EmptyState({
   const iconSize = 56;
   const content = (
     <View style={styles.content}>
-      <View style={[styles.iconWrap, { backgroundColor: theme.surface }]}>
-        <Ionicons name={icon} size={iconSize * 0.6} color={theme.textSecondary} />
-      </View>
+      {mascot ? (
+        <Mascot mood={mascot} size={132} style={styles.mascot} />
+      ) : (
+        <View style={[styles.iconWrap, { backgroundColor: theme.surface }]}>
+          <Ionicons name={icon} size={iconSize * 0.6} color={theme.textSecondary} />
+        </View>
+      )}
       <Text
         style={[
           theme.typography.title2,
@@ -87,6 +95,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: spacing.lg,
+  },
+  mascot: {
+    marginBottom: spacing.md,
   },
   children: {
     marginTop: spacing.lg,

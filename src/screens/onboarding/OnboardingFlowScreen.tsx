@@ -4,7 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
-import { isSyncEnabled } from '../../services/supabaseClient';
 import { markOnboardingCompleted } from '../../services/onboardingService';
 import { shouldEnforceIosSubscriptionGate } from '../../services/purchasesService';
 import { SubscriptionLegalLinks } from '../../components/subscription/SubscriptionLegalLinks';
@@ -14,6 +13,7 @@ import {
   FREE_MEALS_LIMIT,
   FREE_RECIPES_LIMIT,
 } from '../../services/freeTierLimits';
+import { FREE_AI_TASTE_USES } from '../../services/aiFeatureTaste';
 import { createOnboardingLayout, onboardingPageGradient } from './onboardingTokens';
 import { OnboardingTopChrome } from '../../components/onboarding/OnboardingTopChrome';
 import { OnboardingBottomCta } from '../../components/onboarding/OnboardingBottomCta';
@@ -21,18 +21,18 @@ import { OnboardingAnimatedStep } from '../../components/onboarding/OnboardingAn
 import { OnboardingStepHeader } from '../../components/onboarding/OnboardingStepHeader';
 import { OnboardingWelcomeFeatured } from '../../components/onboarding/OnboardingWelcomeFeatured';
 import { OnboardingFinishFeatured } from '../../components/onboarding/OnboardingFinishFeatured';
-import { OnboardingShoppingRhythmFeatured } from '../../components/onboarding/OnboardingShoppingRhythmFeatured';
+import { OnboardingStarterList } from '../../components/onboarding/OnboardingStarterList';
 import { OnboardingTabsOrientation } from '../../components/onboarding/OnboardingTabsOrientation';
 import { OnboardingStagger } from '../../components/onboarding/OnboardingStagger';
-import { patchUserPreferences } from '../../services/userPreferencesService';
-import { requestNotificationPermissionsPrompting } from '../../services/notificationSchedulingService';
-import { refreshDynamicNotifications } from '../../services/notificationRefreshService';
-import { registerAndSyncPushToken } from '../../services/pushTokenService';
-import type { ShoppingTimeBucket } from '../../services/notificationTimeUtils';
+import { useAuth } from '../../context/AuthContext';
+import { insertListItems, type ListItemInsert } from '../../services/listService';
+import { STARTER_GROCERIES } from '../../constants/starterGroceries';
+import { normalize } from '../../utils/normalize';
+import { logger } from '../../utils/logger';
 
 const STEP_COUNT = 4;
 const ORIENTATION_STEP = 1;
-const REMINDERS_STEP = 2;
+const STARTER_STEP = 2;
 const FINISH_STEP = 3;
 
 /** Runs after sign-in when Supabase is configured. */
@@ -44,11 +44,11 @@ type Props = {
 export function OnboardingFlowScreen({ onFinished }: Props) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const { userId } = useAuth();
   const [step, setStep] = useState(0);
   const [finishBusy, setFinishBusy] = useState(false);
-  const [routineSaveBusy, setRoutineSaveBusy] = useState(false);
-  const [shoppingWeekdays, setShoppingWeekdays] = useState<number[]>([]);
-  const [shoppingTimeBucket, setShoppingTimeBucket] = useState<ShoppingTimeBucket>('evening');
+  const [seedBusy, setSeedBusy] = useState(false);
+  const [selectedStarters, setSelectedStarters] = useState<Set<string>>(new Set());
   const [legalTermsExpanded, setLegalTermsExpanded] = useState(false);
 
   const isDark = theme.colorScheme === 'dark';
@@ -58,51 +58,50 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
     [theme],
   );
 
-  const advanceFromShoppingStep = async (): Promise<boolean> => {
-    if (!isSyncEnabled()) {
-      await requestNotificationPermissionsPrompting();
-      return true;
-    }
-    const sorted = [...shoppingWeekdays].sort((a, b) => a - b);
-    if (sorted.length === 0) {
-      Alert.alert('Pick day(s)', 'Choose at least one day you usually shop.');
-      return false;
-    }
-    try {
-      await patchUserPreferences({
-        notifications: {
-          shoppingWeekdays: sorted,
-          shoppingTimeBucket: shoppingTimeBucket,
-          usePersonalizedShoppingReminders: true,
-          mealReminders: true,
-          mealReminderMode: 'planned_only',
-          shoppingReminders: true,
-        },
-      });
-      await requestNotificationPermissionsPrompting();
-      await refreshDynamicNotifications();
-      await registerAndSyncPushToken();
-    } catch (e) {
-      Alert.alert('Could not save', e instanceof Error ? e.message : 'Unknown error');
-      return false;
-    }
-    return true;
-  };
-
-  const skipReminders = useCallback(async () => {
-    await requestNotificationPermissionsPrompting();
-    setStep(FINISH_STEP);
+  const toggleStarter = useCallback((name: string) => {
+    setSelectedStarters((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
   }, []);
+
+  const seedStarterItems = async (): Promise<void> => {
+    if (selectedStarters.size === 0) return;
+    if (typeof userId !== 'string' || !userId) return;
+    const items: ListItemInsert[] = STARTER_GROCERIES.filter((g) =>
+      selectedStarters.has(g.name)
+    ).map((g) => ({
+      user_id: userId,
+      name: g.name,
+      normalized_name: normalize(g.name),
+      category: '',
+      zone_key: g.zone_key,
+      quantity_value: null,
+      quantity_unit: null,
+      notes: null,
+      is_checked: false,
+      linked_meal_ids: [],
+    }));
+    try {
+      await insertListItems(userId, items);
+    } catch (e) {
+      // Non-fatal: never block onboarding if the seed write fails.
+      logger.warn('onboarding: failed to seed starter list', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
 
   const handleCta = async () => {
     if (step < STEP_COUNT - 1) {
-      if (step === REMINDERS_STEP) {
-        setRoutineSaveBusy(true);
+      if (step === STARTER_STEP) {
+        setSeedBusy(true);
         try {
-          const ok = await advanceFromShoppingStep();
-          if (!ok) return;
+          await seedStarterItems();
         } finally {
-          setRoutineSaveBusy(false);
+          setSeedBusy(false);
         }
       }
       setStep((s) => s + 1);
@@ -124,7 +123,13 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
   };
 
   const ctaLabel =
-    step < STEP_COUNT - 1 ? (step === 0 ? 'Continue' : step === REMINDERS_STEP ? 'Next' : 'Next') : 'Get started';
+    step === FINISH_STEP
+      ? 'Get started'
+      : step === STARTER_STEP
+        ? selectedStarters.size > 0
+          ? 'Add to my list'
+          : 'Next'
+        : 'Continue';
 
   const scrollExtraForFooter =
     step === FINISH_STEP && Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate() ? 168 : 0;
@@ -144,9 +149,9 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
             },
           ]}
         >
-          Free plan: up to {FREE_LIST_ITEMS_LIMIT} list items, {FREE_MEALS_LIMIT} meal, and {FREE_RECIPES_LIMIT} recipe.
-          Listio+ ({LISTIO_PLUS_MONTHLY_USD_LABEL} or {LISTIO_PLUS_ANNUAL_USD_LABEL}, auto-renewing) unlocks unlimited
-          use, recipe imports, Smart add, and more.
+          Free plan: up to {FREE_LIST_ITEMS_LIMIT} list items, {FREE_MEALS_LIMIT} meals, and {FREE_RECIPES_LIMIT} recipes,
+          plus {FREE_AI_TASTE_USES} free Smart adds and recipe imports. Listio+ ({LISTIO_PLUS_MONTHLY_USD_LABEL} or{' '}
+          {LISTIO_PLUS_ANNUAL_USD_LABEL}, auto-renewing) unlocks unlimited use, recipe imports, Smart add, and more.
         </Text>
         <Pressable
           onPress={() => setLegalTermsExpanded((v) => !v)}
@@ -191,19 +196,17 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
   const secondaryAction =
     step === FINISH_STEP
       ? null
-      : step === REMINDERS_STEP
+      : step === STARTER_STEP
         ? {
-            label: 'Skip reminders',
-            accessibilityLabel: 'Skip reminders. You can enable them later in Settings.',
-            onPress: () => {
-              void skipReminders();
-            },
+            label: 'Skip for now',
+            accessibilityLabel: 'Skip adding starter items. You can add your own later.',
+            onPress: () => setStep(FINISH_STEP),
           }
         : {
             label: 'Skip',
             onPress: () => {
               if (step === 0) setStep(1);
-              else if (step === ORIENTATION_STEP) setStep(REMINDERS_STEP);
+              else if (step === ORIENTATION_STEP) setStep(STARTER_STEP);
             },
           };
 
@@ -238,7 +241,7 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
             <OnboardingStepHeader
               eyebrow="Welcome to Listio"
               title="Plan meals, build your list, then shop"
-              subtitle={`Three connected tabs keep your week, recipes, and grocery run in one place. Free plan: up to ${FREE_LIST_ITEMS_LIMIT} list items, ${FREE_MEALS_LIMIT} meal, and ${FREE_RECIPES_LIMIT} recipe.`}
+              subtitle="Three connected tabs keep your week, recipes, and grocery run in one place — so you never copy the same items twice."
             />
             <OnboardingWelcomeFeatured />
           </OnboardingAnimatedStep>
@@ -250,20 +253,14 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
           </OnboardingAnimatedStep>
         ) : null}
 
-        {step === REMINDERS_STEP ? (
+        {step === STARTER_STEP ? (
           <OnboardingAnimatedStep stepKey={step}>
             <OnboardingStepHeader
-              eyebrow="Stay on track"
-              title="Reminders that fit your rhythm"
-              subtitle="We will nudge you before trips and a few days ahead so your list is ready when you shop."
+              eyebrow="Your first list"
+              title="Grab a few staples to start"
+              subtitle="Tap what you need and we'll sort it by aisle. You can always add more later."
             />
-            <OnboardingShoppingRhythmFeatured
-              syncEnabled={isSyncEnabled()}
-              selectedDays={shoppingWeekdays}
-              onChangeDays={setShoppingWeekdays}
-              timeBucket={shoppingTimeBucket}
-              onChangeBucket={setShoppingTimeBucket}
-            />
+            <OnboardingStarterList selected={selectedStarters} onToggle={toggleStarter} />
           </OnboardingAnimatedStep>
         ) : null}
 
@@ -272,8 +269,8 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
             <OnboardingStagger index={0}>
               <OnboardingStepHeader
                 eyebrow="Almost there"
-                title="You are ready to go"
-                subtitle="List is your home base. Jump to Meals and Recipes from the tab bar anytime."
+                title="You're all set"
+                subtitle="List is home base. Meals and Recipes are always a tap away in the tab bar."
               />
             </OnboardingStagger>
             <OnboardingFinishFeatured />
@@ -287,8 +284,8 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
         onPress={() => {
           void handleCta();
         }}
-        loading={(finishBusy && step === FINISH_STEP) || (routineSaveBusy && step === REMINDERS_STEP)}
-        disabled={(finishBusy && step === FINISH_STEP) || (routineSaveBusy && step === REMINDERS_STEP)}
+        loading={(finishBusy && step === FINISH_STEP) || (seedBusy && step === STARTER_STEP)}
+        disabled={(finishBusy && step === FINISH_STEP) || (seedBusy && step === STARTER_STEP)}
         secondaryAction={secondaryAction}
         footer={step === FINISH_STEP ? legalFooter : null}
       />

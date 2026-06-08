@@ -8,20 +8,12 @@ import {
   useWindowDimensions,
   Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeIn, FadeInDown, ZoomIn, useReducedMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, ZoomIn, useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { Button } from '../ui/Button';
-
-const CELEBRATION_ICONS = [
-  'cart-outline',
-  'sparkles',
-  'color-wand-outline',
-  'checkmark-circle',
-  'nutrition-outline',
-] as const satisfies readonly (keyof typeof Ionicons.glyphMap)[];
+import { Mascot } from '../brand/Mascot';
 
 type ShopRunCompleteOverlayProps = {
   visible: boolean;
@@ -77,21 +69,11 @@ export function ShopRunCompleteOverlay({
           overflow: 'hidden' as const,
           ...theme.shadows.floating,
         },
-        sparkleRow: {
-          flexDirection: 'row',
-          justifyContent: 'center',
-          alignItems: 'center',
+        heroWrap: {
           alignSelf: 'stretch',
-          flexWrap: 'nowrap' as const,
-          gap: theme.spacing.sm,
-          marginBottom: theme.spacing.md,
-          overflow: 'hidden' as const,
-        },
-        sparkleCell: {
-          width: 34,
-          height: 34,
           alignItems: 'center',
           justifyContent: 'center',
+          marginBottom: theme.spacing.md,
         },
         title: {
           ...theme.typography.title2,
@@ -123,9 +105,12 @@ export function ShopRunCompleteOverlay({
   const cardEntering = rm
     ? FadeIn.duration(220)
     : ZoomIn.springify().damping(17).stiffness(200).mass(0.85);
+  const badgeEntering = rm
+    ? FadeIn.duration(240)
+    : ZoomIn.springify().damping(13).stiffness(170).mass(0.9).delay(60);
 
   const itemWord = totalItems === 1 ? 'item' : 'items';
-  const sectionWord = aisleCount === 1 ? 'section' : 'sections';
+  const aisleWord = aisleCount === 1 ? 'aisle' : 'aisles';
 
   return (
     <Modal
@@ -139,30 +124,17 @@ export function ShopRunCompleteOverlay({
       <View style={styles.root} accessibilityLabel="Shopping run complete">
         <Pressable style={styles.backdrop} onPress={onKeep} accessibilityRole="button" accessibilityLabel="Dismiss" />
         <Animated.View entering={cardEntering} style={styles.card}>
-          <View style={styles.sparkleRow}>
-            {CELEBRATION_ICONS.map((iconName, i) => (
-              <Animated.View
-                key={iconName}
-                style={styles.sparkleCell}
-                entering={
-                  rm
-                    ? FadeIn.duration(160)
-                    : FadeInDown.springify()
-                        .damping(16)
-                        .stiffness(200)
-                        .delay(40 + i * 55)
-                }
-              >
-                <Ionicons name={iconName} size={26} color={theme.accent} />
-              </Animated.View>
-            ))}
+          <View style={styles.heroWrap}>
+            <Animated.View entering={badgeEntering}>
+              <Mascot mood="celebrate" size={116} accessibilityLabel="Listio mascot celebrating" />
+            </Animated.View>
           </View>
-          <Text style={styles.title}>Run complete!</Text>
+          <Text style={styles.title}>{"That's the whole list!"}</Text>
           <Text style={styles.statLine}>
-            You checked off {totalItems} {itemWord} across {aisleCount} store {sectionWord}.
+            You grabbed {totalItems} {itemWord} across {aisleCount} {aisleWord}.
           </Text>
           <Text style={styles.detail}>
-            Clear checked items for a fresh list, or keep them here to remember what you picked up.
+            Clear them for a fresh start, or keep them to remember what you picked up.
           </Text>
           <View style={styles.actions}>
             <PrimaryButton

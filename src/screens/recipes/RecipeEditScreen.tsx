@@ -43,7 +43,7 @@ import { AI_RECIPE_IMPORT_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDiscl
 import { PRIVACY_POLICY_URL } from '../../constants/legalUrls';
 import { parseRecipeInstructionSteps } from '../../utils/parseRecipeInstructionSteps';
 import { mapParsedRecipeDraftToForm } from './recipeAiImport';
-import { ensurePremiumViaContextualPaywall } from '../../context/contextualPaywallRef';
+import { ensureAiFeatureAccess, commitAiTaste } from '../../services/aiFeatureTaste';
 import { notifyMeaningfulListOrRecipeAction } from '../../services/engagementPaywallTriggers';
 import { notifyFreeTierNearLimitIfNeeded } from '../../services/notifyFreeTierNearLimit';
 import { notifyRecipeSavedForMilestones } from '../../firstLaunchTour/milestoneUnlockFlow';
@@ -364,8 +364,8 @@ export function RecipeEditScreen() {
       return;
     }
 
-    const allowed = await ensurePremiumViaContextualPaywall('recipe_url');
-    if (!allowed) return;
+    const gate = await ensureAiFeatureAccess('recipe_import', 'recipe_url', isPremium, isPremiumLoading);
+    if (!gate.allowed) return;
 
     importAbortRef.current?.abort();
     const ac = new AbortController();
@@ -390,6 +390,7 @@ export function RecipeEditScreen() {
       });
       const mapped = mapDraft(recipe);
       applyParsedDraft(mapped);
+      if (gate.usesFreeAllowance) await commitAiTaste('recipe_import');
       setAiImportOverlay({ phase: 'success', mode: 'link', progress: 1 });
       haptics.success();
     } catch (err) {
@@ -411,8 +412,8 @@ export function RecipeEditScreen() {
       return;
     }
 
-    const allowed = await ensurePremiumViaContextualPaywall('recipe_paste');
-    if (!allowed) return;
+    const gate = await ensureAiFeatureAccess('recipe_import', 'recipe_paste', isPremium, isPremiumLoading);
+    if (!gate.allowed) return;
 
     importAbortRef.current?.abort();
     const ac = new AbortController();
@@ -437,6 +438,7 @@ export function RecipeEditScreen() {
       });
       const mapped = mapDraft(recipe);
       applyParsedDraft(mapped);
+      if (gate.usesFreeAllowance) await commitAiTaste('recipe_import');
       setAiImportOverlay({ phase: 'success', mode: 'paste', progress: 1 });
       haptics.success();
     } catch (err) {

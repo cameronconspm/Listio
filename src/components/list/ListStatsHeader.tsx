@@ -9,7 +9,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
 import { horizontalScrollInsetBleed } from '../../design/layout';
-import { ZONE_LABELS, ZONE_ICONS } from '../../data/zone';
+import { ZONE_LABELS } from '../../data/zone';
+import { zoneColor } from '../../data/zoneColors';
+import { ZoneGlyph } from '../brand/ZoneGlyph';
 import { useHaptics } from '../../hooks/useHaptics';
 import type { ZoneKey } from '../../types/models';
 
@@ -133,14 +135,16 @@ function ZoneChip({
   const theme = useTheme();
   const haptics = useHaptics();
   const styles = useListStatsStyles();
-  const icon = ZONE_ICONS[zone] as keyof typeof Ionicons.glyphMap;
   const label = ZONE_LABELS[zone];
-  const chipBg = selected ? theme.accent + '25' : theme.divider + '30';
-  const iconColor = selected ? theme.accent : theme.textSecondary;
-  const badgeBg = selected ? theme.accent : theme.textSecondary + '50';
+  const hue = zoneColor(zone, theme.colorScheme);
+  const chipBg = selected ? hue + '25' : theme.divider + '30';
+  const iconColor = hue;
+  const badgeBg = selected ? hue : theme.textSecondary + '50';
   const content = (
     <>
-      <Ionicons name={icon} size={14} color={iconColor} style={styles.zoneChipIcon} />
+      <View style={styles.zoneChipIcon}>
+        <ZoneGlyph zone={zone} size={15} color={iconColor} />
+      </View>
       <Text style={[theme.typography.footnote, { color: selected ? theme.textPrimary : theme.textSecondary }]}>{label}</Text>
       <View style={[styles.zoneBadge, { backgroundColor: badgeBg }]}>
         <Text
@@ -158,7 +162,7 @@ function ZoneChip({
   if (onPress) {
     return (
       <TouchableOpacity
-        style={[styles.zoneChip, { backgroundColor: chipBg, borderWidth: 1, borderColor: selected ? theme.accent + '60' : 'transparent' }]}
+        style={[styles.zoneChip, { backgroundColor: chipBg, borderWidth: 1, borderColor: selected ? hue + '60' : 'transparent' }]}
         onPress={() => {
           haptics.light();
           onPress();

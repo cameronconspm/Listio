@@ -425,8 +425,8 @@ export function HomeScreenZoneList({
           <View style={styles.filteredEmpty}>
             <EmptyState
               icon="folder-open-outline"
-              title={`No items in ${ZONE_LABELS[filterZone]}`}
-              message="This section is empty."
+              title={`Nothing in ${ZONE_LABELS[filterZone]} yet`}
+              message="This aisle's empty for now."
               glass={false}
             />
             <Pressable

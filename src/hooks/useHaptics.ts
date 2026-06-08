@@ -9,9 +9,25 @@ const HAPTICS = Object.freeze({
   success: () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
   /** For scroll-wheel / picker style feedback when crossing boundaries (e.g. reordering). */
   selection: () => Haptics.selectionAsync(),
+  /**
+   * Celebratory "ta-da" for the app's peak moments (e.g. finishing a shop run):
+   * a success note followed by two light taps for a richer payoff than `success`.
+   */
+  celebrate: () => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }, 130);
+    setTimeout(() => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }, 260);
+  },
 });
 
 export type HapticsHandle = typeof HAPTICS;
+
+/** Same singleton as `useHaptics`, for non-React contexts (services, fire-and-forget flows). */
+export const appHaptics: HapticsHandle = HAPTICS;
 
 export function useHaptics(): HapticsHandle {
   return HAPTICS;

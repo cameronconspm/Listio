@@ -8,6 +8,7 @@ import { radius } from '../../design/radius';
 import { OnboardingStagger } from './OnboardingStagger';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
 import { onboardingCelebrateEnter } from './onboardingMotion';
+import { Mascot } from '../brand/Mascot';
 
 const NEXT_STEPS = [
   { icon: 'list' as const, label: 'List', hint: 'Add your first items in Plan' },
@@ -47,11 +48,8 @@ export function OnboardingFinishFeatured() {
           >
             You are all set
           </Text>
-          <Animated.View
-            entering={onboardingCelebrateEnter(reduced)}
-            style={[styles.checkCircle, { backgroundColor: theme.accent }]}
-          >
-            <Ionicons name="checkmark" size={32} color="#fff" accessibilityLabel="Success" />
+          <Animated.View entering={onboardingCelebrateEnter(reduced)}>
+            <Mascot mood="hero" size={104} accessibilityLabel="Listio mascot" />
           </Animated.View>
           <Text style={[theme.typography.title3, { color: theme.textPrimary, textAlign: 'center', marginTop: theme.spacing.md }]}>
             Ready to plan and shop
@@ -103,13 +101,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.lg,
     alignItems: 'center',
-  },
-  checkCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   nextRow: {
     flexDirection: 'row',

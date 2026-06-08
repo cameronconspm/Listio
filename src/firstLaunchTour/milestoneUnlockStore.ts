@@ -36,35 +36,42 @@ async function write(next: MilestoneUnlockState): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 }
 
+/** Result of a milestone-marking call: the new state plus whether THIS call
+ *  flipped the milestone on for the first time (so callers can celebrate once). */
+export type MilestoneMarkResult = {
+  state: MilestoneUnlockState;
+  justMet: boolean;
+};
+
 export async function getMilestoneUnlockState(): Promise<MilestoneUnlockState> {
   return read();
 }
 
 /** Call whenever list item count may have changed. */
-export async function syncListCountMilestone(listItemCount: number): Promise<MilestoneUnlockState> {
+export async function syncListCountMilestone(listItemCount: number): Promise<MilestoneMarkResult> {
   const prev = await read();
   if (listItemCount >= 3 && !prev.listAtLeast3) {
     const next = { ...prev, listAtLeast3: true };
     await write(next);
-    return next;
+    return { state: next, justMet: true };
   }
-  return prev;
+  return { state: prev, justMet: false };
 }
 
-export async function markMealMilestone(): Promise<MilestoneUnlockState> {
+export async function markMealMilestone(): Promise<MilestoneMarkResult> {
   const prev = await read();
-  if (prev.mealSaved) return prev;
+  if (prev.mealSaved) return { state: prev, justMet: false };
   const next = { ...prev, mealSaved: true };
   await write(next);
-  return next;
+  return { state: next, justMet: true };
 }
 
-export async function markRecipeMilestone(): Promise<MilestoneUnlockState> {
+export async function markRecipeMilestone(): Promise<MilestoneMarkResult> {
   const prev = await read();
-  if (prev.recipeSaved) return prev;
+  if (prev.recipeSaved) return { state: prev, justMet: false };
   const next = { ...prev, recipeSaved: true };
   await write(next);
-  return next;
+  return { state: next, justMet: true };
 }
 
 export async function markUnlockPaywallPresented(): Promise<void> {

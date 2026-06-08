@@ -53,6 +53,12 @@ export function FreeTierUsageBanner({ kind, currentCount, onPressUpgrade }: Free
     return null;
   }
 
+  // Generous free caps mean a usage banner from item one reads as pure scarcity.
+  // Only surface it once the user is actually approaching or at the cap.
+  if (!summary.nearLimit && !summary.atLimit) {
+    return null;
+  }
+
   const borderColor = summary.nearLimit || summary.atLimit ? theme.accent + '55' : theme.divider;
   const textColor = summary.nearLimit || summary.atLimit ? theme.accent : theme.textSecondary;
   const backgroundColor = summary.nearLimit || summary.atLimit ? theme.accent + '10' : theme.surface;

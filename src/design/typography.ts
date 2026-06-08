@@ -1,23 +1,33 @@
 import type { TextStyle } from 'react-native';
+import { FONT_FAMILY } from './fonts';
 
-/** iOS-style typography scale. largeTitle/title2/headline/body/subhead/caption match spec. */
+/**
+ * iOS-style typography scale. largeTitle/title2/headline/body/subhead/caption match spec.
+ * Display titles use the Plus Jakarta Sans brand face (see fonts.ts); body and UI
+ * styles stay on the system font. `fontFamily` carries the weight, so the matching
+ * `fontWeight` is kept only as a graceful fallback before the font finishes loading.
+ */
 export const typography: Record<string, TextStyle> = {
   largeTitle: {
+    fontFamily: FONT_FAMILY.displaySemiBold,
     fontSize: 34,
     fontWeight: '600',
     lineHeight: 40,
   },
   title1: {
+    fontFamily: FONT_FAMILY.displayBold,
     fontSize: 28,
     fontWeight: '700',
     lineHeight: 34,
   },
   title2: {
+    fontFamily: FONT_FAMILY.displaySemiBold,
     fontSize: 22,
     fontWeight: '600',
     lineHeight: 28,
   },
   title3: {
+    fontFamily: FONT_FAMILY.displaySemiBold,
     fontSize: 20,
     fontWeight: '600',
     lineHeight: 25,

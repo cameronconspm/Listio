@@ -377,7 +377,7 @@ export function SettingsScreen() {
           {
             paddingTop: scrollPaddingTop + theme.spacing.md,
             paddingBottom: scrollInsets.paddingBottom,
-            paddingHorizontal: theme.spacing.lg,
+            paddingHorizontal: theme.spacing.md,
           },
           !hasHubSearchMatches && { flexGrow: 1 },
         ]}
