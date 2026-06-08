@@ -104,7 +104,7 @@ jest.mock('../src/services/aiService', () => ({
 }));
 
 describe('QuickAddComposer presentation behavior', () => {
-  it('toggles optional details for add flow', () => {
+  it('reveals note and brand fields for add flow', () => {
     let tree!: ReactTestRenderer;
     act(() => {
       tree = create(
@@ -112,12 +112,18 @@ describe('QuickAddComposer presentation behavior', () => {
       );
     });
 
-    const showDetails = tree.root.findByProps({ accessibilityLabel: 'Add optional details' });
+    // Optional note/brand are collapsed behind a single reveal affordance in add mode.
+    expect(tree.root.findAllByProps({ placeholder: 'Add a note' })).toHaveLength(0);
+
+    const reveal = tree.root.findByProps({ accessibilityLabel: 'Add note and brand' });
     act(() => {
-      showDetails.props.onPress();
+      reveal.props.onPress();
     });
 
-    expect(tree.root.findByProps({ accessibilityLabel: 'Hide optional details' })).toBeTruthy();
+    // Expanding swaps the reveal affordance for the note + brand inputs.
+    expect(tree.root.findAllByProps({ accessibilityLabel: 'Add note and brand' })).toHaveLength(0);
+    expect(tree.root.findByProps({ placeholder: 'Add a note' })).toBeTruthy();
+    expect(tree.root.findByProps({ placeholder: 'Any' })).toBeTruthy();
   });
 
   it('opens field dropdowns without leaving the composer form', () => {
@@ -129,13 +135,13 @@ describe('QuickAddComposer presentation behavior', () => {
     });
 
     act(() => {
-      tree.root.findByProps({ accessibilityLabel: 'Change unit' }).props.onPress();
+      tree.root.findByProps({ accessibilityLabel: 'Unit' }).props.onPress();
     });
     expect(tree.root.findAllByType(UnitSelectionList)).toHaveLength(1);
-    expect(tree.root.findByProps({ accessibilityLabel: 'Change store section' })).toBeTruthy();
+    expect(tree.root.findByProps({ accessibilityLabel: 'Section' })).toBeTruthy();
 
     act(() => {
-      tree.root.findByProps({ accessibilityLabel: 'Change store section' }).props.onPress();
+      tree.root.findByProps({ accessibilityLabel: 'Section' }).props.onPress();
     });
     expect(tree.root.findAllByType(UnitSelectionList)).toHaveLength(0);
     expect(tree.root.findByProps({ testID: 'mock-zone-picker' })).toBeTruthy();
@@ -223,9 +229,7 @@ describe('QuickAddComposer presentation behavior', () => {
 
     expect(tree.root.findByProps({ accessibilityLabel: 'Add with Smart add' })).toBeTruthy();
     expect(tree.root.findAllByProps({ accessibilityLabel: 'Decrease quantity' })).toHaveLength(0);
-    expect(tree.root.findAllByProps({ accessibilityLabel: 'Change store section' })).toHaveLength(
-      0
-    );
+    expect(tree.root.findAllByProps({ accessibilityLabel: 'Section' })).toHaveLength(0);
   });
 
   describe('typing-time pre-warm', () => {
