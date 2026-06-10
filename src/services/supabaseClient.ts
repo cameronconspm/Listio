@@ -1,6 +1,6 @@
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient, type AuthError } from '@supabase/supabase-js';
+import { createClient, type AuthError, type Session } from '@supabase/supabase-js';
 
 type SupabaseExtra = {
   supabaseUrl?: string;
@@ -124,4 +124,74 @@ export async function signOutLocallyIfCorruptRefreshToken(
   if (!isCorruptSupabaseRefreshTokenError(error)) return false;
   await supabase.auth.signOut({ scope: 'local' });
   return true;
+}
+
+export type SupabaseAuthBootstrapResult = {
+  session: Session | null;
+  clearedCorruptSession: boolean;
+};
+
+/**
+ * Waits for GoTrue init (including `_recoverAndRefresh`) before reading the session.
+ * Avoids treating a stale persisted session as signed-in while the SDK is still
+ * clearing a revoked refresh token.
+ */
+export async function bootstrapSupabaseAuthSession(): Promise<SupabaseAuthBootstrapResult> {
+  await supabase.auth.initialize();
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession();
+
+  if (error) {
+    const cleared = await signOutLocallyIfCorruptRefreshToken(error);
+    return { session: null, clearedCorruptSession: cleared };
+  }
+
+  return { session, clearedCorruptSession: false };
+}
+
+/** True when a JWT is available for authenticated API calls (after auth bootstrap). */
+export async function hasValidSupabaseSession(): Promise<boolean> {
+  if (!isSyncEnabled()) return false;
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession();
+  return !error && Boolean(session?.access_token);
+}
+
+function isBenignCorruptRefreshTokenLogArg(arg: unknown): boolean {
+  if (typeof arg === 'string') {
+    return (
+      /AuthApiError.*Invalid Refresh Token/i.test(arg) ||
+      /Refresh Token Not Found/i.test(arg)
+    );
+  }
+  if (arg && typeof arg === 'object') {
+    const candidate = arg as { name?: string; code?: string; message?: string };
+    if (
+      candidate.name === 'AuthApiError' &&
+      (candidate.code === 'refresh_token_not_found' ||
+        candidate.code === 'refresh_token_already_used')
+    ) {
+      return true;
+    }
+    if (isCorruptSupabaseRefreshTokenError(candidate as AuthError)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * GoTrue logs `console.error` for invalid refresh tokens during `_recoverAndRefresh`
+ * before the app can clear storage. Filter the expected, handled case.
+ */
+export function installSupabaseBenignAuthErrorConsoleFilter(): void {
+  const original = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    if (args.some(isBenignCorruptRefreshTokenLogArg)) return;
+    original(...args);
+  };
 }

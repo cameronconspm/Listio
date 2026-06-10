@@ -119,12 +119,7 @@ export function ListRow({
         accessibilityLabel={a11yLabel}
         onPress={onPress}
         onLongPress={onLongPress}
-        style={[
-          styles.row,
-          compact && styles.rowCompact,
-          { backgroundColor: theme.surface },
-          style,
-        ]}
+        style={[styles.row, compact && styles.rowCompact, style]}
       >
         {content}
       </PressableScale>
@@ -132,9 +127,7 @@ export function ListRow({
   }
 
   return (
-    <View
-      style={[styles.row, compact && styles.rowCompact, { backgroundColor: theme.surface }, style]}
-    >
+    <View style={[styles.row, compact && styles.rowCompact, style]}>
       {content}
     </View>
   );

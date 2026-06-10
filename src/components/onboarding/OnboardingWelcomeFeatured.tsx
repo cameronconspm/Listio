@@ -81,7 +81,7 @@ export function OnboardingWelcomeFeatured() {
       marginBottom: 0,
       highlight: (
         <Text style={[theme.typography.footnote, { color: theme.textPrimary }]} numberOfLines={2}>
-          Miso soup — tap <Text style={{ fontWeight: '700', color: theme.accent }}>Add to list</Text> for every ingredient
+          Miso soup: tap <Text style={{ fontWeight: '700', color: theme.accent }}>Add to list</Text> for every ingredient
         </Text>
       ),
       detail: 'Save dishes you cook often and pull them into Plan in one tap.',
@@ -126,7 +126,7 @@ export function OnboardingWelcomeFeatured() {
         <View style={[styles.flowHint, { borderColor: theme.divider, backgroundColor: theme.accent + '0c' }]}>
           <Ionicons name="git-merge-outline" size={16} color={theme.accent} />
           <Text style={[theme.typography.caption1, { color: theme.textSecondary, marginLeft: theme.spacing.sm, flex: 1, lineHeight: 18 }]}>
-            Recipes and meals feed the same list — you never copy ingredients twice.
+            Recipes and meals feed the same list, so you never copy ingredients twice.
           </Text>
         </View>
       </OnboardingStagger>

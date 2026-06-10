@@ -106,7 +106,7 @@ function storesAreDisplayDuplicates(a: StoreProfile, b: StoreProfile): boolean {
 }
 
 /**
- * Collapses duplicate household stores in pickers (same Google place_id, or same normalized name
+ * Collapses duplicate stores in pickers (same Google place_id, or same normalized name
  * within ~250m). Prefers default, then place-linked rows, then older created_at.
  */
 export function dedupeStoresForDisplay(stores: StoreProfile[]): StoreProfile[] {

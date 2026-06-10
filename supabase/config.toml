@@ -21,6 +21,10 @@ verify_jwt = false
 [functions.delete-account]
 verify_jwt = false
 
+# Same Kong JWT verification issue as categorize-items; function still requires Authorization + getUser().
+[functions.smart-add]
+verify_jwt = false
+
 # Same JWT gateway behavior as categorize-items; validated in-function via Authorization + getUser().
 [functions.parse-recipe]
 verify_jwt = false

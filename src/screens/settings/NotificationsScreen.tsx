@@ -130,8 +130,6 @@ export function NotificationsScreen() {
         weeklyPlanningReminders: false,
         weeklyPreview: false,
         recipeSpotlight: false,
-        householdActivity: false,
-        sharedUpdates: false,
         productAnnouncements: false,
         quietHours: { enabled: false, start: qh.start, end: qh.end },
         shoppingWeekdays: days.length > 0 ? days : [],
@@ -153,8 +151,6 @@ export function NotificationsScreen() {
         weeklyPlanningReminders: false,
         weeklyPreview: false,
         recipeSpotlight: false,
-        householdActivity: false,
-        sharedUpdates: false,
         productAnnouncements: false,
         quietHours: { enabled: false, start: qh.start, end: qh.end },
       });
@@ -270,7 +266,7 @@ export function NotificationsScreen() {
                   ]}
                 >
                   {mealMode === 'daily'
-                    ? 'A short nudge every evening — handy if you cook ad-hoc.'
+                    ? 'A short nudge every evening, handy if you cook ad-hoc.'
                     : mealMode === 'planned_only'
                     ? 'Only on days with a meal planned. Quietest, most useful.'
                     : 'No meal reminders. You can still get shopping nudges below.'}

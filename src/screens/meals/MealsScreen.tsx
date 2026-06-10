@@ -27,11 +27,12 @@ import { WeekStrip } from '../../components/meals/WeekStrip';
 import { ScheduleConfigSheet } from '../../components/meals/ScheduleConfigSheet';
 import { useMealScheduleConfig, type MealScheduleConfig } from '../../hooks/useMealScheduleConfig';
 import type { Meal } from '../../types/models';
-import { useAuthUserId } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { useLazyMount } from '../../hooks/useLazyMount';
 import { fetchUserPreferences, patchUserPreferencesIfSync } from '../../services/userPreferencesService';
 import { useDebounce } from '../../hooks/useDebounce';
 import { showError } from '../../utils/appToast';
+import { isNotSignedInError } from '../../utils/mapDbError';
 import { queryKeys } from '../../query/keys';
 import { fetchMealsRangeBundle, MEALS_RANGE_STALE_MS } from '../../query/mealsRangeBundle';
 import { fetchMealDetailBundle, MEAL_DETAIL_STALE_MS } from '../../query/mealDetailBundle';
@@ -60,7 +61,7 @@ export function MealsScreen() {
   const onScrollChrome = useTabRootScrollOnScroll('MealsStack');
   const navigation = useNavigation<NativeStackNavigationProp<MealsStackParamList>>();
   const { config, setConfig } = useMealScheduleConfig();
-  const userId = useAuthUserId();
+  const { userId, isAuthReady } = useAuth();
   const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   const tabNavigation = useNavigation<NavigationProp<ParamListBase>>();
   const handleOpenPlan = useCallback(() => {
@@ -160,7 +161,7 @@ export function MealsScreen() {
   const mealsQuery = useQuery({
     queryKey: queryKeys.mealsRange(userId ?? '', rangeStart, rangeEnd),
     queryFn: () => fetchMealsRangeBundle(userId!, rangeStart, rangeEnd),
-    enabled: screenFocused && userReady && rangeReady,
+    enabled: isAuthReady && screenFocused && userReady && rangeReady,
     staleTime: MEALS_RANGE_STALE_MS,
     placeholderData: keepPreviousData,
   });
@@ -168,7 +169,7 @@ export function MealsScreen() {
   const totalMealsQuery = useQuery({
     queryKey: queryKeys.meals(userId ?? ''),
     queryFn: () => getMeals(userId!),
-    enabled: screenFocused && userReady && !isPremium && !isPremiumLoading,
+    enabled: isAuthReady && screenFocused && userReady && !isPremium && !isPremiumLoading,
     staleTime: MEALS_RANGE_STALE_MS,
   });
   const bundle = mealsQuery.data;
@@ -178,19 +179,25 @@ export function MealsScreen() {
   const recipeMetaByRecipeId = bundle?.recipeMetaByRecipeId ?? {};
 
   const listInitialLoad =
+    isAuthReady &&
     userReady &&
     screenFocused &&
     rangeReady &&
     mealsQuery.data === undefined &&
     (mealsQuery.isPending || isRestoringCache);
 
-  const showInlineSpinner = userId === undefined || listInitialLoad;
+  const showInlineSpinner =
+    !isAuthReady || userId === undefined || listInitialLoad || isNotSignedInError(mealsQuery.error);
 
   useEffect(() => {
-    if (mealsQuery.isError) {
-      showError('Could not load meals.');
-    }
-  }, [mealsQuery.isError]);
+    if (!mealsQuery.isError || isNotSignedInError(mealsQuery.error)) return;
+    showError('Could not load meals.');
+  }, [mealsQuery.isError, mealsQuery.error]);
+
+  useEffect(() => {
+    if (!isAuthReady || !userReady || !isNotSignedInError(mealsQuery.error)) return;
+    void mealsQuery.refetch();
+  }, [isAuthReady, userReady, mealsQuery.error, mealsQuery.refetch]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -283,7 +290,10 @@ export function MealsScreen() {
   const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
 
   const mealsLoadFailed =
-    userReady && mealsQuery.isError && mealsQuery.data === undefined;
+    userReady &&
+    mealsQuery.isError &&
+    mealsQuery.data === undefined &&
+    !isNotSignedInError(mealsQuery.error);
 
   if (mealsLoadFailed) {
     const errMsg =

@@ -30,6 +30,8 @@ import {
 import { fadeThrough } from '../../ui/motion/navigation';
 import { ListStatsHeader } from '../../components/list/ListStatsHeader';
 import { ListSummaryStrip } from '../../components/list/ListSummaryStrip';
+import { ShopProgressBar } from '../../components/list/ShopProgressBar';
+import { PlanReadinessStrip } from '../../components/list/PlanReadinessStrip';
 import { ZoneSection } from '../../components/list/ZoneSection';
 import { ReorderSectionRow } from '../../components/list/ReorderSectionRow';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -152,6 +154,14 @@ export function HomeScreenZoneList({
   const haptics = useHaptics();
   const listContentOpacity = useSharedValue(1);
   const contentTransitionMountRef = useRef(true);
+  const flatListRef = useRef<FlatList<HomeSectionItem>>(null);
+
+  const scrollToNextSection = useCallback(() => {
+    if (!nextSectionForSummary) return;
+    const index = sections.findIndex((s) => s.zone === nextSectionForSummary);
+    if (index < 0) return;
+    flatListRef.current?.scrollToIndex({ index, animated: true, viewOffset: 8 });
+  }, [nextSectionForSummary, sections]);
 
   useEffect(() => {
     if (contentTransitionMountRef.current) {
@@ -233,6 +243,22 @@ export function HomeScreenZoneList({
     [reorderMode, onReorderCancel, onReorderDone]
   );
 
+  // Count items linked to any meal — used for plan readiness strip
+  const linkedItemCount = useMemo(
+    () => safeItems.filter((i) => i.linked_meal_ids && i.linked_meal_ids.length > 0).length,
+    [safeItems]
+  );
+
+  // Shop progress: how many items are checked
+  const checkedCount = useMemo(
+    () =>
+      isFiltered
+        ? filteredItems.length - filteredRemaining
+        : safeItems.length - remaining,
+    [isFiltered, filteredItems.length, filteredRemaining, safeItems.length, remaining]
+  );
+  const progressTotal = isFiltered ? filteredItems.length : safeItems.length;
+
   const listHeader = useMemo(
     () => (
       <Pressable
@@ -260,9 +286,23 @@ export function HomeScreenZoneList({
           itemsLeft={isFiltered ? filteredRemaining : remaining}
           sectionsLeft={isFiltered ? filteredSectionsLeft : sectionsLeft}
           nextSection={isFiltered ? null : nextSectionForSummary}
+          onNextSectionPress={isFiltered ? undefined : scrollToNextSection}
           onListActionsPress={reorderMode ? undefined : openListActionsSheet}
           reorderToolbar={reorderToolbar}
         />
+        {shoppingMode === 'shop' && !reorderMode ? (
+          <ShopProgressBar
+            checked={checkedCount}
+            total={progressTotal}
+            reduceMotion={reduceMotion}
+          />
+        ) : null}
+        {shoppingMode === 'plan' && !reorderMode ? (
+          <PlanReadinessStrip
+            totalItems={safeItems.length}
+            linkedItemCount={linkedItemCount}
+          />
+        ) : null}
       </Pressable>
     ),
     [
@@ -287,8 +327,13 @@ export function HomeScreenZoneList({
       filteredSectionsLeft,
       sectionsLeft,
       nextSectionForSummary,
+      scrollToNextSection,
       openListActionsSheet,
       reorderToolbar,
+      checkedCount,
+      progressTotal,
+      reduceMotion,
+      linkedItemCount,
     ]
   );
 
@@ -424,6 +469,7 @@ export function HomeScreenZoneList({
 
   return (
     <AnimatedFlatList
+      ref={flatListRef}
       style={[styles.list, listContentFadeStyle]}
       data={sections}
       extraData={extraData}
@@ -442,6 +488,8 @@ export function HomeScreenZoneList({
       }
       contentContainerStyle={contentContainerStyle}
       contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? 'never' : undefined}
+      keyboardDismissMode="interactive"
+      keyboardShouldPersistTaps="handled"
       onScroll={listScrollHandler}
       scrollEventThrottle={16}
       initialNumToRender={6}

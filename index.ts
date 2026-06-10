@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import App from './src/App';
 import { initSentry, wrapWithSentry } from './src/services/sentryService';
+import { installSupabaseBenignAuthErrorConsoleFilter } from './src/services/supabaseClient';
 import { markAppLaunch } from './src/utils/perf';
 
 markAppLaunch();
@@ -18,8 +19,9 @@ void SplashScreen.preventAutoHideAsync().catch(() => {
   /* splash may already be hidden on fast devices; ignore */
 });
 
-// GoTrue logs console.error on invalid/revoked refresh tokens during init before the app can handle
-// getSession(); sequential bootstrap in App.tsx clears storage, but the SDK still prints once.
+// GoTrue logs console.error on invalid/revoked refresh tokens during init before auth bootstrap
+// clears storage. Filter the handled case; LogBox only suppresses yellow-box warnings.
+installSupabaseBenignAuthErrorConsoleFilter();
 if (__DEV__) {
   LogBox.ignoreLogs([/AuthApiError.*Invalid Refresh Token/i, /Refresh Token Not Found/i]);
 }

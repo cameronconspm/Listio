@@ -10,11 +10,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   supabase,
   isSyncEnabled,
-  signOutLocallyIfCorruptRefreshToken,
+  bootstrapSupabaseAuthSession,
 } from '../services/supabaseClient';
 import { clearPersistedQueryCache } from '../query/reactQueryPersistence';
 import { prefetchHomeListBundle } from '../query/homeListBundle';
-import { primeHouseholdId } from '../services/householdService';
+import { primeDefaultListId } from '../services/shoppingListService';
+import { primeDataScope } from '../services/syncInsertScope';
 import { resolveAuthAccountEmail } from '../constants/officialTestAccount';
 import type { User } from '@supabase/supabase-js';
 
@@ -63,13 +64,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserEmail(resolveAuthAccountEmail(user ?? null));
       const uid = user?.id;
       if (uid) {
-        // Pre-resolve household id so the home bundle's first `getStores`/etc. doesn't pay
-        // an extra `supabase.auth.getUser()` round-trip during bootstrap.
-        primeHouseholdId(uid);
+        primeDataScope(uid);
+        primeDefaultListId(uid);
         prefetchHomeListBundle(uid, queryClient);
         void maybeImportLocalDataOnSignInLazy(uid);
       } else {
-        primeHouseholdId(null);
+        primeDataScope(null);
+        primeDefaultListId(null);
       }
     },
     [queryClient]
@@ -90,25 +91,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserId((prev) => (prev === undefined ? null : prev));
     }, SESSION_HANG_MS);
 
+    try {
+      const sub = supabase.auth.onAuthStateChange((event, nextSession) => {
+        if (cancelled) return;
+        applySession(nextSession);
+        if (event === 'SIGNED_OUT') {
+          void clearPersistedQueryCache();
+          queryClient.clear();
+        }
+      });
+      subscription = sub.data.subscription;
+    } catch {
+      setIsAuthenticated(false);
+      setUserId(null);
+    }
+
     void (async () => {
       try {
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
+        const { session, clearedCorruptSession } = await bootstrapSupabaseAuthSession();
         if (cancelled) return;
 
-        if (error) {
-          const cleared = await signOutLocallyIfCorruptRefreshToken(error);
-          if (cleared) {
-            await clearPersistedQueryCache();
-            queryClient.clear();
-          }
-          setIsAuthenticated(false);
-          setUserId(null);
-        } else {
-          applySession(session);
+        if (clearedCorruptSession) {
+          await clearPersistedQueryCache();
+          queryClient.clear();
         }
+        applySession(session);
       } catch {
         if (!cancelled) {
           setIsAuthenticated(false);
@@ -116,18 +123,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } finally {
         if (!cancelled) clearTimeout(sessionTimeoutId);
-      }
-
-      if (cancelled) return;
-
-      try {
-        const sub = supabase.auth.onAuthStateChange((_event, nextSession) => {
-          applySession(nextSession);
-        });
-        subscription = sub.data.subscription;
-      } catch {
-        setIsAuthenticated(false);
-        setUserId(null);
       }
     })();
 

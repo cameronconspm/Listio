@@ -1,5 +1,5 @@
 import { supabase, isSyncEnabled } from './supabaseClient';
-import { getCurrentHouseholdId } from './householdService';
+import { resolveDataScopeId } from './syncInsertScope';
 import * as local from './localDataService';
 import type { StoreProfile, AisleEntry, StoreType, ZoneKey } from '../types/models';
 import { ZONE_KEYS } from '../data/zone';
@@ -21,11 +21,10 @@ export async function ensureDefaultStore(_userId: string): Promise<void> {
  */
 export async function getDefaultStore(userId: string): Promise<StoreProfile | null> {
   if (!isSyncEnabled()) return local.getDefaultStore(userId);
-  const householdId = await getCurrentHouseholdId();
   const { data, error } = await supabase
     .from('store_profiles')
     .select('*')
-    .eq('household_id', householdId)
+    .eq('user_id', userId)
     .eq('is_default', true)
     .maybeSingle();
 
@@ -52,16 +51,16 @@ export type CreateStoreInput = {
 export async function createStore(userId: string, data: CreateStoreInput): Promise<StoreProfile> {
   if (!isSyncEnabled()) return local.createStore(userId, data);
   const d = sanitizeCreateStore(data);
-  const householdId = await getCurrentHouseholdId();
+  const scopeId = await resolveDataScopeId();
   const existing = await getStores(userId);
   const makeDefault = existing.length === 0;
   const aisleOrder = d.aisle_order ?? (d.zone_order ? zoneOrderToAisleOrder(d.zone_order) : zoneOrderToAisleOrder(DEFAULT_ZONE_ORDER));
   const zoneOrder = d.zone_order ?? aisleOrder.filter((e) => e.type === 'builtin').map((e) => e.key);
 
-  /** Core columns present after household migrations; omit `aisle_order` so older DBs without migration 008 still accept inserts. */
+  /** Omit `aisle_order` so older DBs without migration 008 still accept inserts. */
   const basePayload: Record<string, unknown> = {
     user_id: userId,
-    household_id: householdId,
+    household_id: scopeId,
     name: d.name,
     store_type: d.store_type ?? 'generic',
     zone_order: zoneOrder,
@@ -90,11 +89,10 @@ export async function createStore(userId: string, data: CreateStoreInput): Promi
  */
 export async function getStores(userId: string): Promise<StoreProfile[]> {
   if (!isSyncEnabled()) return local.getStores(userId);
-  const householdId = await getCurrentHouseholdId();
   const { data, error } = await supabase
     .from('store_profiles')
     .select('*')
-    .eq('household_id', householdId)
+    .eq('user_id', userId)
     .order('created_at', { ascending: true });
 
   throwOnSupabaseFetchError(error, 'Could not load stores.');
@@ -106,14 +104,13 @@ export async function getStores(userId: string): Promise<StoreProfile[]> {
  */
 export async function setDefaultStore(userId: string, storeId: string): Promise<void> {
   if (!isSyncEnabled()) return local.setDefaultStore(userId, storeId);
-  const householdId = await getCurrentHouseholdId();
-  await supabase.from('store_profiles').update({ is_default: false }).eq('household_id', householdId);
+  await supabase.from('store_profiles').update({ is_default: false }).eq('user_id', userId);
 
   await supabase
     .from('store_profiles')
     .update({ is_default: true })
     .eq('id', storeId)
-    .eq('household_id', householdId);
+    .eq('user_id', userId);
 }
 
 /**
@@ -184,7 +181,7 @@ function mapRow(row: Record<string, unknown>): StoreProfile {
   return {
     id: row.id as string,
     user_id: row.user_id as string,
-    household_id: row.household_id as string | undefined,
+    household_id: row.household_id as string,
     name: row.name as string,
     latitude: row.latitude != null ? Number(row.latitude) : null,
     longitude: row.longitude != null ? Number(row.longitude) : null,

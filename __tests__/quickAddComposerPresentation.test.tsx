@@ -151,6 +151,8 @@ describe('QuickAddComposer presentation behavior', () => {
     const item = {
       id: 'i1',
       user_id: 'u',
+      household_id: 'scope-test',
+      list_id: 'list-test',
       name: 'Milk',
       normalized_name: 'milk',
       category: 'Dairy',
@@ -383,6 +385,8 @@ describe('QuickAddComposer presentation behavior', () => {
       const item = {
         id: 'i1',
         user_id: 'u',
+        household_id: 'scope-test',
+        list_id: 'list-test',
         name: 'Milk',
         normalized_name: 'milk',
         category: 'Dairy',

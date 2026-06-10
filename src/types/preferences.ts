@@ -16,8 +16,6 @@ export type RecentItemPreferenceSnapshot = {
 };
 
 export type UserPreferencesPayload = {
-  /** Active household for synced list/meals/recipes/stores. */
-  currentHouseholdId?: string;
   /** First-launch onboarding completion (sync users). */
   onboarding?: {
     completedVersion?: number;
@@ -84,8 +82,6 @@ export type UserPreferencesPayload = {
     recipeSpotlight?: boolean;
     shoppingReminders: boolean;
     weeklyPlanningReminders: boolean;
-    householdActivity: boolean;
-    sharedUpdates: boolean;
     productAnnouncements: boolean;
     /** Only `push` is implemented; `email` / `both` reserved for future backend. */
     notificationStyle: 'push' | 'email' | 'both';

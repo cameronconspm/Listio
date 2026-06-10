@@ -27,7 +27,7 @@ export async function fetchMealsRangeBundle(
     const counts = await getMealIngredientCounts(mealsData.map((m) => m.id));
     ingredientCounts = mapToRecord(counts);
     const recipeIds = mealsData.map((m) => m.recipe_id).filter((id): id is string => Boolean(id));
-    recipeMetaByRecipeId = await getRecipePlannerMetaByIds(recipeIds);
+    recipeMetaByRecipeId = await getRecipePlannerMetaByIds(recipeIds, userId);
   }
   return { meals: mealsData, ingredientCounts, recipeMetaByRecipeId };
 }

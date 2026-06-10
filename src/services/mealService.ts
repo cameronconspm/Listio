@@ -1,5 +1,5 @@
 import { supabase, isSyncEnabled } from './supabaseClient';
-import { getCurrentHouseholdId } from './householdService';
+import { resolveDataScopeId } from './syncInsertScope';
 import { fetchListItems, insertListItems } from './listService';
 import * as local from './localDataService';
 import { normalize } from '../utils/normalize';
@@ -10,11 +10,10 @@ import type { Meal, MealIngredient, MealSlot, RecipeCategory, ZoneKey } from '..
 
 export async function getMeals(userId: string): Promise<Meal[]> {
   if (!isSyncEnabled()) return local.getMeals(userId);
-  const householdId = await getCurrentHouseholdId();
   const { data, error } = await supabase
     .from('meals')
     .select('*')
-    .eq('household_id', householdId)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   throwOnSupabaseFetchError(error, 'Could not load meals.');
@@ -29,16 +28,18 @@ export type RecipePlannerMeta = {
 };
 
 /** Load servings, time, and category for planner meta lines (e.g. meals tab). */
-export async function getRecipePlannerMetaByIds(recipeIds: string[]): Promise<Record<string, RecipePlannerMeta>> {
+export async function getRecipePlannerMetaByIds(
+  recipeIds: string[],
+  userId?: string
+): Promise<Record<string, RecipePlannerMeta>> {
   const ids = [...new Set(recipeIds.map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0) return {};
   if (!isSyncEnabled()) return local.getRecipePlannerMetaByIds(ids);
 
-  const householdId = await getCurrentHouseholdId();
   const { data, error } = await supabase
     .from('recipes')
     .select('id, servings, total_time_minutes, category')
-    .eq('household_id', householdId)
+    .eq('user_id', userId)
     .in('id', ids);
 
   if (error || !data) return {};
@@ -65,11 +66,10 @@ export async function getMealsByDateRange(
   endDate: string
 ): Promise<Meal[]> {
   if (!isSyncEnabled()) return local.getMealsByDateRange(userId, startDate, endDate);
-  const householdId = await getCurrentHouseholdId();
   const { data, error } = await supabase
     .from('meals')
     .select('*')
-    .eq('household_id', householdId)
+    .eq('user_id', userId)
     .gte('meal_date', startDate)
     .lte('meal_date', endDate)
     .order('meal_date', { ascending: true })
@@ -139,10 +139,10 @@ export interface CreateMealInput {
 export async function createMeal(userId: string, data: CreateMealInput): Promise<Meal> {
   if (!isSyncEnabled()) return local.createMeal(userId, data);
   const d = sanitizeMealCreate(data);
-  const householdId = await getCurrentHouseholdId();
+  const scopeId = await resolveDataScopeId();
   const payload: Record<string, unknown> = {
     user_id: userId,
-    household_id: householdId,
+    household_id: scopeId,
     name: d.name,
     meal_date: d.meal_date,
     meal_slot: d.meal_slot,
@@ -377,7 +377,6 @@ function mapMeal(row: Record<string, unknown>): Meal {
   return {
     id: row.id as string,
     user_id: row.user_id as string,
-    household_id: row.household_id as string | undefined,
     name: row.name as string,
     recipe_id: row.recipe_id as string | null,
     start_date: row.start_date as string | null,

@@ -22,14 +22,14 @@ import { isPendingListItemId } from '../utils/listItemPending';
 type MilestoneKind = 'list' | 'meal' | 'recipe';
 
 const MILESTONE_CELEBRATION: Record<MilestoneKind, { title: string; message: string }> = {
-  list: { title: 'Your list is taking shape', message: 'Three down — nice momentum.' },
+  list: { title: 'Your list is taking shape', message: 'Three down. Nice momentum.' },
   meal: { title: 'First meal planned', message: "That's your week starting to come together." },
   recipe: { title: 'Recipe saved', message: 'Drop it onto any day whenever you cook it.' },
 };
 
 const GRADUATION_CELEBRATION = {
   title: "You've got the hang of Listio",
-  message: "Plan, save, shop — you've run the whole loop. Nicely done.",
+  message: "Plan, save, shop. You've run the whole loop. Nicely done.",
 };
 
 function celebrate(title: string, message: string): void {

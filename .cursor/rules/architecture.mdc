@@ -1,0 +1,21 @@
+---
+description: Keep docs/ARCHITECTURE.md updated when app structure or data flow changes
+globs: src/App.tsx,src/context/**/*,src/query/**/*,src/services/**/*,src/hooks/use*Sync*,src/hooks/useHome*
+alwaysApply: false
+---
+
+# Architecture documentation
+
+Canonical reference: [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
+
+Update when changing:
+
+- App bootstrap gates or provider tree (`App.tsx`)
+- Auth, bootstrap, or premium gate flow
+- React Query keys, persistence, or bundle fetch patterns
+- Service boundaries (client vs Edge Functions)
+- Realtime, import, or sync behavior
+
+Add a row to the **Changelog** section with the date and a one-line summary.
+
+Cross-update [`docs/DATA_MODEL.md`](../../docs/DATA_MODEL.md) if entity relationships or RLS scope change.

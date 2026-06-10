@@ -1,5 +1,6 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 import { logger } from '../utils/logger';
+import { isNotSignedInError } from '../utils/mapDbError';
 
 /**
  * Default client tuned for React Native: avoid web-centric refetch defaults.
@@ -9,6 +10,7 @@ export function createAppQueryClient(): QueryClient {
   return new QueryClient({
     queryCache: new QueryCache({
       onError: (error, query) => {
+        if (isNotSignedInError(error)) return;
         logger.warnRelease('Query error', query.queryKey, error);
       },
     }),

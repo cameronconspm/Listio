@@ -21,7 +21,7 @@ type Props = {
   /**
    * `true` once auth + onboarding gating has resolved and the home bundle should fetch.
    * While `false`, this screen still renders (covers session-resolve and onboarding-check)
-   * but no household-scoped query is fired.
+   * but no synced data query is fired.
    */
   homeFetchAllowed: boolean;
 };

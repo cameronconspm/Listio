@@ -73,7 +73,7 @@ export function DuplicateResolutionPanel({
           </Pressable>
         ) : (
           <Text style={[theme.typography.footnote, { color: theme.textSecondary, marginBottom: theme.spacing.sm }]}>
-            Different units — merge not available
+            Different units. Merge not available
           </Text>
         )}
 

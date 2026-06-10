@@ -17,6 +17,7 @@ describe('storeUtils zone order', () => {
     const store: StoreProfile = {
       id: 's1',
       user_id: 'u',
+      household_id: 'scope-test',
       name: 'Test',
       store_type: 'generic',
       zone_order: custom,
@@ -29,6 +30,7 @@ describe('storeUtils zone order', () => {
     const store: StoreProfile = {
       id: 's1',
       user_id: 'u',
+      household_id: 'scope-test',
       name: 'Test',
       store_type: 'generic',
       zone_order: ['produce'],
@@ -42,6 +44,7 @@ describe('storeUtils zone order', () => {
     const store: StoreProfile = {
       id: 's1',
       user_id: 'u',
+      household_id: 'scope-test',
       name: 'Test',
       store_type: 'generic',
       zone_order: ['produce'],
@@ -58,6 +61,7 @@ describe('storeUtils zone order', () => {
 describe('dedupeStoresForDisplay', () => {
   const base = {
     user_id: 'u',
+    household_id: 'scope-test',
     store_type: 'generic' as const,
     zone_order: [...ZONE_KEYS],
     is_default: false,

@@ -146,12 +146,14 @@ function ListItemRowInner({
     .map((s) => (s.kind === 'meal' ? s.accessibilityLabel : s.text))
     .join(', ');
 
+  const showHighPriorityBadge = item.priority === 'high' && !checked;
+
   const handleEdit = () => {
     haptics.light();
     onEdit(item);
   };
 
-  const handleRowPress = isPlanMode ? undefined : handleToggle;
+  const handleRowPress = isPlanMode ? handleEdit : handleToggle;
 
   return (
     <Animated.View
@@ -169,6 +171,12 @@ function ListItemRowInner({
         overshootRight={false}
       >
         <Animated.View style={rowAnimStyle}>
+          {/* Swipe-to-check hint: thin accent bar on the left edge in Shop mode */}
+          {swipeToCheck && !checked && !rowPending ? (
+            <Animated.View
+              style={[styles.swipeHint, { backgroundColor: theme.accent }, leadingAnimStyle]}
+            />
+          ) : null}
           <Pressable
             style={styles.row}
             onPress={rowPending ? undefined : handleRowPress}
@@ -199,13 +207,25 @@ function ListItemRowInner({
                 >
                   {item.name}
                 </AnimatedText>
-                {secondarySegments.length > 0 ? (
+                {(showHighPriorityBadge || secondarySegments.length > 0) ? (
                   <Animated.View
                     style={[styles.secondaryPillsRow, secondaryAnimStyle]}
                     accessible
                     accessibilityRole="text"
-                    accessibilityLabel={secondaryA11y}
+                    accessibilityLabel={[showHighPriorityBadge ? 'High priority' : '', secondaryA11y].filter(Boolean).join(', ')}
                   >
+                    {showHighPriorityBadge && (
+                      <View
+                        style={[styles.metaPill, styles.priorityHighPill, { backgroundColor: theme.danger + '18' }]}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                      >
+                        <Ionicons name="alert-circle-outline" size={13} color={theme.danger} style={styles.priorityHighIcon} />
+                        <Text style={[theme.typography.caption1, styles.priorityHighText, { color: theme.danger }]}>
+                          High
+                        </Text>
+                      </View>
+                    )}
                     {secondarySegments.map((segment, index) =>
                       segment.kind === 'meal' ? (
                         <View
@@ -253,6 +273,14 @@ export const ListItemRow = React.memo(ListItemRowInner);
 const styles = StyleSheet.create({
   swipeableWrapper: {
     overflow: 'hidden' as const,
+  },
+  swipeHint: {
+    position: 'absolute',
+    left: 0,
+    top: 6,
+    bottom: 6,
+    width: 3,
+    borderRadius: 2,
   },
   row: {
     flexDirection: 'row',
@@ -303,6 +331,17 @@ const styles = StyleSheet.create({
   },
   mealMetaIcon: {
     flexShrink: 0,
+  },
+  priorityHighPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xxs,
+  },
+  priorityHighIcon: {
+    flexShrink: 0,
+  },
+  priorityHighText: {
+    fontWeight: '500',
   },
   editBtn: {
     marginLeft: spacing.xs,

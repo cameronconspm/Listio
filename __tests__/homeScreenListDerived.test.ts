@@ -9,6 +9,8 @@ import type { ListItem } from '../src/types/models';
 function item(overrides: Partial<ListItem> & Pick<ListItem, 'id' | 'zone_key'>): ListItem {
   return {
     user_id: 'u',
+    household_id: 'scope-test',
+    list_id: 'list-test',
     name: 'x',
     normalized_name: 'x',
     category: 'other',

@@ -174,7 +174,7 @@ export function RecipesScreen() {
    */
   const searchIdsQuery = useQuery({
     queryKey: [...queryKeys.recipeIngredientNamesForSearch(userId ?? ''), 'rpc', debouncedSearchQuery],
-    queryFn: () => searchRecipeIds(debouncedSearchQuery),
+    queryFn: () => searchRecipeIds(userId!, debouncedSearchQuery),
     enabled: syncEnabled && userReady && debouncedSearchQuery.length > 0,
     staleTime: 30_000,
   });
@@ -508,7 +508,7 @@ export function RecipesScreen() {
           icon="book-outline"
           mascot="empty"
           title="No recipes yet"
-          message="Save the meals you make on repeat — then drop them onto your week in a tap."
+          message="Save the meals you make on repeat, then drop them onto your week in a tap."
           glass={false}
         >
             <PrimaryButton

@@ -121,6 +121,8 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
     [isPremium, isPremiumLoading]
   );
   const inputRef = useRef<TextInput>(null);
+  /** Uncontrolled name field — avoids iOS dictation fighting a controlled `value`. */
+  const [nameInputSeed, setNameInputSeed] = useState({ key: 0, initial: '' });
 
   const [text, setText] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -224,12 +226,14 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       return;
     }
 
+    let initialName = '';
     if (editingItem) {
       setSmartMode(false);
       const qty = editingItem.quantity_value ?? 1;
       const rawUnit = (editingItem.quantity_unit ?? 'ea').toString().toLowerCase();
       const u = UNITS.includes(rawUnit as (typeof UNITS)[number]) ? rawUnit : 'ea';
-      setText(editingItem.name);
+      initialName = editingItem.name;
+      setText(initialName);
       setQuantity(typeof qty === 'number' ? qty : 1);
       setUnit(u);
       setNote(editingItem.notes ?? '');
@@ -238,7 +242,8 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       setEditZoneKey(editingItem.zone_key);
     } else {
       const d = draftRef.current;
-      setText(d.text);
+      initialName = d.text;
+      setText(initialName);
       setQuantity(d.quantity);
       setUnit(d.unit);
       setNote(d.note);
@@ -247,6 +252,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       /** Default section is Auto (AI); scroll/filter context no longer forces a section. */
       setZoneOverride(null);
     }
+    setNameInputSeed((seed) => ({ key: seed.key + 1, initial: initialName }));
     setOpenDropdown(null);
   }, [visible, editingItem]);
 
@@ -325,6 +331,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
     const formatted = text.trim() === '' ? '' : titleCaseWords(text);
     if (formatted !== text) {
       setText(formatted);
+      inputRef.current?.setNativeProps({ text: formatted });
       syncParsedFromText(formatted);
     }
     draftRef.current = {
@@ -424,7 +431,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       if (abort.cancelled) return;
       if (parsed.length === 0) {
         setError(
-          "Didn't catch any items — try rephrasing or tap the sparkle to go back to single-item mode."
+          "Didn't catch any items. Try rephrasing or tap the sparkle to go back to single-item mode."
         );
         return;
       }
@@ -619,11 +626,11 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
 
   const handleKeyPress = useCallback(
     (e: { nativeEvent: { key: string } }) => {
-      if (e.nativeEvent.key === 'Enter') {
+      if (editingItem && e.nativeEvent.key === 'Enter') {
         handleSubmit();
       }
     },
-    [handleSubmit]
+    [editingItem, handleSubmit]
   );
 
   const incrementQty = useCallback(() => {
@@ -740,9 +747,10 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       {/* ── Hero name input ────────────────────────────────────────────── */}
       <View style={styles.heroBlock}>
         <TextInput
+          key={nameInputSeed.key}
           ref={inputRef}
           testID="quick-add-item-input"
-          value={text}
+          defaultValue={nameInputSeed.initial}
           onChangeText={handleTextChange}
           onFocus={() => setNameFocused(true)}
           onBlur={() => {
@@ -755,7 +763,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
             editingItem
               ? 'Item name'
               : smartMode
-                ? 'Describe what you need — e.g. a gallon of milk, two pounds of chicken, some avocados'
+                ? 'Describe what you need, e.g. a gallon of milk, two pounds of chicken, some avocados'
                 : 'Item name'
           }
           placeholderTextColor={theme.textSecondary}

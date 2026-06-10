@@ -42,7 +42,7 @@ type RegisterPushTokenOptions = {
   promptForPermission?: boolean;
 };
 
-/** Registers for Expo push and upserts token for remote notifications (household, etc.). */
+/** Registers for Expo push and upserts token for remote notifications. */
 export async function registerAndSyncPushToken(
   options: RegisterPushTokenOptions = {}
 ): Promise<string | null> {

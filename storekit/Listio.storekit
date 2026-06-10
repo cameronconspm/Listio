@@ -19,7 +19,7 @@
           "introductoryOffer": null,
           "localizations": [
             {
-              "description": "Listio Premium — billed monthly",
+              "description": "Listio Premium, billed monthly",
               "displayName": "Premium Monthly",
               "locale": "en_US"
             }
@@ -40,7 +40,7 @@
           "introductoryOffer": null,
           "localizations": [
             {
-              "description": "Listio Premium — billed annually",
+              "description": "Listio Premium, billed annually",
               "displayName": "Premium Annual",
               "locale": "en_US"
             }

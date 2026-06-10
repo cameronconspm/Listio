@@ -74,7 +74,7 @@ export function DeleteAccountScreen() {
         <ListSection title="Warning" titleVariant="small" glass={false} style={styles.section}>
           <View style={[styles.warningBox, { backgroundColor: theme.surface }]}>
             <Text style={[theme.typography.body, { color: theme.textSecondary, lineHeight: 22 }]}>
-              This deletes your account and everything in Listio tied to it—lists, meals, and recipes. You can’t get this
+              This deletes your account and everything in Listio tied to it, including lists, meals, and recipes. You can’t get this
               data back.
             </Text>
           </View>

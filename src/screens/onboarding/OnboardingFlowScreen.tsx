@@ -241,7 +241,7 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
             <OnboardingStepHeader
               eyebrow="Welcome to Listio"
               title="Plan meals, build your list, then shop"
-              subtitle="Three connected tabs keep your week, recipes, and grocery run in one place — so you never copy the same items twice."
+              subtitle="Three connected tabs keep your week, recipes, and grocery run in one place, so you never copy the same items twice."
             />
             <OnboardingWelcomeFeatured />
           </OnboardingAnimatedStep>

@@ -30,7 +30,7 @@ export function HomeScreenEmptyState({ scrollContentPaddingTop }: Props) {
       <EmptyState
         icon="cart-outline"
         mascot="empty"
-        title="Your list's empty — for now"
+        title="Your list's empty for now"
         message="Add a few things and we'll line them up by aisle, so your next shop is one smooth loop."
         glass={false}
       />

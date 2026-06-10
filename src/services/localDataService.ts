@@ -3,7 +3,6 @@
  * Mirrors the public API of listService, mealService, recipeService, storeService.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LOCAL_HOUSEHOLD_ID } from './householdService';
 import { normalize } from '../utils/normalize';
 import {
   buildListInsertsFromRecipeIngredients,
@@ -157,14 +156,10 @@ async function saveListItems(items: ListItem[]): Promise<void> {
   await AsyncStorage.setItem(KEYS.list_items, JSON.stringify(items));
 }
 
-function inLocalHousehold<T extends { household_id?: string }>(row: T): boolean {
-  return !row.household_id || row.household_id === LOCAL_HOUSEHOLD_ID;
-}
-
 export async function fetchListItems(userId: string): Promise<ListItem[]> {
   const items = await loadListItems();
   return items
-    .filter((i) => i.user_id === userId && inLocalHousehold(i))
+    .filter((i) => i.user_id === userId)
     .map((i) => (typeof i.is_checked === 'boolean' ? i : { ...i, is_checked: Boolean(i.is_checked) }))
     .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
 }
@@ -184,20 +179,20 @@ export async function deleteListItem(id: string): Promise<void> {
 
 export async function deleteAllListItems(userId: string): Promise<void> {
   const items = await loadListItems();
-  await saveListItems(items.filter((i) => !(i.user_id === userId && inLocalHousehold(i))));
+  await saveListItems(items.filter((i) => !(i.user_id === userId)));
 }
 
 export async function deleteListItemsInZone(userId: string, zoneKey: ZoneKey): Promise<void> {
   const items = await loadListItems();
   await saveListItems(
-    items.filter((i) => !(i.user_id === userId && inLocalHousehold(i) && i.zone_key === zoneKey))
+    items.filter((i) => !(i.user_id === userId && i.zone_key === zoneKey))
   );
 }
 
 export async function deleteCheckedListItems(userId: string): Promise<void> {
   const items = await loadListItems();
   await saveListItems(
-    items.filter((i) => !(i.user_id === userId && inLocalHousehold(i) && Boolean(i.is_checked)))
+    items.filter((i) => !(i.user_id === userId && Boolean(i.is_checked)))
   );
 }
 
@@ -251,7 +246,9 @@ export async function insertListItems(userId: string, items: ListItemInsert[]): 
     const row: ListItem = {
       id: uuid(),
       user_id: i.user_id,
-      household_id: LOCAL_HOUSEHOLD_ID,
+      // Local-only mode has no DB scope; use empty string placeholders
+      household_id: '',
+      list_id: '',
       name: i.name,
       normalized_name: i.normalized_name,
       category: i.category ?? '',
@@ -301,7 +298,7 @@ async function saveMealIngredients(ings: MealIngredient[]): Promise<void> {
 export async function getMeals(userId: string): Promise<Meal[]> {
   const meals = await loadMeals();
   return meals
-    .filter((m) => m.user_id === userId && inLocalHousehold(m))
+    .filter((m) => m.user_id === userId)
     .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
 }
 
@@ -315,7 +312,6 @@ export async function getMealsByDateRange(
     .filter(
       (m) =>
         m.user_id === userId &&
-        inLocalHousehold(m) &&
         m.meal_date >= startDate &&
         m.meal_date <= endDate
     )
@@ -365,7 +361,6 @@ export async function createMeal(userId: string, data: CreateMealInput): Promise
   const meal: Meal = {
     id: uuid(),
     user_id: userId,
-    household_id: LOCAL_HOUSEHOLD_ID,
     name: d.name,
     recipe_id: d.recipe_id ?? null,
     start_date: null,
@@ -565,7 +560,7 @@ export async function getRecipePlannerMetaByIds(recipeIds: string[]): Promise<
 
 export async function getRecipes(userId: string, options?: GetRecipesOptions): Promise<Recipe[]> {
   const recipes = await loadRecipes();
-  let filtered = recipes.filter((r) => r.user_id === userId && inLocalHousehold(r));
+  let filtered = recipes.filter((r) => r.user_id === userId);
 
   const filter = options?.filter ?? 'all';
   if (filter === 'favorites') {
@@ -676,7 +671,6 @@ export async function createRecipe(
   const recipe: Recipe = {
     id: uuid(),
     user_id: userId,
-    household_id: LOCAL_HOUSEHOLD_ID,
     name: d.name,
     servings: d.servings ?? 4,
     total_time_minutes: d.total_time_minutes ?? null,
@@ -749,7 +743,6 @@ export async function duplicateRecipe(recipeId: string, userId: string): Promise
   const newRecipe: Recipe = {
     id: uuid(),
     user_id: userId,
-    household_id: orig.household_id ?? LOCAL_HOUSEHOLD_ID,
     name: sanitizeDuplicateRecipeName(orig.name),
     servings: orig.servings ?? 4,
     total_time_minutes: orig.total_time_minutes ?? null,
@@ -963,13 +956,13 @@ export async function ensureDefaultStore(_userId: string): Promise<void> {
 
 export async function getDefaultStore(userId: string): Promise<StoreProfile | null> {
   const stores = await loadStoreProfiles();
-  return stores.find((s) => s.user_id === userId && s.is_default && inLocalHousehold(s)) ?? null;
+  return stores.find((s) => s.user_id === userId && s.is_default) ?? null;
 }
 
 export async function getStores(userId: string): Promise<StoreProfile[]> {
   const stores = await loadStoreProfiles();
   return stores
-    .filter((s) => s.user_id === userId && inLocalHousehold(s))
+    .filter((s) => s.user_id === userId)
     .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
 }
 
@@ -990,7 +983,7 @@ export async function createStore(
 ): Promise<StoreProfile> {
   const d = sanitizeCreateStore(data);
   const stores = await loadStoreProfiles();
-  const userStores = stores.filter((s) => s.user_id === userId && inLocalHousehold(s));
+  const userStores = stores.filter((s) => s.user_id === userId);
   const makeDefault = userStores.length === 0;
   const ts = now();
   const zoneOrder = d.zone_order ?? DEFAULT_ZONE_ORDER;
@@ -998,7 +991,8 @@ export async function createStore(
   const store: StoreProfile = {
     id: uuid(),
     user_id: userId,
-    household_id: LOCAL_HOUSEHOLD_ID,
+    // Local-only mode has no DB scope; use empty string placeholder
+    household_id: '',
     name: d.name || 'My Store',
     latitude: d.latitude !== undefined ? d.latitude : null,
     longitude: d.longitude !== undefined ? d.longitude : null,
@@ -1021,7 +1015,7 @@ export async function createStore(
 export async function setDefaultStore(userId: string, storeId: string): Promise<void> {
   const stores = await loadStoreProfiles();
   for (let i = 0; i < stores.length; i++) {
-    if (stores[i].user_id === userId && inLocalHousehold(stores[i])) {
+    if (stores[i].user_id === userId && (stores[i])) {
       stores[i] = { ...stores[i], is_default: stores[i].id === storeId };
     }
   }
@@ -1079,16 +1073,16 @@ export async function updateStoreProfile(
 
 export async function deleteStore(userId: string, storeId: string): Promise<void> {
   const stores = await loadStoreProfiles();
-  const store = stores.find((s) => s.id === storeId && s.user_id === userId && inLocalHousehold(s));
+  const store = stores.find((s) => s.id === storeId && s.user_id === userId);
   if (!store) return;
 
   let remaining = stores.filter((s) => s.id !== storeId);
   if (store.is_default) {
-    const userStores = remaining.filter((s) => s.user_id === userId && inLocalHousehold(s));
+    const userStores = remaining.filter((s) => s.user_id === userId);
     const next = userStores[0];
     if (next) {
       remaining = remaining.map((s) =>
-        s.user_id === userId && inLocalHousehold(s) ? { ...s, is_default: s.id === next.id } : s
+        s.user_id === userId ? { ...s, is_default: s.id === next.id } : s
       );
     }
   }
@@ -1114,18 +1108,18 @@ export async function snapshotLocalDataForUser(userId: string): Promise<{
       loadStoreProfiles(),
     ]);
 
-  const userMeals = meals.filter((m) => m.user_id === userId && inLocalHousehold(m));
+  const userMeals = meals.filter((m) => m.user_id === userId);
   const mealIdSet = new Set(userMeals.map((m) => m.id));
-  const userRecipes = recipes.filter((r) => r.user_id === userId && inLocalHousehold(r));
+  const userRecipes = recipes.filter((r) => r.user_id === userId);
   const recipeIdSet = new Set(userRecipes.map((r) => r.id));
 
   return {
-    listItems: listItems.filter((i) => i.user_id === userId && inLocalHousehold(i)),
+    listItems: listItems.filter((i) => i.user_id === userId),
     meals: userMeals,
     mealIngredients: mealIngredients.filter((i) => mealIdSet.has(i.meal_id)),
     recipes: userRecipes,
     recipeIngredients: recipeIngredients.filter((i) => recipeIdSet.has(i.recipe_id)),
-    storeProfiles: storeProfiles.filter((s) => s.user_id === userId && inLocalHousehold(s)),
+    storeProfiles: storeProfiles.filter((s) => s.user_id === userId),
   };
 }
 

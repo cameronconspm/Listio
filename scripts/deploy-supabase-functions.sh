@@ -35,7 +35,6 @@ FUNCTIONS=(
   place-search
   places-nearby
   place-photo
-  household-push
 )
 
 supabase functions deploy "${FUNCTIONS[@]}" --project-ref "${PROJECT_REF}"

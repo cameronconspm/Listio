@@ -8,8 +8,7 @@ import { createMeal, setMealIngredients } from './mealService';
 import { createStore } from './storeService';
 import { clearAllLocalData } from './localDataService';
 import { isSyncEnabled } from './supabaseClient';
-import { getCurrentHouseholdId } from './householdService';
-import { deleteHouseholdSyncedContent } from './deleteUserAppDataService';
+import { deleteUserSyncedContent } from './deleteUserAppDataService';
 import { normalize } from '../utils/normalize';
 import { toDateString } from '../utils/dateUtils';
 import type { ZoneKey, AisleEntry, RecipeCategory } from '../types/models';
@@ -90,7 +89,7 @@ const DEMO_LIST_ITEMS: (Omit<ListItemInsert, 'user_id' | 'normalized_name' | 'li
     zone_key: 'produce' as ZoneKey,
     quantity_value: null,
     quantity_unit: null,
-    notes: 'Steam or roast — kids like with cheese',
+    notes: 'Steam or roast. Kids like with cheese',
     is_checked: false,
     linked_meal_refs: ['Tofu stir-fry'],
     brand_preference: null,
@@ -398,7 +397,7 @@ const DEMO_LIST_ITEMS: (Omit<ListItemInsert, 'user_id' | 'normalized_name' | 'li
     zone_key: 'frozen' as ZoneKey,
     quantity_value: 1,
     quantity_unit: 'bag',
-    notes: 'Shelled — quick protein snack',
+    notes: 'Shelled. Quick protein snack',
     is_checked: false,
     linked_meal_refs: [],
     brand_preference: null,
@@ -956,7 +955,7 @@ const DEMO_MEALS: {
     dateOffset: 4,
     recipe_ref: 'Whole wheat pancakes',
     recipe_url: 'https://www.kingarthurbaking.com/recipes/whole-grain-pancakes-recipe',
-    notes: 'Double batch — freeze extras',
+    notes: 'Double batch. Freeze extras',
     ingredients: [
       { name: 'White whole wheat flour', quantity_value: 3, quantity_unit: 'cup', notes: null },
       { name: 'Eggs', quantity_value: 4, quantity_unit: 'count', notes: null },
@@ -1088,8 +1087,7 @@ async function clearAllUserData(_userId: string): Promise<void> {
     await clearAllLocalData();
     return;
   }
-  const householdId = await getCurrentHouseholdId();
-  await deleteHouseholdSyncedContent(householdId);
+  await deleteUserSyncedContent(_userId);
 }
 
 export async function loadDemoData(userId: string): Promise<void> {

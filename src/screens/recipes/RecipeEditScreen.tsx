@@ -24,7 +24,8 @@ import { ListSection } from '../../components/ui/ListSection';
 import { SecondaryButton } from '../../components/ui/SecondaryButton';
 import { TextField } from '../../components/ui/TextField';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
-import { UnitDropdown } from '../../components/ui/UnitDropdown';
+import { UnitPickerSheet } from '../../components/ui/UnitPickerSheet';
+import { normalizeUnitValue } from '../../components/ui/unitSelection';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
 import { RECIPE_CATEGORY_LABELS } from '../../components/recipes/RecipeCategorySheet';
 import type { RecipeCategory } from '../../types/models';
@@ -39,6 +40,7 @@ import { titleCaseWords } from '../../utils/titleCaseWords';
 import { showError, showSuccess } from '../../utils/appToast';
 import { MAX_RECIPE_AI_INPUT, MAX_RECIPE_INSTRUCTIONS, clampStr } from '../../constants/textLimits';
 import { spacing } from '../../design/spacing';
+import { radius } from '../../design/radius';
 import { AI_RECIPE_IMPORT_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDisclosure';
 import { PRIVACY_POLICY_URL } from '../../constants/legalUrls';
 import { parseRecipeInstructionSteps } from '../../utils/parseRecipeInstructionSteps';
@@ -126,6 +128,7 @@ export function RecipeEditScreen() {
   const [totalTimeMinutes, setTotalTimeMinutes] = useState('');
   const [ingredients, setIngredients] = useState<IngredientRow[]>([{ ...defaultIngredient }]);
   const [saving, setSaving] = useState(false);
+  const [unitPickerIdx, setUnitPickerIdx] = useState<number | null>(null);
 
   const [smartImportTab, setSmartImportTab] = useState<SmartImportTab>('link');
   const [importLinkUrl, setImportLinkUrl] = useState('');
@@ -705,12 +708,19 @@ export function RecipeEditScreen() {
                   style={[styles.compactLineInput, styles.ingQtyInput]}
                 />
                 <View style={styles.ingUnitWrap}>
-                  <UnitDropdown
-                    value={ing.quantity_unit}
-                    onSelect={(u) => updateIngredient(idx, 'quantity_unit', u)}
-                    containerStyle={styles.ingUnit}
+                  <TouchableOpacity
+                    onPress={() => { Keyboard.dismiss(); setUnitPickerIdx(idx); }}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
                     accessibilityLabel={`Change unit for ingredient ${idx + 1}`}
-                  />
+                    accessibilityHint="Opens unit options"
+                    style={[styles.ingUnit, styles.unitTrigger, { backgroundColor: theme.background, borderColor: theme.divider }]}
+                  >
+                    <Text style={[theme.typography.body, { color: theme.textPrimary }]}>
+                      {normalizeUnitValue(ing.quantity_unit)}
+                    </Text>
+                    <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
                 </View>
                 <TextField
                   value={ing.name}
@@ -814,6 +824,16 @@ export function RecipeEditScreen() {
         </ScrollView>
       </KeyboardSafeForm>
 
+      <UnitPickerSheet
+        visible={unitPickerIdx !== null}
+        onClose={() => setUnitPickerIdx(null)}
+        value={unitPickerIdx !== null ? (ingredients[unitPickerIdx]?.quantity_unit ?? 'ea') : 'ea'}
+        onSelect={(u) => {
+          if (unitPickerIdx !== null) updateIngredient(unitPickerIdx, 'quantity_unit', u);
+          setUnitPickerIdx(null);
+        }}
+      />
+
       <AppConfirmationDialog
         visible={!!errorDialog}
         onClose={() => setErrorDialog(null)}
@@ -896,6 +916,16 @@ const styles = StyleSheet.create({
   ingQtyInput: { paddingHorizontal: spacing.xs },
   ingUnitWrap: { width: 96, marginBottom: 0, flexShrink: 0 },
   ingUnit: { marginBottom: 0 },
+  unitTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: MIN_TOUCH_TARGET,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.input,
+    borderWidth: 1,
+  },
   ingName: { flex: 1, minWidth: 0, marginBottom: 0 },
   removeBtn: {
     width: MIN_TOUCH_TARGET,

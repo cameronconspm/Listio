@@ -30,10 +30,22 @@ export interface Profile {
   created_at: string;
 }
 
+export interface ShoppingList {
+  id: string;
+  /** Per-user data scope (maps to the user's private household). */
+  household_id: string;
+  name: string;
+  is_default: boolean;
+  sort_order: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface StoreProfile {
   id: string;
   user_id: string;
-  household_id?: string;
+  /** Per-user data scope (maps to the user's private household). */
+  household_id: string;
   name: string;
   /** WGS84; set from device when user saves "store location" for nearest-store hints */
   latitude?: number | null;
@@ -61,7 +73,10 @@ export type ItemPriority = 'low' | 'normal' | 'high';
 export interface ListItem {
   id: string;
   user_id: string;
-  household_id?: string;
+  /** Per-user data scope (maps to the user's private household). */
+  household_id: string;
+  /** FK → shopping_lists; required (NOT NULL after migration 031). */
+  list_id: string;
   name: string;
   normalized_name: string;
   category: string;
@@ -84,7 +99,6 @@ export type RecipeCategory = 'breakfast' | 'lunch' | 'dinner' | 'dessert' | 'sna
 export interface Recipe {
   id: string;
   user_id: string;
-  household_id?: string;
   name: string;
   servings: number;
   /** Optional total time in minutes (shown as a pill on cards and detail). */
@@ -96,6 +110,8 @@ export interface Recipe {
   is_favorite?: boolean;
   category?: RecipeCategory | null;
   last_used_at?: string | null;
+  /** Cached ingredient count (migration 029); used for sorting and display. */
+  ingredient_count?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -114,7 +130,6 @@ export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'dessert' | 'custom';
 export interface Meal {
   id: string;
   user_id: string;
-  household_id?: string;
   name: string;
   recipe_id: string | null;
   start_date: string | null;

@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
 import { horizontalScrollInsetBleed } from '../../design/layout';
@@ -87,6 +88,13 @@ function useListStatsStyles() {
           borderRadius: theme.radius.sm,
           minWidth: 20,
           alignItems: 'center',
+        },
+        chipsFadeRight: {
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: 48,
         },
       }),
     [theme],
@@ -280,7 +288,17 @@ export function ListStatsHeader({
                 />
               );
             })}
+            {/* Right-side padding so last chip doesn't hide under the fade */}
+            <View style={{ width: theme.spacing.lg }} />
           </ScrollView>
+          {/* Trailing fade to hint at more chips */}
+          <LinearGradient
+            colors={[theme.background + '00', theme.background]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.chipsFadeRight}
+            pointerEvents="none"
+          />
         </View>
       )}
     </View>

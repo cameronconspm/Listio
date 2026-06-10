@@ -28,3 +28,13 @@ export function showSuccess(message: string, title?: string) {
     visibilityTime: DEFAULT_MS,
   });
 }
+
+/** Show a mascot-celebrate toast for milestone moments (section complete, etc). */
+export function showMascotSuccess(title: string, message?: string) {
+  Toast.show({
+    type: 'mascot_success',
+    text1: title,
+    text2: message,
+    visibilityTime: 2800,
+  });
+}

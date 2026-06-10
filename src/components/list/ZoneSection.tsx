@@ -252,14 +252,19 @@ function ZoneSectionInner({
               </AnimatedText>
             </View>
             <View style={styles.headerRight}>
-              {isShopMode && remaining > 0 ? (
-                <Text style={[theme.typography.footnote, { color: theme.textSecondary }]}>
-                  {remaining} left
-                </Text>
+              {isShopMode ? (
+                remaining > 0 ? (
+                  <Text style={[theme.typography.footnote, { color: theme.textSecondary }]}>
+                    <Text style={{ color: theme.accent, fontWeight: '600' }}>
+                      {items.length - remaining}
+                    </Text>
+                    {' / '}
+                    {items.length}
+                  </Text>
+                ) : null
               ) : (
                 <Text style={[theme.typography.footnote, { color: theme.textSecondary }]}>
-                  {items.length}
-                  {!isShopMode ? ` ${items.length === 1 ? 'item' : 'items'}` : ''}
+                  {items.length} {items.length === 1 ? 'item' : 'items'}
                 </Text>
               )}
               <Animated.View style={[styles.chevronWrap, chevronStyle]}>

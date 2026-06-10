@@ -1,9 +1,11 @@
 import { supabase, isSyncEnabled } from './supabaseClient';
-import { getCurrentHouseholdId } from './householdService';
 import * as local from './localDataService';
 import type { ListItem, ItemPriority, ZoneKey } from '../types/models';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
-import { throwOnSupabaseFetchError } from '../utils/serviceErrors';
+import { logger } from '../utils/logger';
+import { ServiceFetchError, throwOnSupabaseFetchError } from '../utils/serviceErrors';
+import { resolveDefaultListId } from './shoppingListService';
+import { requireAuthenticatedUserId, resolveDataScopeId } from './syncInsertScope';
 import { sanitizeListItemInsert, sanitizeListItemUpdate } from '../utils/sanitizeUserText';
 
 export interface ListItemInsert {
@@ -25,11 +27,11 @@ export interface ListItemInsert {
 
 export async function fetchListItems(userId: string): Promise<ListItem[]> {
   if (!isSyncEnabled()) return local.fetchListItems(userId);
-  const householdId = await getCurrentHouseholdId();
+  const listId = await resolveDefaultListId();
   const { data, error } = await supabase
     .from('list_items')
     .select('*')
-    .eq('household_id', householdId)
+    .eq('list_id', listId)
     .order('created_at', { ascending: true });
 
   throwOnSupabaseFetchError(error, 'Could not load your list.');
@@ -46,32 +48,32 @@ export async function deleteListItem(id: string): Promise<void> {
   await supabase.from('list_items').delete().eq('id', id);
 }
 
-export async function deleteAllListItems(_userId: string): Promise<void> {
-  if (!isSyncEnabled()) return local.deleteAllListItems(_userId);
-  const householdId = await getCurrentHouseholdId();
-  const { error } = await supabase.from('list_items').delete().eq('household_id', householdId);
+export async function deleteAllListItems(userId: string): Promise<void> {
+  if (!isSyncEnabled()) return local.deleteAllListItems(userId);
+  const listId = await resolveDefaultListId();
+  const { error } = await supabase.from('list_items').delete().eq('list_id', listId);
   if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not clear your list.'));
 }
 
-export async function deleteListItemsInZone(_userId: string, zoneKey: ZoneKey): Promise<void> {
-  if (!isSyncEnabled()) return local.deleteListItemsInZone(_userId, zoneKey);
-  const householdId = await getCurrentHouseholdId();
+export async function deleteListItemsInZone(userId: string, zoneKey: ZoneKey): Promise<void> {
+  if (!isSyncEnabled()) return local.deleteListItemsInZone(userId, zoneKey);
+  const listId = await resolveDefaultListId();
   const { error } = await supabase
     .from('list_items')
     .delete()
-    .eq('household_id', householdId)
+    .eq('list_id', listId)
     .eq('zone_key', zoneKey);
   if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not delete that section.'));
 }
 
-/** Removes every checked item for the current household (Shop run finished). */
-export async function deleteCheckedListItems(_userId: string): Promise<void> {
-  if (!isSyncEnabled()) return local.deleteCheckedListItems(_userId);
-  const householdId = await getCurrentHouseholdId();
+/** Removes every checked item for the user (Shop run finished). */
+export async function deleteCheckedListItems(userId: string): Promise<void> {
+  if (!isSyncEnabled()) return local.deleteCheckedListItems(userId);
+  const listId = await resolveDefaultListId();
   const { error } = await supabase
     .from('list_items')
     .delete()
-    .eq('household_id', householdId)
+    .eq('list_id', listId)
     .eq('is_checked', true);
   if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not remove checked items.'));
 }
@@ -121,11 +123,16 @@ export async function insertListItems(userId: string, items: ListItemInsert[]): 
   const sanitized = items.map(sanitizeListItemInsert);
   if (!isSyncEnabled()) return local.insertListItems(userId, sanitized);
 
-  const householdId = await getCurrentHouseholdId();
+  const [authUserId, scopeId, listId] = await Promise.all([
+    requireAuthenticatedUserId(),
+    resolveDataScopeId(),
+    resolveDefaultListId(),
+  ]);
   const rows = sanitized.map((s) => {
     return {
-    user_id: s.user_id,
-    household_id: householdId,
+    user_id: authUserId,
+    household_id: scopeId,
+    list_id: listId,
     name: s.name,
     normalized_name: s.normalized_name,
     category: s.category,
@@ -143,7 +150,14 @@ export async function insertListItems(userId: string, items: ListItemInsert[]): 
   });
 
   const { data, error } = await supabase.from('list_items').insert(rows).select('*');
-  if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not add items.'));
+  if (error) {
+    logger.warnRelease('insertListItems failed', {
+      code: error.code,
+      message: error.message,
+      userId: authUserId,
+    });
+    throw new ServiceFetchError(mapDbErrorToUserMessage(error, 'Could not add items.'), error);
+  }
   return (data ?? []).map(mapRow);
 }
 
@@ -151,6 +165,8 @@ function mapRow(row: Record<string, unknown>): ListItem {
   return {
     id: row.id as string,
     user_id: row.user_id as string,
+    household_id: row.household_id as string,
+    list_id: row.list_id as string,
     name: row.name as string,
     normalized_name: row.normalized_name as string,
     category: row.category as string,
@@ -166,6 +182,5 @@ function mapRow(row: Record<string, unknown>): ListItem {
     is_recurring: row.is_recurring != null ? Boolean(row.is_recurring) : false,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
-    household_id: row.household_id as string | undefined,
   };
 }

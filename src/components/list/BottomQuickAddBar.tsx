@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -106,11 +107,14 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
   const haptics = useHaptics();
   const inputRef = useRef<TextInput>(null);
   const qtyInputRef = useRef<TextInput>(null);
+  /** Uncontrolled item field — avoids iOS dictation fighting a controlled `value`. */
+  const [itemInputKey, setItemInputKey] = useState(0);
   const [text, setText] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [quantityDraft, setQuantityDraft] = useState('1');
   const quantityDraftRef = useRef('1');
   const [quantityEditing, setQuantityEditing] = useState(false);
+  const [itemInputFocused, setItemInputFocused] = useState(false);
   const [unit, setUnit] = useState<Unit>('ea');
   const [unitMenuOpen, setUnitMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -118,6 +122,23 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
   const [confirmItems, setConfirmItems] = useState<ParsedItem[] | null>(null);
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const prewarmAbortRef = useRef<{ cancelled: boolean } | null>(null);
+
+  const syncNativeItemText = useCallback((next: string) => {
+    inputRef.current?.setNativeProps({ text: next });
+  }, []);
+
+  const clearItemInput = useCallback(() => {
+    setText('');
+    setItemInputKey((key) => key + 1);
+  }, []);
+
+  const setItemText = useCallback(
+    (next: string) => {
+      setText(next);
+      syncNativeItemText(next);
+    },
+    [syncNativeItemText]
+  );
 
   useEffect(() => {
     void loadRecentItemsForSuggestions().then(setRecentItems);
@@ -148,7 +169,10 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
     [storeType, zoneLabelsInOrder]
   );
 
-  const handleKeyboardHidden = useCallback(() => setQuantityEditing(false), []);
+  const handleKeyboardHidden = useCallback(() => {
+    setQuantityEditing(false);
+    setItemInputFocused(false);
+  }, []);
 
   const stickyBarStyle = useKeyboardFrameLift({
     tabBarHeight,
@@ -299,6 +323,15 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
     }
   }, [quantity]);
 
+  const dismissComposerKeyboard = useCallback(() => {
+    if (quantityEditing) {
+      commitQuantity();
+      qtyInputRef.current?.blur();
+    }
+    inputRef.current?.blur();
+    Keyboard.dismiss();
+  }, [quantityEditing, commitQuantity]);
+
   const beginQuantityEdit = useCallback(() => {
     haptics.light();
     setUnitMenuOpen(false);
@@ -313,7 +346,7 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
   }, [haptics]);
 
   const resetAfterSubmit = useCallback(() => {
-    setText('');
+    clearItemInput();
     setQuantity(1);
     setQuantityDraft('1');
     quantityDraftRef.current = '1';
@@ -321,7 +354,7 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
     setUnitMenuOpen(false);
     setError(null);
     void loadRecentItemsForSuggestions().then(setRecentItems);
-  }, []);
+  }, [clearItemInput]);
 
   const submitParsedItems = useCallback(
     async (items: ParsedItem[]) => {
@@ -382,7 +415,7 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
   const handleSuggestionSelect = useCallback(
     (suggestion: ItemNameSuggestion) => {
       haptics.light();
-      setText(suggestion.display_name);
+      setItemText(suggestion.display_name);
       if (suggestion.last_unit) {
         setUnit(suggestion.last_unit as Unit);
       }
@@ -391,7 +424,7 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
       prewarmCategorize(suggestion.display_name);
       requestAnimationFrame(() => inputRef.current?.focus());
     },
-    [haptics, prewarmCategorize]
+    [haptics, prewarmCategorize, setItemText]
   );
 
   useEffect(() => {
@@ -430,6 +463,13 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
           onPress={() => setUnitMenuOpen(false)}
           accessibilityRole="button"
           accessibilityLabel="Dismiss unit menu"
+        />
+      ) : itemInputFocused || quantityEditing ? (
+        <Pressable
+          style={styles.dismissLayer}
+          onPress={dismissComposerKeyboard}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss keyboard"
         />
       ) : null}
       <Animated.View pointerEvents="box-none" style={bottomWrapStyle}>
@@ -550,14 +590,21 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
               <GlassInputBar style={styles.barGlass}>
                 <View style={styles.barRow}>
                   <TextInput
+                    key={itemInputKey}
                     ref={inputRef}
-                    value={text}
+                    defaultValue=""
                     onChangeText={(next) => {
                       setText(next);
                       setError(null);
                     }}
-                    onFocus={() => setUnitMenuOpen(false)}
-                    onSubmitEditing={handleSubmit}
+                    onFocus={() => {
+                      setUnitMenuOpen(false);
+                      setItemInputFocused(true);
+                    }}
+                    onBlur={() => {
+                      setItemInputFocused(false);
+                    }}
+                    onSubmitEditing={dismissComposerKeyboard}
                     placeholder="Add item"
                     placeholderTextColor={theme.textSecondary}
                     keyboardAppearance={theme.colorScheme}

@@ -1,20 +1,19 @@
-import { supabase, isSyncEnabled } from './supabaseClient';
-import { getCurrentHouseholdId } from './householdService';
+import { supabase, getUserId, isSyncEnabled } from './supabaseClient';
 import { clearAllLocalData } from './localDataService';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
 import { clearAllRecentItems } from './recentItemsStore';
 import { clearCategoryCache } from './aiCategoryCache';
 
 /**
- * Deletes all list items, meals, recipes, and store profiles for a household on Supabase.
+ * Deletes all list items, meals, recipes, and store profiles for a user on Supabase.
  * Child ingredient rows are removed via FK cascades / triggers.
  */
-export async function deleteHouseholdSyncedContent(householdId: string): Promise<void> {
+export async function deleteUserSyncedContent(userId: string): Promise<void> {
   const steps = [
-    () => supabase.from('meals').delete().eq('household_id', householdId),
-    () => supabase.from('recipes').delete().eq('household_id', householdId),
-    () => supabase.from('list_items').delete().eq('household_id', householdId),
-    () => supabase.from('store_profiles').delete().eq('household_id', householdId),
+    () => supabase.from('meals').delete().eq('user_id', userId),
+    () => supabase.from('recipes').delete().eq('user_id', userId),
+    () => supabase.from('list_items').delete().eq('user_id', userId),
+    () => supabase.from('store_profiles').delete().eq('user_id', userId),
   ];
   for (const run of steps) {
     const { error } = await run();
@@ -24,10 +23,9 @@ export async function deleteHouseholdSyncedContent(householdId: string): Promise
 
 /**
  * Removes grocery content (lists, planner meals, recipes, stores) while keeping the account profile
- * (email, display name, password) and household membership. Does not delete `profiles`, `households`,
- * or `household_members` rows.
+ * (email, display name, password). Does not delete `profiles` rows.
  *
- * With cloud sync: deletes the **current household’s** synced rows (shared with other members).
+ * With cloud sync: deletes the signed-in user's synced rows.
  * Always clears local AsyncStorage mirrors and recent-item history.
  */
 export async function deleteAllAppDataPreservingAccount(): Promise<void> {
@@ -37,7 +35,8 @@ export async function deleteAllAppDataPreservingAccount(): Promise<void> {
     await clearAllLocalData();
     return;
   }
-  const householdId = await getCurrentHouseholdId();
-  await deleteHouseholdSyncedContent(householdId);
+  const userId = await getUserId();
+  if (!userId) throw new Error('Not signed in');
+  await deleteUserSyncedContent(userId);
   await clearAllLocalData();
 }

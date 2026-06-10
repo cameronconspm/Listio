@@ -99,8 +99,8 @@ export function OnboardingStarterList({ selected, onToggle }: Props) {
       </OnboardingStagger>
       <Text style={styles.hint}>
         {selected.size > 0
-          ? `${selected.size} added — we'll sort them by aisle for you.`
-          : 'Tap a few to start — or skip and add your own later.'}
+          ? `${selected.size} added. We'll sort them by aisle for you.`
+          : 'Tap a few to start, or skip and add your own later.'}
       </Text>
     </View>
   );

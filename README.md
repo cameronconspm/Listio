@@ -1,14 +1,13 @@
 # Listio
 
-Grocery and household list app with meal planning, recipes, and store-zone–based grouping. iOS-first, with an Apple-like “Liquid Glass” visual style and AI-powered item categorization.
+Grocery list app with meal planning, recipes, and store-zone–based grouping. iOS-first, with an Apple-like "Liquid Glass" visual style and AI-powered item categorization.
 
 ## Features
 
 - **List**: Add items (paste or type) → AI categorizes by store zone → list grouped by your store layout. Check off as you shop, swipe to delete.
-- **Meals**: Plan meals with date ranges and ingredients. “Add missing to list” merges quantities and links items to meals.
-- **Recipes**: Save recipes with ingredients. “Add to meals” creates a meal from a recipe; “Add ingredients to list” pushes missing items to the list.
-- **Store**: Choose store type and reorder zones to match your usual path.
-- **Settings**: Default store, units (coming soon), account / logout.
+- **Meals**: Plan meals with date ranges and ingredients. "Add missing to list" merges quantities and links items to meals.
+- **Recipes**: Save recipes with ingredients. "Add to meals" creates a meal from a recipe; "Add ingredients to list" pushes missing items to the list.
+- **Settings**: Store type, zone order, units (coming soon), account / logout.
 
 ## Stack
 
@@ -56,13 +55,21 @@ Users **sign in or create an account**; the main app appears only with an active
    - `supabase/migrations/007_recipe_favorites_category.sql`
    - `supabase/migrations/008_store_aisle_order_notes.sql`
    - `supabase/migrations/009_user_preferences_and_ai_cache_rls.sql` — **user settings JSON** + tightens `ai_item_cache` writes (Edge Function only)
-   - `supabase/migrations/010_households.sql` through `016_household_rls_no_recursion.sql` — households, invites, household-scoped RLS (required for shared lists)
+   - `supabase/migrations/010_households.sql` through `016_household_rls_no_recursion.sql` — internal data scoping (required; each user gets a private data namespace)
    - `supabase/migrations/017_user_push_tokens.sql` — Expo push tokens per user (remote notifications)
-   - `supabase/migrations/018_household_push_log.sql` — rate limiting for household push notifications
+   - `supabase/migrations/018_household_push_log.sql` — push rate limiting
    - `supabase/migrations/020_text_length_limits.sql` — max lengths on user-editable text + `user_preferences.payload` size
    - `supabase/migrations/021_categorize_openai_usage.sql` — per-user OpenAI call logging for `categorize-items` rate limits
    - `supabase/migrations/022_places_edge_rate_limit.sql` — per-user per-minute buckets for `place-search` / `places-nearby` (Edge + `SUPABASE_SERVICE_ROLE_KEY`)
    - `supabase/migrations/023_parse_recipe_rate_limit_and_cache.sql` — usage logging + cache table for `parse-recipe` rate limits and spend control
+   - `supabase/migrations/024_recipe_instructions_time.sql` — recipe instructions field + `total_time_minutes`
+   - `supabase/migrations/025_account_deletion_household_cascade.sql` — account deletion cascades
+   - `supabase/migrations/026_user_subscription_entitlements.sql` — RevenueCat entitlement mirror
+   - `supabase/migrations/027_remove_listio_qa_test_user.sql` — QA cleanup
+   - `supabase/migrations/028_prepare_account_deletion_explicit.sql` — explicit deletion prep RPC
+   - `supabase/migrations/029_recipe_ingredient_count_and_search.sql` — `ingredient_count`, full-text search RPC
+   - `supabase/migrations/030_place_photo_rate_limit.sql` — place photo rate limits
+   - `supabase/migrations/031_shopping_lists.sql` — `shopping_lists` table; `list_items.list_id`
 
    **Re-running `002`**: `CREATE POLICY` is not idempotent. If policies already exist, drop them by name first (see policy names inside `002_rls_policies.sql`) or apply only the newer migrations on top of an existing project.
 
@@ -70,25 +77,25 @@ Users **sign in or create an account**; the main app appears only with an active
    Using Supabase CLI (install from [supabase.com/docs](https://supabase.com/docs)):
    ```bash
    supabase link --project-ref YOUR_PROJECT_REF
+   npm run deploy:supabase-functions
+   ```
+
+   Or deploy individually:
+   ```bash
    supabase functions deploy categorize-items
+   supabase functions deploy smart-add
    supabase functions deploy parse-recipe
    supabase functions deploy place-search
    supabase functions deploy places-nearby
-   supabase functions deploy household-push
+   supabase functions deploy place-photo
+   supabase functions deploy revenuecat-webhook
+   supabase functions deploy sync-subscription-entitlement
+   supabase functions deploy delete-account
    ```
 
-   **JWT verification (Kong)** is configured in [`supabase/config.toml`](supabase/config.toml): `categorize-items` and `places-nearby` use **`verify_jwt = false`** because the API gateway was returning **401 Invalid JWT** even when Auth accepted the same token; those functions still require a valid **`Authorization` header** and run **`getUser()`** inside the function. **`place-search`** keeps **`verify_jwt = true`**. For **`household-push`**, JWT verification must stay **off** (Database Webhooks with a shared secret, not the mobile client).
+   **JWT verification (Kong)** is configured in [`supabase/config.toml`](supabase/config.toml): `categorize-items` and `places-nearby` use **`verify_jwt = false`** because the API gateway was returning **401 Invalid JWT** even when Auth accepted the same token; those functions still require a valid **`Authorization` header** and run **`getUser()`** inside the function. **`place-search`** keeps **`verify_jwt = true`**.
 
-4. **Household push (optional)**  
-   After deploying `household-push`, set a webhook secret and expose it to the function:
-   ```bash
-   supabase secrets set HOUSEHOLD_PUSH_WEBHOOK_SECRET=your-long-random-secret
-   ```
-   In **Supabase Dashboard → Database → Webhooks**, create a webhook on `public.list_items` for **Insert** and **Update** that POSTs to:
-   `https://YOUR_PROJECT_REF.supabase.co/functions/v1/household-push`  
-   Add header `x-webhook-secret: your-long-random-secret` (same value as above). The function notifies other household members by Expo push when the shared list changes (rate-limited per household).
-
-5. **Set secrets**:
+4. **Set secrets**:
    ```bash
    supabase secrets set OPENAI_API_KEY=sk-your-openai-api-key
    supabase secrets set GOOGLE_PLACES_API_KEY=your-google-server-key
@@ -108,15 +115,15 @@ Users **sign in or create an account**; the main app appears only with an active
 
    **Places API lifecycle:** legacy Nearby Search + Geocoding are documented in [`supabase/functions/PLACES_API_NOTES.md`](supabase/functions/PLACES_API_NOTES.md); plan a server-side move to **Places API (New)** when Google deprecates the REST endpoints you use.
 
-6. **Security (operations)**  
+5. **Security (operations)**  
    Keep **service role** and **OpenAI** keys only in Supabase secrets / Edge Functions—never in the mobile app. Use the Supabase Dashboard for **Auth** hardening (email confirmation, leaked-password protection) and review **API** restrictions on the anon key. After pulling new migrations, run **`020`**, **`021`**, and **`022`** so text limits, `categorize_openai_usage`, and place Edge rate limits exist before deploying updated functions. In the **OpenAI** dashboard, set **budget alerts** and usage limits as a backup to app-side rate limits.
 
-7. **iOS privacy manifest**  
+6. **iOS privacy manifest**  
    [`app.json`](app.json) sets `expo.ios.privacyManifests`: **precise location** (app functionality, not used for tracking) plus required-reason entries aligned with Expo pods (`UserDefaults` / file timestamp / system boot time). Adjust if Apple or Expo guidance changes after a submission.
 
-8. **Maps / store location (development build)**
+7. **Maps / store location (development build)**
    `react-native-maps` is a native module: use a **development build** (`npx expo prebuild` or EAS Build), not Expo Go. Set `EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY` before prebuild so Android embeds the key (see [Expo MapView](https://docs.expo.dev/versions/latest/sdk/map-view/)). iOS uses Apple MapKit without an extra key.
-   The local package `modules/expo-apple-places-search` adds **MKLocalSearch** on iPhone for address suggestions in store edit; it is included in the dev build via autolinking. In **Expo Go**, that module is absent and the app falls back to the Edge Function (when signed in) or `expo-location` geocoding.
+   The local package `modules/expo-apple-places-search` adds **MKLocalSearch** on iPhone for address suggestions in store location; it is included in the dev build via autolinking. In **Expo Go**, that module is absent and the app falls back to the Edge Function (when signed in) or `expo-location` geocoding.
 
 ## App Store Connect (subscriptions & review)
 
@@ -125,7 +132,7 @@ Users **sign in or create an account**; the main app appears only with an active
 - **Review steps to share with Apple:** Sign in → complete onboarding → **Subscription required** screen → **View plans** (monthly/annual), or **Profile → Plans & pricing**.
 - **Support URL (Guideline 1.5):** Use a working help page, e.g. `https://thelistioapp.com/help` (same URL as in-app Help center), not a bare marketing homepage.
 - **Privacy Policy field:** `https://thelistioapp.com/privacy-policy` (must load in a browser).
-- **Terms of Use / EULA (Guideline 3.1.2):** Either add your custom terms link to the **App Description** and/or **EULA** field in App Store Connect (`https://thelistioapp.com/terms-and-conditions`), or include Apple’s standard EULA link if you rely on it: `https://www.apple.com/legal/internet-services/itunes/dev/stdeula/`
+- **Terms of Use / EULA (Guideline 3.1.2):** Either add your custom terms link to the **App Description** and/or **EULA** field in App Store Connect (`https://thelistioapp.com/terms-and-conditions`), or include Apple's standard EULA link if you rely on it: `https://www.apple.com/legal/internet-services/itunes/dev/stdeula/`
 - **Agreements:** The **Account Holder** must accept the **Paid Apps Agreement** before paid IAP works in sandbox/review.
 
 ## Local → cloud import
@@ -146,7 +153,7 @@ If you used local-only mode (`local-user` data in AsyncStorage) and then sign in
    ```
    Edit `.env` and set:
    - `EXPO_PUBLIC_SUPABASE_URL` – e.g. `https://xxxxx.supabase.co`
-   - `EXPO_PUBLIC_SUPABASE_ANON_KEY` – your project’s anon key
+   - `EXPO_PUBLIC_SUPABASE_ANON_KEY` – your project's anon key
    - `EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY` – only if you build Android with **Adjust on map** / maps (development build + prebuild)
 
 3. Start the app:
@@ -155,7 +162,7 @@ If you used local-only mode (`local-user` data in AsyncStorage) and then sign in
    ```
    Then press `i` for iOS simulator or scan the QR code with Expo Go.
 
-4. **Test account** – On the login screen, tap **Sign in with test account** to use `test@listio.app` / `TestPass123!`. The first tap creates the account if it doesn’t exist (disable “Confirm email” in Supabase Auth settings for instant use).
+4. **Test account** – On the login screen, tap **Sign in with test account** to use `test@listio.app` / `TestPass123!`. The first tap creates the account if it doesn't exist (disable "Confirm email" in Supabase Auth settings for instant use).
 
 ## Scripts
 
@@ -175,15 +182,28 @@ Example GitHub Actions step to run lint and tests:
 - run: npm test
 ```
 
+## Documentation
+
+| Doc | Topic |
+|-----|-------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | App bootstrap, layers, data flow |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Postgres schema, RLS, migrations |
+| [docs/ENV_AND_SECRETS.md](docs/ENV_AND_SECRETS.md) | Env vars and Supabase secrets |
+| [docs/RELEASE.md](docs/RELEASE.md) | EAS, App Store, Supabase deploy |
+| [docs/SUBSCRIPTIONS.md](docs/SUBSCRIPTIONS.md) | RevenueCat, free tier, paywalls |
+| [docs/TECH_STACK.md](docs/TECH_STACK.md) | Dependencies and services |
+| [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | Tokens and UI components |
+| [docs/performance-slos.md](docs/performance-slos.md) | Performance targets |
+
 ## Project structure
 
 - `src/` – app code
   - `app/`, `navigation/` – entry and navigation
-  - `screens/` – auth, home, meals, recipes, store, settings
+  - `screens/` – auth, home, meals, recipes, settings
   - `components/` – shared UI and feature components
   - `design/` – tokens, theme, typography, spacing
   - `services/` – Supabase client, AI, list, meal, recipe, store
   - `state/`, `data/`, `utils/`, `types/`, `hooks/`
-- `supabase/migrations/` – SQL migrations
-- `supabase/functions/categorize-items/`, `supabase/functions/place-search/` – Edge Functions
+- `supabase/migrations/` – SQL migrations (001–031)
+- `supabase/functions/` – Edge Functions (categorize-items, smart-add, parse-recipe, place-search, places-nearby, place-photo, revenuecat-webhook, sync-subscription-entitlement, delete-account)
 - `__tests__/` – Jest unit tests (e.g. parseItems, normalize, quantities)

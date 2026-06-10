@@ -39,7 +39,7 @@ function messageForDeleteAccountFailure(status: number | undefined, fromBody: st
 }
 
 /**
- * Permanently deletes the signed-in user via Edge Function (household cleanup + Auth admin).
+ * Permanently deletes the signed-in user via Edge Function (data cleanup + Auth admin).
  * Clears local mirrors and session on success.
  */
 export async function deleteAuthenticatedAccount(): Promise<{ ok: true } | { ok: false; message: string }> {

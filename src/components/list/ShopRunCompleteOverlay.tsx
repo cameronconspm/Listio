@@ -5,6 +5,7 @@ import {
   Text,
   StyleSheet,
   Pressable,
+  Share,
   useWindowDimensions,
   Platform,
 } from 'react-native';
@@ -12,15 +13,22 @@ import Animated, { FadeIn, FadeOut, ZoomIn, useReducedMotion } from 'react-nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
 import { backdropTiming, motionMs } from '../../ui/motion/presets';
+import { Ionicons } from '@expo/vector-icons';
 import { PrimaryButton } from '../ui/PrimaryButton';
 import { Button } from '../ui/Button';
 import { Mascot } from '../brand/Mascot';
+
+const APP_STORE_URL = 'https://apps.apple.com/app/id6761579550';
 
 type ShopRunCompleteOverlayProps = {
   visible: boolean;
   totalItems: number;
   /** Distinct store sections that held at least one item for this run. */
   aisleCount: number;
+  /** All-time completed shop runs (including this one). */
+  runCount?: number;
+  /** Consecutive weeks with ≥1 shop run. */
+  streakWeeks?: number;
   onKeep: () => void;
   onClearChecked: () => void | Promise<void>;
   clearing?: boolean;
@@ -36,6 +44,8 @@ export function ShopRunCompleteOverlay({
   visible,
   totalItems,
   aisleCount,
+  runCount,
+  streakWeeks,
   onKeep,
   onClearChecked,
   clearing = false,
@@ -96,8 +106,54 @@ export function ShopRunCompleteOverlay({
           lineHeight: 20,
           marginBottom: theme.spacing.lg,
         },
+        chipsRow: {
+          flexDirection: 'row',
+          justifyContent: 'center',
+          gap: theme.spacing.sm,
+          marginBottom: theme.spacing.md,
+        },
+        chip: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: theme.spacing.sm,
+          paddingVertical: theme.spacing.xs,
+          borderRadius: theme.radius.full,
+          backgroundColor: theme.accent + '1a',
+          borderWidth: 1,
+          borderColor: theme.accent + '40',
+          gap: 4,
+        },
+        chipStreak: {
+          backgroundColor: '#ff9500' + '1a',
+          borderColor: '#ff9500' + '40',
+        },
+        chipText: {
+          ...theme.typography.footnote,
+          color: theme.accent,
+          fontWeight: '600',
+        },
+        chipTextStreak: {
+          color: '#ff9500',
+        },
         actions: {
           gap: theme.spacing.sm,
+        },
+        shareRow: {
+          flexDirection: 'row',
+          justifyContent: 'center',
+          marginTop: theme.spacing.xs,
+        },
+        shareBtn: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          paddingHorizontal: theme.spacing.md,
+          paddingVertical: theme.spacing.sm,
+        },
+        shareBtnText: {
+          ...theme.typography.footnote,
+          color: theme.textSecondary,
+          fontWeight: '500',
         },
       }),
     [theme, insets.top, insets.bottom, windowWidth]
@@ -114,6 +170,23 @@ export function ShopRunCompleteOverlay({
 
   const itemWord = totalItems === 1 ? 'item' : 'items';
   const aisleWord = aisleCount === 1 ? 'aisle' : 'aisles';
+
+  const runLabel =
+    runCount === 1
+      ? 'First run! 🎉'
+      : runCount != null
+        ? `Run #${runCount}`
+        : null;
+  const showStreak = (streakWeeks ?? 0) >= 2;
+
+  const handleShare = () => {
+    const lines: string[] = ['🛒 Knocked out a full grocery run!', ''];
+    lines.push(`${totalItems} ${itemWord} across ${aisleCount} ${aisleWord}`);
+    if (runCount != null) lines.push(runCount === 1 ? 'First run ever 🎉' : `Run #${runCount}`);
+    if (showStreak) lines.push(`🔥 ${streakWeeks}-week streak`);
+    lines.push('', `Track your grocery runs with Listio → ${APP_STORE_URL}`);
+    void Share.share({ message: lines.join('\n') });
+  };
 
   return (
     <Modal
@@ -140,6 +213,22 @@ export function ShopRunCompleteOverlay({
             </Animated.View>
           </View>
           <Text style={styles.title}>{"That's the whole list!"}</Text>
+          {(runLabel || showStreak) ? (
+            <View style={styles.chipsRow}>
+              {runLabel ? (
+                <View style={styles.chip}>
+                  <Text style={styles.chipText}>{runLabel}</Text>
+                </View>
+              ) : null}
+              {showStreak ? (
+                <View style={[styles.chip, styles.chipStreak]}>
+                  <Text style={[styles.chipText, styles.chipTextStreak]}>
+                    {`🔥 ${streakWeeks}-week streak`}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
           <Text style={styles.statLine}>
             You grabbed {totalItems} {itemWord} across {aisleCount} {aisleWord}.
           </Text>
@@ -162,6 +251,18 @@ export function ShopRunCompleteOverlay({
               disabled={clearing}
               style={{ alignSelf: 'stretch', borderRadius: theme.radius.full }}
             />
+          </View>
+          <View style={styles.shareRow}>
+            <Pressable
+              style={styles.shareBtn}
+              onPress={handleShare}
+              accessibilityRole="button"
+              accessibilityLabel="Share your run"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="share-outline" size={15} color={theme.textSecondary} />
+              <Text style={styles.shareBtnText}>Share your run</Text>
+            </Pressable>
           </View>
         </Animated.View>
       </View>

@@ -877,7 +877,7 @@ async function parseListItemsFromTextLegacyChain(
 
   if (cleaned.length === 0) {
     throw new Error(
-      "Didn't catch any items — try rephrasing or tap the sparkle to go back to single-item mode."
+      "Didn't catch any items. Try rephrasing or tap the sparkle to go back to single-item mode."
     );
   }
 
@@ -1033,7 +1033,7 @@ export async function parseListItemsFromText(
 
   if (items.length === 0) {
     throw new Error(
-      "Didn't catch any items — try rephrasing or tap the sparkle to go back to single-item mode."
+      "Didn't catch any items. Try rephrasing or tap the sparkle to go back to single-item mode."
     );
   }
 

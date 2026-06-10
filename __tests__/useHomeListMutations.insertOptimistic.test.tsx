@@ -38,7 +38,8 @@ import { isPendingListItemId } from '../src/utils/listItemPending';
 const existing: ListItem = {
   id: '00000000-0000-0000-0000-000000000001',
   user_id: 'u1',
-  household_id: 'h1',
+  household_id: 'scope-1',
+  list_id: 'list-1',
   name: 'Milk',
   normalized_name: 'milk',
   category: 'Dairy',
@@ -59,7 +60,8 @@ const existing: ListItem = {
 const serverInserted: ListItem = {
   id: '22222222-2222-2222-2222-222222222222',
   user_id: 'u1',
-  household_id: 'h1',
+  household_id: 'scope-1',
+  list_id: 'list-1',
   name: 'Eggs',
   normalized_name: 'eggs',
   category: 'Dairy',

@@ -9,6 +9,11 @@ function isPostgrestError(err: unknown): err is PostgrestError {
   );
 }
 
+/** True when the data layer could not resolve a signed-in Supabase user. */
+export function isNotSignedInError(err: unknown): boolean {
+  return err instanceof Error && err.message === 'Not signed in';
+}
+
 /**
  * Maps PostgREST / Supabase errors to safe user-facing messages (no table/column/hint leakage).
  */
@@ -22,12 +27,22 @@ export function mapDbErrorToUserMessage(err: unknown, fallback: string): string 
   }
 
   const code = err.code ?? '';
+  const message = (err.message ?? '').toLowerCase();
   if (code === 'PGRST116') return 'Nothing was found.';
 
   if (code === '23514') return fallback;
 
   if (code === 'PGRST204') {
     return 'This app needs an update before it can save that. Update Listio from the App Store and try again.';
+  }
+
+  if (
+    code === '42501' ||
+    message.includes('row-level security') ||
+    message.includes('jwt expired') ||
+    message.includes('invalid jwt')
+  ) {
+    return 'Sign in again to continue.';
   }
 
   return fallback;

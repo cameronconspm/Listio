@@ -132,7 +132,7 @@ export function PlanScreen() {
         showsVerticalScrollIndicator={false}
       >
         <ListSection title="Current plan" titleVariant="small" glass={false} style={styles.section}>
-          <View style={[styles.planCard, { backgroundColor: theme.surface }]}>
+          <View style={styles.planCard}>
             <Text style={[theme.typography.title3, { color: theme.textPrimary, marginBottom: theme.spacing.xs }]}>
               {planTitle}
             </Text>
@@ -145,7 +145,7 @@ export function PlanScreen() {
         {Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate() && subscribed === false ? (
           <>
             <ListSection title="Upgrade" titleVariant="small" glass={false} style={styles.section}>
-              <View style={[styles.ctaCard, { backgroundColor: theme.surface }]}>
+              <View style={styles.ctaCard}>
                 <Text
                   style={[
                     theme.typography.footnote,

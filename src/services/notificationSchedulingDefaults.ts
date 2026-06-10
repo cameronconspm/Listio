@@ -96,8 +96,6 @@ export function mergeNotificationDefaults(
     recipeSpotlight: n?.recipeSpotlight ?? false,
     shoppingReminders: n?.shoppingReminders ?? true,
     weeklyPlanningReminders: n?.weeklyPlanningReminders ?? false,
-    householdActivity: n?.householdActivity ?? false,
-    sharedUpdates: n?.sharedUpdates ?? false,
     productAnnouncements: n?.productAnnouncements ?? false,
     notificationStyle: style,
     quietHours: n?.quietHours ?? {

@@ -148,7 +148,7 @@ export function RecipeDetailsScreen() {
       'Ingredients:',
       ...scaledIngredients.map((i) =>
         i.quantity_value != null && i.quantity_unit
-          ? `• ${i.name} — ${formatScaledIngredientQuantityDisplay(i.quantity_value, i.quantity_unit, i.name)}`
+          ? `• ${i.name}: ${formatScaledIngredientQuantityDisplay(i.quantity_value, i.quantity_unit, i.name)}`
           : `• ${i.name}`
       ),
     ];

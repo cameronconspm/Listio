@@ -19,19 +19,19 @@ export function contextualPaywallHeadline(reason: ContextualPaywallReason): stri
     case 'recipe_url':
       return 'Found a recipe online? Let Listio+ do the typing.';
     case 'recipe_paste':
-      return 'Paste any recipe — Listio+ turns it into a list.';
+      return 'Paste any recipe and Listio+ turns it into a list.';
     case 'smart_add':
-      return 'Rattle off your whole list — Listio+ sorts the rest.';
+      return 'Rattle off your whole list and Listio+ sorts the rest.';
     case 'engagement':
       return "You're on a roll. Listio+ takes the lid off.";
     case 'milestone_unlock':
-      return 'Your plan, recipes, and list — even better together.';
+      return 'Your plan, recipes, and list, even better together.';
     case 'list_limit':
-      return "Your list is really filling up — go unlimited.";
+      return "Your list is really filling up. Go unlimited.";
     case 'meal_limit':
       return 'Big week ahead? Plan all of it with Listio+.';
     case 'recipe_limit':
-      return 'Your recipe box is filling up — keep them all.';
+      return 'Your recipe box is filling up. Keep them all.';
     default:
       return 'Listio+';
   }
@@ -46,7 +46,7 @@ export function contextualPaywallDismissToast(reason: ContextualPaywallReason): 
     case 'list_limit':
       return {
         title: 'Still on the free plan',
-        message: `No worries — your free list holds ${FREE_LIST_ITEMS_LIMIT} items. Listio+ makes it unlimited whenever you want.`,
+        message: `No worries. Your free list holds ${FREE_LIST_ITEMS_LIMIT} items. Listio+ makes it unlimited whenever you want.`,
       };
     case 'meal_limit':
       return {
@@ -61,7 +61,7 @@ export function contextualPaywallDismissToast(reason: ContextualPaywallReason): 
     case 'smart_add':
       return {
         title: 'No rush',
-        message: 'Your text is still here — add items by hand, or unlock Smart add whenever.',
+        message: 'Your text is still here. Add items by hand, or unlock Smart add whenever.',
       };
     case 'recipe_url':
       return {
@@ -78,7 +78,7 @@ export function contextualPaywallDismissToast(reason: ContextualPaywallReason): 
     default:
       return {
         title: 'Maybe later',
-        message: "All good — the free plan is yours to keep. Plans are here whenever you're curious.",
+        message: "All good. The free plan is yours to keep. Plans are here whenever you're curious.",
       };
   }
 }
@@ -86,21 +86,21 @@ export function contextualPaywallDismissToast(reason: ContextualPaywallReason): 
 export function contextualPaywallBody(reason: ContextualPaywallReason): string {
   switch (reason) {
     case 'recipe_url':
-      return 'Drop in a link and the ingredients land on your list — no typing. Subscribe to use it on this device.';
+      return 'Drop in a link and the ingredients land on your list with no typing. Subscribe to use it on this device.';
     case 'recipe_paste':
       return "Paste the recipe text and we'll pull out every ingredient. Subscribe to use it on this device.";
     case 'smart_add':
-      return "Describe your whole run — \u201cmilk, a dozen eggs, taco night stuff\u201d — and Smart add builds the list. Subscribe to use it on this device.";
+      return "Describe your whole run (\u201cmilk, a dozen eggs, taco night stuff\u201d) and Smart add builds the list. Subscribe to use it on this device.";
     case 'engagement':
       return "Unlimited lists, recipe imports, Smart add, and more. Take a look whenever you're ready.";
     case 'milestone_unlock':
       return 'Your list, meals, and recipes all talk to each other. Listio+ unlocks the whole thing on this device.';
     case 'list_limit':
-      return `Your free plan holds ${FREE_LIST_ITEMS_LIMIT} items — plenty for most weeks. Go unlimited with Listio+, and pick up recipe imports and Smart add too.`;
+      return `Your free plan holds ${FREE_LIST_ITEMS_LIMIT} items, plenty for most weeks. Go unlimited with Listio+, and pick up recipe imports and Smart add too.`;
     case 'meal_limit':
-      return `Your free plan plans ${FREE_MEALS_LIMIT} meals. Listio+ opens up your whole calendar — plus recipe imports and Smart add.`;
+      return `Your free plan plans ${FREE_MEALS_LIMIT} meals. Listio+ opens up your whole calendar, plus recipe imports and Smart add.`;
     case 'recipe_limit':
-      return `Your free plan keeps ${FREE_RECIPES_LIMIT} recipes. Listio+ saves as many as you cook — plus Smart add and more.`;
+      return `Your free plan keeps ${FREE_RECIPES_LIMIT} recipes. Listio+ saves as many as you cook, plus Smart add and more.`;
     default:
       return 'See plans to subscribe on this device.';
   }

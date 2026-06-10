@@ -2,6 +2,7 @@ import * as SubscriptionSync from '../src/services/subscriptionEntitlementSyncSe
 
 jest.mock('../src/services/supabaseClient', () => ({
   isSyncEnabled: () => true,
+  hasValidSupabaseSession: jest.fn().mockResolvedValue(true),
   supabase: {
     functions: {
       invoke: jest.fn().mockResolvedValue({ data: { synced: true, is_active: true }, error: null }),

@@ -139,6 +139,47 @@ describe('BottomQuickAddBar', () => {
     );
   });
 
+  it('does not submit when the keyboard is dismissed', async () => {
+    const onSubmit = jest.fn(async () => undefined);
+    let tree!: ReactTestRenderer;
+
+    await act(async () => {
+      tree = create(<BottomQuickAddBar onSubmit={onSubmit} />);
+    });
+
+    const input = tree.root.findByProps({ placeholder: 'Add item' });
+
+    act(() => {
+      input.props.onChangeText('milk');
+    });
+    await act(async () => {
+      input.props.onSubmitEditing();
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      tree.root.findByProps({ accessibilityLabel: 'Add item' }).props.onPress();
+    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      [expect.objectContaining({ name: 'Milk' })],
+      null,
+      expect.any(Object)
+    );
+  });
+
+  it('uses an uncontrolled item TextInput so iOS dictation is not double-applied', async () => {
+    let tree!: ReactTestRenderer;
+
+    await act(async () => {
+      tree = create(<BottomQuickAddBar onSubmit={jest.fn()} />);
+    });
+
+    const input = tree.root.findByProps({ placeholder: 'Add item' });
+    expect(input.props.value).toBeUndefined();
+    expect(input.props.defaultValue).toBe('');
+  });
+
   it('fills the input when a suggestion row is tapped', async () => {
     const onSubmit = jest.fn(async () => undefined);
     let tree!: ReactTestRenderer;
@@ -158,6 +199,14 @@ describe('BottomQuickAddBar', () => {
       suggestion.props.onPress();
     });
 
-    expect(tree.root.findByProps({ placeholder: 'Add item' }).props.value).toBe('Salt');
+    await act(async () => {
+      tree.root.findByProps({ accessibilityLabel: 'Add item' }).props.onPress();
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      [expect.objectContaining({ name: 'Salt' })],
+      null,
+      expect.any(Object)
+    );
   });
 });

@@ -39,7 +39,7 @@ import type { ParsedItem } from '../../utils/parseItems';
 import { findDuplicate, mergeMetadata, type DuplicateMatch } from '../../utils/duplicateDetection';
 import type { CategorizeItemResult, ParsedListItem } from '../../types/api';
 import { normalizePersistedZoneOrder } from '../../utils/zoneOrderPrefs';
-import { showError } from '../../utils/appToast';
+import { showError, showMascotSuccess } from '../../utils/appToast';
 import { isPendingListItemId } from '../../utils/listItemPending';
 import { ListActionsSheet } from '../../components/list/ListActionsSheet';
 import { AppActionSheet } from '../../components/ui/AppActionSheet';
@@ -62,6 +62,8 @@ import { maybePromptNotificationsAfterFirstWin } from '../../services/notificati
 import { shouldEnforceIosSubscriptionGate } from '../../services/purchasesService';
 import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { useAppReview } from '../../context/AppReviewContext';
+import { recordShopRun, getShopRunState, type ShopRunState } from '../../services/shopRunStore';
+import { writeWidgetData } from '../../services/widgetDataBridge';
 import { FreeTierUsageBanner } from '../../components/subscription/FreeTierUsageBanner';
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { openPlanScreen } from '../../navigation/openPlanScreen';
@@ -137,6 +139,8 @@ export function HomeScreen() {
   const [shopRunCompleteStats, setShopRunCompleteStats] = useState<{
     totalItems: number;
     aisleCount: number;
+    runCount?: number;
+    streakWeeks?: number;
   } | null>(null);
   const shopRunCompleteGateRef = useRef(false);
   /** Set when user chooses “Delete entire list”; confirmation opens in `onDismissed` after the sheet modal exits. */
@@ -646,6 +650,11 @@ export function HomeScreen() {
         );
         if (wouldBeComplete) {
           setCollapsedZones((prev) => new Set(prev).add(zoneKey));
+          haptics.celebrate();
+          showMascotSuccess(
+            `${ZONE_LABELS[zoneKey]} done!`,
+            'All items checked in this section.'
+          );
         }
       }
 
@@ -919,9 +928,23 @@ export function HomeScreen() {
     if (!shopRunCompleteGateRef.current) {
       shopRunCompleteGateRef.current = true;
       const aisleCount = new Set(items.map((i) => i.zone_key)).size;
-      setShopRunCompleteStats({ totalItems: items.length, aisleCount });
-      setShopRunCompleteVisible(true);
       haptics.celebrate();
+      void recordShopRun().then((runState: ShopRunState) => {
+        setShopRunCompleteStats({
+          totalItems: items.length,
+          aisleCount,
+          runCount: runState.runCount,
+          streakWeeks: runState.streakWeeks,
+        });
+        setShopRunCompleteVisible(true);
+        // Keep the home screen widget in sync.
+        void writeWidgetData({
+          listCount: 0, // all checked at this moment
+          runCount: runState.runCount,
+          streakWeeks: runState.streakWeeks,
+          lastRunAt: runState.lastRunAt,
+        });
+      });
     }
   }, [
     listBlocking,
@@ -947,6 +970,20 @@ export function HomeScreen() {
     setCollapsedZones(new Set());
     promptAfterShopRunComplete();
   }, [promptAfterShopRunComplete]);
+
+  // Keep the home screen widget list count in sync whenever items change.
+  useEffect(() => {
+    if (shoppingMode !== 'shop' || listBlocking) return;
+    void getShopRunState().then((runState) => {
+      void writeWidgetData({
+        listCount: remaining,
+        runCount: runState.runCount,
+        streakWeeks: runState.streakWeeks,
+        lastRunAt: runState.lastRunAt,
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remaining, items.length]);
 
   const handleRemoveCheckedFromCelebration = useCallback(async () => {
     const uid = userId;
@@ -1226,6 +1263,8 @@ export function HomeScreen() {
         visible={shopRunCompleteVisible && shopRunCompleteStats != null}
         totalItems={shopRunCompleteStats?.totalItems ?? 0}
         aisleCount={shopRunCompleteStats?.aisleCount ?? 0}
+        runCount={shopRunCompleteStats?.runCount}
+        streakWeeks={shopRunCompleteStats?.streakWeeks}
         onKeep={dismissShopRunComplete}
         onClearChecked={handleRemoveCheckedFromCelebration}
         clearing={removeCheckedItems.isPending}

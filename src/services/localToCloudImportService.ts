@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, LOCAL_USER_ID } from './supabaseClient';
-import { getCurrentHouseholdId } from './householdService';
+import { resolveDataScopeId } from './syncInsertScope';
 import { clearAllLocalData, snapshotLocalDataForUser } from './localDataService';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
 import {
@@ -38,14 +38,13 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-export async function isRemoteHouseholdEmpty(): Promise<boolean> {
-  const householdId = await getCurrentHouseholdId();
+export async function isRemoteUserDataEmpty(userId: string): Promise<boolean> {
   const tables = ['store_profiles', 'list_items', 'recipes', 'meals'] as const;
   for (const t of tables) {
     const { count, error } = await supabase
       .from(t)
       .select('*', { count: 'exact', head: true })
-      .eq('household_id', householdId);
+      .eq('user_id', userId);
     if (error) return false;
     if ((count ?? 0) > 0) return false;
   }
@@ -66,7 +65,7 @@ async function importLocalSnapshotToCloud(
   snap: Awaited<ReturnType<typeof snapshotLocalDataForUser>>
 ): Promise<void> {
   const batchSize = 40;
-  const householdId = await getCurrentHouseholdId();
+  const scopeId = await resolveDataScopeId();
 
   if (snap.storeProfiles.length > 0) {
     const rows = snap.storeProfiles.map((s) => {
@@ -85,7 +84,7 @@ async function importLocalSnapshotToCloud(
       return {
       id: s.id,
       user_id: userId,
-      household_id: householdId,
+      household_id: scopeId,
       name: t.name,
       store_type: t.store_type,
       zone_order: s.zone_order,
@@ -119,7 +118,7 @@ async function importLocalSnapshotToCloud(
       return {
       id: r.id,
       user_id: userId,
-      household_id: householdId,
+      household_id: scopeId,
       name: t.name,
       servings: t.servings ?? 4,
       recipe_url: t.recipe_url ?? null,
@@ -174,7 +173,7 @@ async function importLocalSnapshotToCloud(
       return {
       id: m.id,
       user_id: userId,
-      household_id: householdId,
+      household_id: scopeId,
       name: t.name,
       recipe_id: t.recipe_id ?? m.recipe_id,
       start_date: m.start_date,
@@ -242,7 +241,7 @@ async function importLocalSnapshotToCloud(
       return {
       id: item.id,
       user_id: userId,
-      household_id: householdId,
+      household_id: scopeId,
       name: s.name,
       normalized_name: s.normalized_name,
       category: s.category,
@@ -281,7 +280,7 @@ export async function maybeImportLocalDataOnSignIn(userId: string): Promise<void
     return;
   }
 
-  const empty = await isRemoteHouseholdEmpty();
+  const empty = await isRemoteUserDataEmpty(userId);
   if (!empty) {
     await setImportState(userId, 'skipped-remote-not-empty');
     return;
@@ -307,7 +306,7 @@ export async function tryManualImportLocalDataToCloud(userId: string): Promise<M
     return { ok: false, reason: 'no-local' };
   }
 
-  const empty = await isRemoteHouseholdEmpty();
+  const empty = await isRemoteUserDataEmpty(userId);
   if (!empty) {
     return { ok: false, reason: 'remote-not-empty' };
   }

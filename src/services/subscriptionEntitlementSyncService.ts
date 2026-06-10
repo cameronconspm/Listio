@@ -1,5 +1,5 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { supabase, isSyncEnabled } from './supabaseClient';
+import { supabase, hasValidSupabaseSession, isSyncEnabled } from './supabaseClient';
 import { getValidAccessTokenForEdgeInvoke } from './edgeInvocationAuth';
 import { subscriptionPlatformEnforced } from '../constants/subscription';
 import { logger } from '../utils/logger';
@@ -29,6 +29,9 @@ export async function syncSubscriptionEntitlementToServer(): Promise<Subscriptio
 
   inflight = (async () => {
     try {
+      if (!(await hasValidSupabaseSession())) {
+        return null;
+      }
       const { accessToken } = await getValidAccessTokenForEdgeInvoke('syncSubscriptionEntitlement');
       const res = await supabase.functions.invoke<{
         synced?: boolean;

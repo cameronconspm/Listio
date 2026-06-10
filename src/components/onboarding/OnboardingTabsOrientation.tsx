@@ -24,7 +24,7 @@ const TABS = [
     label: 'Meals',
     icon: 'restaurant-outline' as const,
     headline: 'See your week at a glance',
-    sentence: 'Lay out breakfasts, lunches, and dinners across the week — then send what you need straight into your list.',
+    sentence: 'Lay out breakfasts, lunches, and dinners across the week, then send what you need straight into your list.',
   },
   {
     id: 'recipes' as const,

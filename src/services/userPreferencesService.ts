@@ -19,7 +19,6 @@ function mergePayload(
   patch: UserPreferencesPatch
 ): UserPreferencesPayload {
   const next: UserPreferencesPayload = { ...prev };
-  if (patch.currentHouseholdId !== undefined) next.currentHouseholdId = patch.currentHouseholdId;
   if (patch.shoppingMode !== undefined) next.shoppingMode = patch.shoppingMode;
   if (patch.mealScheduleConfig !== undefined) next.mealScheduleConfig = patch.mealScheduleConfig;
   if (patch.appearance !== undefined) {
@@ -85,7 +84,6 @@ export function fitUserPreferencesPayload(next: UserPreferencesPayload): UserPre
   }
   if (payloadByteLength(p) <= MAX_USER_PREFERENCES_JSON_BYTES) return p;
   const minimal: UserPreferencesPayload = {};
-  if (next.currentHouseholdId) minimal.currentHouseholdId = next.currentHouseholdId;
   if (payloadByteLength(minimal) <= MAX_USER_PREFERENCES_JSON_BYTES) return minimal;
   return {};
 }
@@ -107,7 +105,7 @@ async function doFetchUserPreferences(): Promise<UserPreferencesPayload> {
 }
 
 /**
- * In-flight dedupe so concurrent bootstrap callers (household resolution + onboarding check
+ * In-flight dedupe so concurrent bootstrap callers (onboarding check
  * + screen-level prefs reads) share a single round-trip. The dedupe only spans the lifetime
  * of the inflight request; once resolved, the next call re-fetches.
  */

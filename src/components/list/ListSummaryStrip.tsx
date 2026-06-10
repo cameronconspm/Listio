@@ -19,6 +19,7 @@ type ListSummaryStripProps = {
   itemsLeft: number;
   sectionsLeft: number;
   nextSection: ZoneKey | null;
+  onNextSectionPress?: () => void;
   onListActionsPress?: () => void;
   /** When set, replaces the ⋯ control with Cancel / Done (section reorder). */
   reorderToolbar?: {
@@ -34,6 +35,7 @@ export function ListSummaryStrip({
   itemsLeft,
   sectionsLeft,
   nextSection,
+  onNextSectionPress,
   onListActionsPress,
   reorderToolbar = null,
 }: ListSummaryStripProps) {
@@ -109,9 +111,23 @@ export function ListSummaryStrip({
                   {' '}
                   · Next:
                 </Text>
-                <Text style={[theme.typography.footnote, { color: theme.accent, marginLeft: theme.spacing.xxs }]}>
-                  {ZONE_LABELS[nextSection]}
-                </Text>
+                {onNextSectionPress ? (
+                  <Pressable
+                    onPress={onNextSectionPress}
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Scroll to ${ZONE_LABELS[nextSection]}`}
+                    style={({ pressed }) => [{ marginLeft: theme.spacing.xxs, opacity: pressed ? 0.6 : 1 }]}
+                  >
+                    <Text style={[theme.typography.footnote, { color: theme.accent, fontWeight: '600' }]}>
+                      {ZONE_LABELS[nextSection]}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Text style={[theme.typography.footnote, { color: theme.accent, marginLeft: theme.spacing.xxs }]}>
+                    {ZONE_LABELS[nextSection]}
+                  </Text>
+                )}
               </>
             )}
           </View>

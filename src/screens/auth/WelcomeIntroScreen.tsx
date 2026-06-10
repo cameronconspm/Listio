@@ -162,12 +162,12 @@ const CARDS: FeatureCardMeta[] = [
     id: 'list',
     headerIcon: 'list',
     headerText: 'Your list',
-    caption: 'Shop mode with sections and quantities—check things off just like your real list.',
+    caption: 'Shop mode with sections and quantities. Check things off just like your real list.',
   },
   {
     id: 'meals',
     headerIcon: 'calendar',
-    headerText: 'Meals — This week',
+    headerText: 'Meals: This week',
     caption: 'Sketch the week in seconds. Ingredients stay linked to your list.',
   },
   {
@@ -491,7 +491,7 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
           <View style={styles.copyBlock}>
             <Text style={styles.headline}>What if plan, cook, and shop lived in one app?</Text>
             <Text style={styles.sub}>
-              Listio brings your list, meal week, and recipes together—sketch the week, send ingredients
+              Listio brings your list, meal week, and recipes together. Sketch the week, send ingredients
               from a recipe, then check things off while you shop without redoing the same work twice.
             </Text>
           </View>

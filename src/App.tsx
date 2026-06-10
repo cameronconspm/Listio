@@ -28,7 +28,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { AccountBootstrapProvider, useAccountBootstrap } from './context/AccountBootstrapContext';
 import { BootstrapLoadingScreen } from './components/ui/BootstrapLoadingScreen';
 import { QueryProvider } from './query/QueryProvider';
-import Toast from 'react-native-toast-message';
+import { AppToast } from './components/ui/AppToast';
 import { navigationRef } from './navigation/navigationRef';
 import {
   handleColdStartNotificationIfAny,
@@ -542,7 +542,7 @@ function App() {
                   </AccountBootstrapProvider>
                 </AuthProvider>
               </QueryProvider>
-              <Toast />
+              <AppToast />
             </ThemedAppChrome>
           </ThemeProvider>
         </KeyboardProvider>

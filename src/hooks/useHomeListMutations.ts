@@ -27,12 +27,14 @@ export type InsertListItemsVariables = {
   onOptimisticApplied?: () => void;
 };
 
-function listItemFromInsert(insert: ListItemInsert, id: string, householdId?: string): ListItem {
+function listItemFromInsert(insert: ListItemInsert, id: string): ListItem {
   const ts = new Date().toISOString();
   return {
     id,
     user_id: insert.user_id,
-    ...(householdId ? { household_id: householdId } : {}),
+    // household_id and list_id are resolved server-side; placeholders for optimistic UI only
+    household_id: '',
+    list_id: '',
     name: insert.name,
     normalized_name: insert.normalized_name,
     category: insert.category,
@@ -95,6 +97,7 @@ export function useHomeListMutations() {
     InsertListItemsVariables,
     InsertMutationContext
   >({
+    mutationKey: ['homeList', 'insertItems'],
     mutationFn: ({ userId, items }) => insertListItems(userId, items),
     onMutate: async (variables) => {
       const { userId, items, onOptimisticApplied } = variables;
@@ -103,11 +106,10 @@ export function useHomeListMutations() {
       if (!ctx.previous || items.length === 0) {
         return { ...ctx, optimisticIds };
       }
-      const householdId = ctx.previous.listItems.find((i) => i.household_id)?.household_id;
       const optimisticRows: ListItem[] = items.map((ins) => {
         const id = newPendingListItemId();
         optimisticIds.push(id);
-        return listItemFromInsert(ins, id, householdId);
+        return listItemFromInsert(ins, id);
       });
       writeCache(userId, (prev) => {
         if (!prev) return prev;

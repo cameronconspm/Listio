@@ -23,7 +23,8 @@ import { ListSection } from '../../components/ui/ListSection';
 import { TextField } from '../../components/ui/TextField';
 import { AppDateField } from '../../components/ui/AppDateField';
 import { AppSelectField } from '../../components/ui/AppSelectField';
-import { UnitDropdown } from '../../components/ui/UnitDropdown';
+import { UnitPickerSheet } from '../../components/ui/UnitPickerSheet';
+import { normalizeUnitValue } from '../../components/ui/unitSelection';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
 import { RecipeSearchBar } from '../../components/recipes/RecipeSearchBar';
 import { MealRepeatSheet } from '../../components/meals/MealRepeatSheet';
@@ -152,6 +153,7 @@ export function MealEditScreen() {
   const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
   const [recipeSearchFocused, setRecipeSearchFocused] = useState(false);
   const [errorDialog, setErrorDialog] = useState<{ title: string; message: string } | null>(null);
+  const [unitPickerIdx, setUnitPickerIdx] = useState<number | null>(null);
 
   const lastHydratedMealIdRef = useRef<string | null>(null);
   const lastHydratedRecipeIngredientsRef = useRef<string | null>(null);
@@ -843,12 +845,19 @@ export function MealEditScreen() {
                   style={[styles.compactLineInput, styles.ingQtyInput]}
                 />
                 <View style={styles.ingUnitWrap}>
-                  <UnitDropdown
-                    value={ing.quantity_unit}
-                    onSelect={(u) => updateIngredient(idx, 'quantity_unit', u)}
-                    containerStyle={styles.ingUnit}
+                  <TouchableOpacity
+                    onPress={() => { Keyboard.dismiss(); setUnitPickerIdx(idx); }}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
                     accessibilityLabel={`Change unit for ingredient ${idx + 1}`}
-                  />
+                    accessibilityHint="Opens unit options"
+                    style={[styles.ingUnit, styles.unitTrigger, { backgroundColor: theme.background, borderColor: theme.divider }]}
+                  >
+                    <Text style={[theme.typography.body, { color: theme.textPrimary }]}>
+                      {normalizeUnitValue(ing.quantity_unit)}
+                    </Text>
+                    <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
                 </View>
                 <TouchableOpacity
                   onPress={() => removeIngredient(idx)}
@@ -875,6 +884,16 @@ export function MealEditScreen() {
           </ListSection>
         </ScrollView>
       </KeyboardSafeForm>
+
+      <UnitPickerSheet
+        visible={unitPickerIdx !== null}
+        onClose={() => setUnitPickerIdx(null)}
+        value={unitPickerIdx !== null ? (ingredients[unitPickerIdx]?.quantity_unit ?? 'ea') : 'ea'}
+        onSelect={(u) => {
+          if (unitPickerIdx !== null) updateIngredient(unitPickerIdx, 'quantity_unit', u);
+          setUnitPickerIdx(null);
+        }}
+      />
 
       <MealRepeatSheet
         visible={repeatSheetVisible}
@@ -1003,6 +1022,16 @@ const styles = StyleSheet.create({
   ingQty: { width: spacing.md * 5, minWidth: spacing.md * 5, marginBottom: 0, flexShrink: 0 },
   ingUnitWrap: { width: 96, marginBottom: 0, flexShrink: 0 },
   ingUnit: { marginBottom: 0 },
+  unitTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: MIN_TOUCH_TARGET,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.input,
+    borderWidth: 1,
+  },
   removeBtn: {
     width: MIN_TOUCH_TARGET,
     height: MIN_TOUCH_TARGET,

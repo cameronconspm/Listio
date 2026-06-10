@@ -1,5 +1,5 @@
 import { supabase, isSyncEnabled } from './supabaseClient';
-import { getCurrentHouseholdId } from './householdService';
+import { resolveDataScopeId } from './syncInsertScope';
 import { insertListItems } from './listService';
 import { createMeal, setMealIngredients, type MealIngredientInput } from './mealService';
 import * as local from './localDataService';
@@ -30,8 +30,7 @@ export type GetRecipesOptions = {
 
 export async function getRecipes(userId: string, options?: GetRecipesOptions): Promise<Recipe[]> {
   if (!isSyncEnabled()) return local.getRecipes(userId, options);
-  const householdId = await getCurrentHouseholdId();
-  let query = supabase.from('recipes').select('*').eq('household_id', householdId);
+  let query = supabase.from('recipes').select('*').eq('user_id', userId);
 
   const filter = options?.filter ?? 'all';
   if (filter === 'favorites') {
@@ -150,10 +149,10 @@ export async function createRecipe(
 ): Promise<Recipe> {
   if (!isSyncEnabled()) return local.createRecipe(userId, data);
   const d = sanitizeRecipeCreate(data);
-  const householdId = await getCurrentHouseholdId();
+  const scopeId = await resolveDataScopeId();
   const basePayload: Record<string, unknown> = {
     user_id: userId,
-    household_id: householdId,
+    household_id: scopeId,
     name: d.name,
     servings: d.servings,
   };
@@ -220,12 +219,12 @@ export async function duplicateRecipe(recipeId: string, userId: string): Promise
     .single();
   if (recipeErr || !orig) throw new Error('Recipe not found');
 
-  const householdId = (orig.household_id as string) || (await getCurrentHouseholdId());
+  const scopeId = await resolveDataScopeId();
   const { data: newRecipe, error: insertErr } = await supabase
     .from('recipes')
     .insert({
       user_id: userId,
-      household_id: householdId,
+      household_id: scopeId,
       name: sanitizeDuplicateRecipeName(orig.name as string),
       servings: orig.servings,
       total_time_minutes: orig.total_time_minutes ?? null,
@@ -292,15 +291,15 @@ export async function getRecipeIngredientCounts(recipeIds: string[]): Promise<Ma
  * `null` when sync is disabled so the caller can fall back to client search.
  */
 export async function searchRecipeIds(
+  _userId: string,
   query: string,
   limit = 200
 ): Promise<Set<string> | null> {
   const q = query.trim();
   if (!isSyncEnabled() || q.length === 0) return null;
-  const householdId = await getCurrentHouseholdId();
-  if (!householdId) return null;
+  const scopeId = await resolveDataScopeId();
   const { data, error } = await supabase.rpc('search_recipe_ids', {
-    p_household_id: householdId,
+    p_household_id: scopeId,
     p_query: q,
     p_limit: limit,
   });
@@ -410,6 +409,7 @@ export async function addRecipeToMeals(
     }));
     await setMealIngredients(created.id, mealIngredients);
     await linkExistingListItemsToMeal(
+      userId,
       created.id,
       recipeIngs.map((row) => String(row.name ?? ''))
     );
@@ -419,11 +419,9 @@ export async function addRecipeToMeals(
 }
 
 async function getMealIdsForRecipe(recipeId: string): Promise<string[]> {
-  const householdId = await getCurrentHouseholdId();
   const { data, error } = await supabase
     .from('meals')
     .select('id')
-    .eq('household_id', householdId)
     .eq('recipe_id', recipeId);
   throwOnSupabaseFetchError(error, 'Could not load linked meals.');
   return (data ?? []).map((r) => r.id as string);
@@ -433,15 +431,18 @@ async function getMealIdsForRecipe(recipeId: string): Promise<string[]> {
  * List rows from “add recipe to list” use categorize-items `normalized_name`, which may differ from
  * `normalize(recipe_ingredient.name)`. Match either against recipe ingredient names.
  */
-async function linkExistingListItemsToMeal(mealId: string, ingredientNames: string[]): Promise<void> {
+async function linkExistingListItemsToMeal(
+  userId: string,
+  mealId: string,
+  ingredientNames: string[]
+): Promise<void> {
   const targets = new Set(ingredientNames.map((n) => normalize(String(n ?? ''))).filter(Boolean));
   if (targets.size === 0) return;
 
-  const householdId = await getCurrentHouseholdId();
   const { data, error } = await supabase
     .from('list_items')
     .select('id, linked_meal_ids, normalized_name, name')
-    .eq('household_id', householdId);
+    .eq('user_id', userId);
   if (error || !data?.length) return;
 
   const updates: Promise<unknown>[] = [];
@@ -508,7 +509,6 @@ function mapRecipe(row: Record<string, unknown>): Recipe {
   return {
     id: row.id as string,
     user_id: row.user_id as string,
-    household_id: row.household_id as string | undefined,
     name: row.name as string,
     servings: Number(row.servings) ?? 4,
     total_time_minutes:
@@ -519,6 +519,7 @@ function mapRecipe(row: Record<string, unknown>): Recipe {
     is_favorite: row.is_favorite === true,
     category: (row.category as RecipeCategory | null) ?? null,
     last_used_at: (row.last_used_at as string | null) ?? null,
+    ingredient_count: row.ingredient_count != null ? Number(row.ingredient_count) : null,
     created_at: row.created_at as string | undefined,
     updated_at: row.updated_at as string | undefined,
   };
