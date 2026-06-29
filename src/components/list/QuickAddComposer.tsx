@@ -22,6 +22,7 @@ import {
 import { ScrollView, Pressable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheet } from '../ui/BottomSheet';
+import { cardShellStyle } from '../ui/Card';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
 import { AnimatedQuantityValue } from '../ui/AnimatedQuantityValue';
@@ -111,7 +112,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
 ) {
   const theme = useTheme();
   const styles = useMemo(() => createQuickAddComposerStyles(theme), [theme]);
-  const CTA_GUTTER_PX = theme.spacing.sm;
+  const CTA_GUTTER_PX = theme.spacing.xs;
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const haptics = useHaptics();
@@ -675,13 +676,12 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
     return UNITS.includes(n as (typeof UNITS)[number]) ? n : 'ea';
   }, [unit]);
 
-  /** Scroll cap: in-sheet KAV pads for the keyboard — do not also subtract keyboard height here. */
-  const scrollMaxHeight = Math.max(120, windowHeight * 0.9 - 200);
   const footerPaddingBottom = Math.max(insets.bottom, CTA_GUTTER_PX);
-
-  // ── New design (iOS Reminders / Settings inspired) ─────────────────────
-  // Hero name → inline note (edit/expanded) → single grouped meta card.
-  // The whole modal reads as: "what is this thing" + "details about it".
+  /** Scroll cap when the keyboard is up — leave room for handle, footer, and safe area. */
+  const scrollMaxHeight = Math.max(
+    120,
+    windowHeight * 0.9 - footerPaddingBottom - 160
+  );
 
   const showNoteField = !smartMode && (!!editingItem || detailsExpanded);
   const showBrandRow = !smartMode && (!!editingItem || detailsExpanded);
@@ -689,23 +689,16 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
 
   const renderMetaRow = (
     key: string,
-    iconName: React.ComponentProps<typeof Ionicons>['name'],
     label: string,
     rightSlot: React.ReactNode,
     onPress?: () => void,
     isExpanded?: boolean
   ) => {
-    /** Subtle tinted square matching iOS settings/reminders row affordance. */
-    const tint = theme.accent + (theme.colorScheme === 'dark' ? '26' : '1A');
     const inner = (
       <View style={styles.metaRow}>
-        <View style={[styles.metaIcon, { backgroundColor: tint }]}>
-          <Ionicons name={iconName} size={16} color={theme.accent} />
-        </View>
         <Text style={[theme.typography.body, styles.metaLabel, { color: theme.textPrimary }]}>
           {label}
         </Text>
-        <View style={styles.metaSpacer} />
         {rightSlot}
       </View>
     );
@@ -744,45 +737,73 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
         </View>
       ) : null}
 
-      {/* ── Hero name input ────────────────────────────────────────────── */}
-      <View style={styles.heroBlock}>
-        <TextInput
-          key={nameInputSeed.key}
-          ref={inputRef}
-          testID="quick-add-item-input"
-          defaultValue={nameInputSeed.initial}
-          onChangeText={handleTextChange}
-          onFocus={() => setNameFocused(true)}
-          onBlur={() => {
-            setNameFocused(false);
-            handleBlur();
-          }}
-          onSubmitEditing={editingItem ? handleSubmit : undefined}
-          onKeyPress={handleKeyPress}
-          placeholder={
-            editingItem
-              ? 'Item name'
-              : smartMode
-                ? 'Describe what you need, e.g. a gallon of milk, two pounds of chicken, some avocados'
-                : 'Item name'
-          }
-          placeholderTextColor={theme.textSecondary}
-          keyboardAppearance={theme.colorScheme}
-          multiline={smartMode}
-          numberOfLines={smartMode ? 4 : 1}
-          scrollEnabled={smartMode}
-          blurOnSubmit={!!editingItem}
-          returnKeyType={smartMode ? 'default' : 'done'}
+      {/* ── Item name (TextField-aligned) ──────────────────────────────── */}
+      {!smartMode && !editingItem ? (
+        <Text
           style={[
-            smartMode ? theme.typography.body : theme.typography.title2,
-            smartMode ? styles.smartInput : styles.heroInput,
-            smartMode && {
-              backgroundColor: theme.surface,
-              borderColor: error ? theme.danger : theme.accent,
-            },
-            { color: theme.textPrimary },
+            theme.typography.footnote,
+            styles.fieldLabel,
+            { color: theme.textSecondary },
           ]}
-        />
+        >
+          Item name
+        </Text>
+      ) : null}
+      <View style={styles.nameFieldRow}>
+        <View
+          style={[
+            smartMode ? null : styles.nameFieldShell,
+            !smartMode && {
+              backgroundColor: theme.surface,
+              borderColor: error
+                ? theme.danger
+                : nameFocused
+                  ? theme.accent
+                  : theme.divider,
+            },
+            smartMode && { flex: 1 },
+          ]}
+        >
+          <TextInput
+            key={nameInputSeed.key}
+            ref={inputRef}
+            testID="quick-add-item-input"
+            defaultValue={nameInputSeed.initial}
+            onChangeText={handleTextChange}
+            onFocus={() => setNameFocused(true)}
+            onBlur={() => {
+              setNameFocused(false);
+              handleBlur();
+            }}
+            onSubmitEditing={editingItem ? handleSubmit : undefined}
+            onKeyPress={handleKeyPress}
+            placeholder={
+              editingItem
+                ? 'Item name'
+                : smartMode
+                  ? 'Describe what you need, e.g. a gallon of milk, two pounds of chicken, some avocados'
+                  : 'Item name'
+            }
+            placeholderTextColor={theme.textSecondary}
+            keyboardAppearance={theme.colorScheme}
+            multiline={smartMode}
+            numberOfLines={smartMode ? 4 : 1}
+            scrollEnabled={smartMode}
+            blurOnSubmit={!!editingItem}
+            returnKeyType={smartMode ? 'default' : 'done'}
+            textAlign="left"
+            {...(!smartMode && { textAlignVertical: 'center' as const })}
+            style={[
+              theme.typography.body,
+              smartMode ? styles.smartInput : styles.nameInput,
+              smartMode && {
+                backgroundColor: theme.surface,
+                borderColor: error ? theme.danger : theme.divider,
+              },
+              { color: theme.textPrimary },
+            ]}
+          />
+        </View>
         {smartAvailable && !smartMode ? (
           <PressableScale
             onPress={toggleSmartMode}
@@ -825,37 +846,43 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
         ) : null}
       </View>
 
-      {/* Hairline that gently underlines the hero (focused = accent). */}
-      {!smartMode ? (
-        <View
-          style={[
-            styles.heroDivider,
-            {
-              backgroundColor: error
-                ? theme.danger
-                : nameFocused
-                  ? theme.accent
-                  : theme.divider,
-            },
-          ]}
-        />
-      ) : null}
-
-      {/* ── Inline note ────────────────────────────────────────────────── */}
+      {/* ── Note ───────────────────────────────────────────────────────── */}
       {showNoteField ? (
-        <TextInput
-          value={note}
-          onChangeText={setNote}
-          placeholder="Add a note"
-          placeholderTextColor={theme.textSecondary}
-          keyboardAppearance={theme.colorScheme}
-          multiline
-          style={[
-            theme.typography.body,
-            styles.noteInput,
-            { color: theme.textPrimary },
-          ]}
-        />
+        <>
+          {!editingItem ? (
+            <Text
+              style={[
+                theme.typography.footnote,
+                styles.fieldLabel,
+                { color: theme.textSecondary, marginTop: theme.spacing.sm },
+              ]}
+            >
+              Note
+            </Text>
+          ) : null}
+          <View
+            style={[
+              styles.noteFieldShell,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.divider,
+                marginTop: editingItem ? theme.spacing.sm : 0,
+              },
+            ]}
+          >
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              placeholder="Add a note"
+              placeholderTextColor={theme.textSecondary}
+              keyboardAppearance={theme.colorScheme}
+              textAlign="left"
+              textAlignVertical="center"
+              returnKeyType="done"
+              style={[theme.typography.body, styles.noteInput, { color: theme.textPrimary }]}
+            />
+          </View>
+        </>
       ) : null}
 
       {/* ── Smart-mode disclosure ──────────────────────────────────────── */}
@@ -910,19 +937,28 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
 
       {/* ── Grouped meta card ──────────────────────────────────────────── */}
       {showMetaCard ? (
-        <View
-          style={[
-            styles.metaCard,
-            {
-              backgroundColor: theme.background,
-              borderColor: theme.divider,
-            },
-          ]}
-        >
+        <>
+          {!editingItem ? (
+            <Text
+              style={[
+                theme.typography.caption1,
+                styles.metaSectionTitle,
+                { color: theme.textSecondary },
+              ]}
+            >
+              Details
+            </Text>
+          ) : null}
+          <View
+            style={[
+              styles.metaCard,
+              cardShellStyle(theme, 'raised'),
+              editingItem && { marginTop: theme.spacing.sm },
+            ]}
+          >
           {/* Section */}
           {renderMetaRow(
             'section',
-            'basket-outline',
             'Section',
             <>
               <Text
@@ -951,7 +987,6 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
           {/* Quantity (inline stepper, no nav) */}
           {renderMetaRow(
             'quantity',
-            'apps-outline',
             'Quantity',
             <View
               style={[
@@ -993,17 +1028,13 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
           {/* Unit */}
           {renderMetaRow(
             'unit',
-            'options-outline',
             'Unit',
             <>
               <Text
                 style={[
                   theme.typography.body,
                   styles.metaValueText,
-                  {
-                    color: openDropdown === 'unit' ? theme.accent : theme.textSecondary,
-                    fontWeight: '500',
-                  },
+                  { color: openDropdown === 'unit' ? theme.accent : theme.textSecondary },
                 ]}
               >
                 {displayUnit}
@@ -1025,7 +1056,6 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
               <View style={[styles.metaDivider, { backgroundColor: theme.divider }]} />
               {renderMetaRow(
                 'brand',
-                'pricetag-outline',
                 'Brand',
                 <TextInput
                   value={brandPreference}
@@ -1047,7 +1077,8 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
               )}
             </>
           ) : null}
-        </View>
+          </View>
+        </>
       ) : null}
 
       {/* Reveal note + brand for add mode */}
@@ -1104,7 +1135,13 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
   const headerEl = (
     <View style={[styles.sheetHeader, { backgroundColor: theme.surface }]}>
       <View style={styles.headerTopRow}>
-        <Text style={[theme.typography.title3, styles.headerTitle, { color: theme.textPrimary }]}>
+        <Text
+          style={[
+            theme.typography.headline,
+            styles.headerTitle,
+            { color: theme.textPrimary },
+          ]}
+        >
           {editingItem ? 'Edit item' : 'Add item'}
         </Text>
         <Pressable
@@ -1113,10 +1150,11 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
           accessibilityLabel="Cancel"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={[theme.typography.body, { color: theme.accent }]}>Cancel</Text>
+          <Text style={[theme.typography.subhead, { color: theme.accent, fontWeight: '600' }]}>
+            Cancel
+          </Text>
         </Pressable>
       </View>
-      <View style={[styles.headerDivider, { backgroundColor: theme.divider }]} />
     </View>
   );
 
@@ -1137,10 +1175,12 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         automaticallyAdjustKeyboardInsets={false}
+        stickyHeaderIndices={[0]}
         {...(Platform.OS === 'ios' && {
           contentInsetAdjustmentBehavior: 'never' as const,
         })}
       >
+        {headerEl}
         {formFieldsEl}
       </ScrollView>
       {footerCtaEl}
@@ -1227,7 +1267,6 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
         testID="quick-add-composer-sheet"
       >
         <View style={[styles.keyboardAvoidingSheet, styles.sheetLayout]}>
-          {headerEl}
           <View style={styles.panelBody}>{composerBodyEl}</View>
           {selectorMenuEl}
         </View>

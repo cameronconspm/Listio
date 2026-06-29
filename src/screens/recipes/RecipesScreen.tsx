@@ -17,7 +17,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RecipesStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
-import { tabRootScrollPaddingTop } from '../../design/layout';
+import { RECIPE_CARD_GAP } from '../../design/recipeLayout';
+import { tabRootFloatingControlBottom, tabRootScrollPaddingTop } from '../../design/layout';
 import { useNavigationChromeScroll } from '../../navigation/NavigationChromeScrollContext';
 import { FAB_CLEARANCE, useFabExpandScrollHandler } from '../../hooks/useFabExpandScrollHandler';
 import { RecipeCard } from '../../components/recipes/RecipeCard';
@@ -52,7 +53,6 @@ import { getRecipeIngredientNamesByRecipeIds, searchRecipeIds } from '../../serv
 import { mapToRecord } from '../../utils/mapToJson';
 import { isSyncEnabled } from '../../services/supabaseClient';
 import { FreeTierUsageBanner } from '../../components/subscription/FreeTierUsageBanner';
-import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { openPlanScreen } from '../../navigation/openPlanScreen';
 import { fetchRecipeDetailBundle, RECIPE_DETAIL_STALE_MS } from '../../query/recipeDetailBundle';
@@ -111,7 +111,6 @@ export function RecipesScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RecipesStackParamList>>();
   const tabNavigation = useNavigation<NavigationProp<ParamListBase>>();
   const userId = useAuthUserId();
-  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   const handleOpenPlan = useCallback(() => {
     openPlanScreen(tabNavigation);
   }, [tabNavigation]);
@@ -149,7 +148,10 @@ export function RecipesScreen() {
   const bundle = recipesQuery.data;
   const recipes = React.useMemo(() => bundle?.recipes ?? [], [bundle?.recipes]);
   const allRecipesCount = bundle?.allRecipesCount ?? 0;
-  const ingredientCounts = bundle?.ingredientCounts ?? {};
+  const ingredientCounts = React.useMemo(
+    () => bundle?.ingredientCounts ?? {},
+    [bundle?.ingredientCounts]
+  );
 
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   useEffect(() => {
@@ -376,9 +378,7 @@ export function RecipesScreen() {
           flex: 1,
           paddingHorizontal: theme.spacing.md,
         },
-        listContent: {
-          paddingBottom: 100,
-        },
+        listContent: {},
         sortRow: {
           flexDirection: 'row',
           justifyContent: 'space-between',
@@ -386,7 +386,7 @@ export function RecipesScreen() {
           paddingVertical: theme.spacing.xs,
           paddingHorizontal: 0,
           marginTop: theme.spacing.xs,
-          marginBottom: theme.spacing.xs,
+          marginBottom: RECIPE_CARD_GAP,
         },
         sortTouchable: {
           paddingVertical: 4,
@@ -400,8 +400,8 @@ export function RecipesScreen() {
   const searchNoMatches =
     !trueEmpty && recipes.length > 0 && visibleRecipes.length === 0 && searchQuery.trim().length > 0;
 
-  const fabBottom = tabBarHeight + Math.max(insets.bottom, theme.spacing.sm) + theme.spacing.sm;
-  const listContentBottomPad = fabBottom + FAB_CLEARANCE + theme.spacing.sm;
+  const fabBottom = tabRootFloatingControlBottom(tabBarHeight, theme.spacing);
+  const listContentBottomPad = fabBottom + FAB_CLEARANCE;
 
   const recipeFabEl = (
     <FloatingAddButton
@@ -413,14 +413,9 @@ export function RecipesScreen() {
     />
   );
 
-  const listHeader = useMemo(
+  const filterSortRowEl = useMemo(
     () => (
-      <View>
-        <FreeTierUsageBanner
-          kind="recipe"
-          currentCount={allRecipesCount}
-          onPressUpgrade={handleOpenPlan}
-        />
+      <>
         <RecipeFilterRow filter={filter} onFilterChange={setFilter} />
         <View style={styles.sortRow}>
           <Text style={[theme.typography.footnote, { color: theme.textSecondary }]}>
@@ -430,13 +425,15 @@ export function RecipesScreen() {
             onPress={() => setSortSheetVisible(true)}
             style={styles.sortTouchable}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={`Sort by ${RECIPE_SORT_LABELS[sort]}. Tap to change.`}
           >
             <Text style={[theme.typography.footnote, { color: theme.accent }]}>
               Sort: {RECIPE_SORT_LABELS[sort]}
             </Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </>
     ),
     [
       filter,
@@ -445,11 +442,23 @@ export function RecipesScreen() {
       theme.textSecondary,
       theme.typography.footnote,
       visibleRecipes.length,
-      allRecipesCount,
-      handleOpenPlan,
       styles.sortRow,
       styles.sortTouchable,
     ]
+  );
+
+  const listHeader = useMemo(
+    () => (
+      <View>
+        <FreeTierUsageBanner
+          kind="recipe"
+          currentCount={allRecipesCount}
+          onPressUpgrade={handleOpenPlan}
+        />
+        {filterSortRowEl}
+      </View>
+    ),
+    [filterSortRowEl, allRecipesCount, handleOpenPlan]
   );
 
   const recipesLoadFailed =
@@ -538,21 +547,7 @@ export function RecipesScreen() {
           {headerChrome}
         </View>
         <View style={[styles.paddedBody, { paddingTop: scrollContentPaddingTop }]}>
-        <RecipeFilterRow filter={filter} onFilterChange={setFilter} />
-        <View style={styles.sortRow}>
-          <Text style={[theme.typography.footnote, { color: theme.textSecondary }]}>
-            {visibleRecipes.length} {visibleRecipes.length === 1 ? 'recipe' : 'recipes'}
-          </Text>
-          <TouchableOpacity
-            onPress={() => setSortSheetVisible(true)}
-            style={styles.sortTouchable}
-            activeOpacity={0.7}
-          >
-            <Text style={[theme.typography.footnote, { color: theme.accent }]}>
-              Sort: {RECIPE_SORT_LABELS[sort]}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {filterSortRowEl}
         <RecipeSortSheet
           visible={sortSheetVisible}
           onClose={() => setSortSheetVisible(false)}

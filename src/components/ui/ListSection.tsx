@@ -1,10 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, type ViewStyle } from 'react-native';
 import { useTheme } from '../../design/ThemeContext';
 import { GlassSurface } from './GlassSurface';
 import { cardShellStyle, type CardSurface, type CardTone } from './Card';
-import { spacing } from '../../design/spacing';
-import { radius } from '../../design/radius';
+import { RECIPE_CARD_GAP } from '../../design/recipeLayout';
 
 type ListSectionProps = {
   title?: string;
@@ -22,6 +21,11 @@ type ListSectionProps = {
   overflowVisible?: boolean;
   /** Tighter vertical padding and section theme.spacing. Default false. */
   dense?: boolean;
+  /**
+   * Row-only sections: zero horizontal shell padding so dividers span the card,
+   * while the section title keeps the same inset as `ListRow` text.
+   */
+  contentFlush?: boolean;
   style?: ViewStyle;
 };
 
@@ -36,14 +40,35 @@ export function ListSection({
   tone = 'default',
   overflowVisible = false,
   dense = false,
+  contentFlush = false,
   style,
 }: ListSectionProps) {
   const theme = useTheme();
   const resolvedSurface = surface ?? (glass ? 'glass' : 'raised');
+
+  const spacingStyles = useMemo(
+    () => ({
+      wrapper: {
+        paddingHorizontal: contentFlush ? 0 : theme.spacing.md,
+        paddingVertical: theme.spacing.md,
+        marginBottom: theme.spacing.lg,
+        borderRadius: theme.radius.card,
+      } as ViewStyle,
+      wrapperDense: {
+        paddingVertical: theme.spacing.sm,
+        marginBottom: RECIPE_CARD_GAP,
+      } as ViewStyle,
+      headerRow: {
+        marginBottom: dense ? theme.spacing.xs : theme.spacing.base,
+        ...(contentFlush ? { paddingHorizontal: theme.spacing.md } : null),
+      } as ViewStyle,
+    }),
+    [theme.spacing, theme.radius.card, dense, contentFlush],
+  );
   const content = (
     <View style={dense ? styles.contentDense : styles.content}>
       {title || headerRight ? (
-        <View style={styles.headerRow}>
+        <View style={[styles.headerRow, spacingStyles.headerRow]}>
           {title ? (
             <Text
               style={[
@@ -66,7 +91,9 @@ export function ListSection({
 
   const wrapperStyle = [
     styles.wrapper,
+    spacingStyles.wrapper,
     dense && styles.wrapperDense,
+    dense && spacingStyles.wrapperDense,
     overflowVisible && styles.overflowVisible,
     style,
   ];
@@ -94,16 +121,9 @@ export function ListSection({
 
 const styles = StyleSheet.create({
   wrapper: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    marginBottom: spacing.lg,
-    borderRadius: radius.card,
     overflow: 'hidden',
   },
-  wrapperDense: {
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.md,
-  },
+  wrapperDense: {},
   overflowVisible: {
     overflow: 'visible',
   },
@@ -119,6 +139,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.base,
   },
 });

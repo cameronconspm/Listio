@@ -38,6 +38,7 @@ import { onboardingPageGradient } from '../onboarding/onboardingTokens';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
 import { useHaptics } from '../../hooks/useHaptics';
 import { markWelcomeIntroSeen } from '../../services/welcomeIntroService';
+import { logFunnelEvent } from '../../services/funnelAnalyticsService';
 import { logger } from '../../utils/logger';
 import type { AuthStackParamList } from '../../navigation/types';
 
@@ -162,19 +163,19 @@ const CARDS: FeatureCardMeta[] = [
     id: 'list',
     headerIcon: 'list',
     headerText: 'Your list',
-    caption: 'Shop mode with sections and quantities. Check things off just like your real list.',
+    caption: 'Items sort by store aisle automatically. Add in seconds, shop with clarity.',
   },
   {
     id: 'meals',
     headerIcon: 'calendar',
-    headerText: 'Meals: This week',
-    caption: 'Sketch the week in seconds. Ingredients stay linked to your list.',
+    headerText: 'Shop mode',
+    caption: 'Check items off aisle by aisle with a progress bar built for real grocery runs.',
   },
   {
     id: 'recipes',
     headerIcon: 'book',
-    headerText: 'Recipes',
-    caption: 'Browse, favorite, and send ingredients to your list in one tap.',
+    headerText: 'Meals & recipes',
+    caption: 'Plan the week or save recipes — send ingredients to your list in one tap.',
   },
 ];
 
@@ -242,6 +243,7 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
       void markWelcomeIntroSeen().catch((e) => {
         if (__DEV__) logger.warn('WelcomeIntroScreen: markWelcomeIntroSeen failed', e);
       });
+      logFunnelEvent('welcome_intro_complete');
       navigation.replace(target);
     },
     [navigation]
@@ -489,10 +491,10 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
           </View>
 
           <View style={styles.copyBlock}>
-            <Text style={styles.headline}>What if plan, cook, and shop lived in one app?</Text>
+            <Text style={styles.headline}>The beautiful grocery list that knows your store</Text>
             <Text style={styles.sub}>
-              Listio brings your list, meal week, and recipes together. Sketch the week, send ingredients
-              from a recipe, then check things off while you shop without redoing the same work twice.
+              Listio sorts your list by aisle, helps you shop with check-off progress, and keeps meals and recipes
+              connected when you want them — without copying the same items twice.
             </Text>
           </View>
         </ScrollView>

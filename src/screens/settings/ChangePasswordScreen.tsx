@@ -17,6 +17,12 @@ import { KeyboardSafeForm } from '../../components/ui/KeyboardSafeForm';
 import { TextField } from '../../components/ui/TextField';
 import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { supabase, isSyncEnabled } from '../../services/supabaseClient';
+import {
+  SETTINGS_SECTION_GAP,
+  settingsFieldLastStyle,
+  settingsFieldStyle,
+  settingsIntroTextStyle,
+} from '../../design/settingsLayout';
 import { spacing } from '../../design/spacing';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
@@ -194,7 +200,13 @@ export function ChangePasswordScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Text style={[theme.typography.footnote, { color: theme.textSecondary, marginBottom: theme.spacing.lg }]}>
+          <Text
+            style={[
+              theme.typography.footnote,
+              { color: theme.textSecondary },
+              settingsIntroTextStyle,
+            ]}
+          >
             Enter your current password, then choose a new one. You will stay signed in on this device.
           </Text>
           <TextField
@@ -204,7 +216,7 @@ export function ChangePasswordScreen() {
             placeholder="Current password"
             secureTextEntry
             autoCapitalize="none"
-            containerStyle={styles.field}
+            containerStyle={settingsFieldStyle}
           />
           <TextField
             label="New password"
@@ -213,7 +225,7 @@ export function ChangePasswordScreen() {
             placeholder="At least 6 characters"
             secureTextEntry
             autoCapitalize="none"
-            containerStyle={styles.field}
+            containerStyle={settingsFieldStyle}
           />
           <TextField
             label="Confirm new password"
@@ -222,9 +234,9 @@ export function ChangePasswordScreen() {
             placeholder="Re-enter new password"
             secureTextEntry
             autoCapitalize="none"
-            containerStyle={styles.field}
+            containerStyle={settingsFieldLastStyle}
           />
-          <PrimaryButton title="Update password" onPress={onSubmit} loading={loading} />
+          <PrimaryButton title="Update password" onPress={onSubmit} loading={loading} style={{ marginTop: SETTINGS_SECTION_GAP }} />
         </ScrollView>
       </KeyboardSafeForm>
     </Screen>
@@ -235,7 +247,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { flex: 1 },
   content: {},
-  field: { marginBottom: spacing.md },
   center: { flex: 1, paddingHorizontal: spacing.lg },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 120 },
 });

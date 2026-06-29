@@ -29,6 +29,7 @@ import { insertListItems, type ListItemInsert } from '../../services/listService
 import { STARTER_GROCERIES } from '../../constants/starterGroceries';
 import { normalize } from '../../utils/normalize';
 import { logger } from '../../utils/logger';
+import { logFunnelEvent } from '../../services/funnelAnalyticsService';
 
 const STEP_COUNT = 4;
 const ORIENTATION_STEP = 1;
@@ -105,6 +106,7 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
         }
       }
       setStep((s) => s + 1);
+      logFunnelEvent('onboarding_step', { step: step + 1 });
       return;
     }
     await finish();
@@ -114,6 +116,7 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
     setFinishBusy(true);
     try {
       await markOnboardingCompleted();
+      logFunnelEvent('onboarding_complete');
       await onFinished();
     } catch (e) {
       Alert.alert('Something went wrong', e instanceof Error ? e.message : 'Unknown error');
@@ -240,8 +243,8 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
           <OnboardingAnimatedStep stepKey={step}>
             <OnboardingStepHeader
               eyebrow="Welcome to Listio"
-              title="Plan meals, build your list, then shop"
-              subtitle="Three connected tabs keep your week, recipes, and grocery run in one place, so you never copy the same items twice."
+              title="Your list, sorted by aisle"
+              subtitle="Add groceries and Listio groups them by store section. Shop mode helps you check off items as you go — meals and recipes connect when you're ready."
             />
             <OnboardingWelcomeFeatured />
           </OnboardingAnimatedStep>
@@ -270,7 +273,7 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
               <OnboardingStepHeader
                 eyebrow="Almost there"
                 title="You're all set"
-                subtitle="List is home base. Meals and Recipes are always a tap away in the tab bar."
+                subtitle="Your list is home base. Shop by aisle, then explore Meals and Recipes when you want to plan ahead."
               />
             </OnboardingStagger>
             <OnboardingFinishFeatured />

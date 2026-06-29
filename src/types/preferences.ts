@@ -45,6 +45,13 @@ export type UserPreferencesPayload = {
     filterZone?: ZoneKey | 'all';
     /** Custom section order when store-based layouts are disabled. */
     zoneOrder?: ZoneKey[];
+    /** Active shopping list id when user has multiple lists. */
+    activeListId?: string;
+  };
+  /** Shared household scope selection. */
+  householdUi?: {
+    /** When set, data reads/writes use this household if the user is still a member. */
+    activeHouseholdId?: string;
   };
   /** Meals tab last selected day in ISO date string (yyyy-mm-dd). */
   mealsUi?: {
@@ -121,4 +128,21 @@ export type UserPreferencesPayload = {
   };
   /** Capped mirror of local recent items when sync is on. */
   recentItems?: RecentItemPreferenceSnapshot[];
+  /** Lightweight acquisition funnel milestones (sync users). */
+  funnelAnalytics?: {
+    welcomeIntroCompleteAt?: string;
+    signupCompleteAt?: string;
+    lastLoginAt?: string;
+    onboardingStepsReached?: number;
+    onboardingCompleteAt?: string;
+    firstItemAddedAt?: string;
+    firstShopRunCompleteAt?: string;
+    lastEventAt?: string;
+    lastEventName?: string;
+    recentEvents?: {
+      name: string;
+      at: string;
+      props?: Record<string, string | number | boolean>;
+    }[];
+  };
 };

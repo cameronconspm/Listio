@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MealsStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
-import { tabRootScrollPaddingTop } from '../../design/layout';
+import { tabRootScrollPaddingBottom, tabRootScrollPaddingTop } from '../../design/layout';
 import { useTabRootScrollOnScroll } from '../../navigation/NavigationChromeScrollContext';
 import { Screen } from '../../components/ui/Screen';
 import { QueryLoadErrorPanel } from '../../components/ui/QueryLoadErrorPanel';
@@ -36,10 +36,10 @@ import { isNotSignedInError } from '../../utils/mapDbError';
 import { queryKeys } from '../../query/keys';
 import { fetchMealsRangeBundle, MEALS_RANGE_STALE_MS } from '../../query/mealsRangeBundle';
 import { fetchMealDetailBundle, MEAL_DETAIL_STALE_MS } from '../../query/mealDetailBundle';
-import { deleteMeal, getMeals } from '../../services/mealService';
+import { deleteMeal } from '../../services/mealService';
 import { FreeTierUsageBanner } from '../../components/subscription/FreeTierUsageBanner';
-import { usePremiumEntitlement } from '../../context/PremiumEntitlementContext';
 import { invalidateMealsRange } from '../../query/invalidate';
+import { RECIPE_CARD_GAP } from '../../design/recipeLayout';
 
 function getSlotKey(meal: Meal): string {
   if (meal.meal_slot === 'custom' && meal.custom_slot_name) {
@@ -62,7 +62,6 @@ export function MealsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<MealsStackParamList>>();
   const { config, setConfig } = useMealScheduleConfig();
   const { userId, isAuthReady } = useAuth();
-  const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   const tabNavigation = useNavigation<NavigationProp<ParamListBase>>();
   const handleOpenPlan = useCallback(() => {
     openPlanScreen(tabNavigation);
@@ -166,15 +165,8 @@ export function MealsScreen() {
     placeholderData: keepPreviousData,
   });
 
-  const totalMealsQuery = useQuery({
-    queryKey: queryKeys.meals(userId ?? ''),
-    queryFn: () => getMeals(userId!),
-    enabled: isAuthReady && screenFocused && userReady && !isPremium && !isPremiumLoading,
-    staleTime: MEALS_RANGE_STALE_MS,
-  });
   const bundle = mealsQuery.data;
   const meals = React.useMemo(() => bundle?.meals ?? [], [bundle?.meals]);
-  const totalMealCount = totalMealsQuery.data?.length ?? meals.length;
   const ingredientCounts = bundle?.ingredientCounts ?? {};
   const recipeMetaByRecipeId = bundle?.recipeMetaByRecipeId ?? {};
 
@@ -197,7 +189,7 @@ export function MealsScreen() {
   useEffect(() => {
     if (!isAuthReady || !userReady || !isNotSignedInError(mealsQuery.error)) return;
     void mealsQuery.refetch();
-  }, [isAuthReady, userReady, mealsQuery.error, mealsQuery.refetch]);
+  }, [isAuthReady, userReady, mealsQuery]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -287,7 +279,7 @@ export function MealsScreen() {
     />
   );
 
-  const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
+  const scrollBottomPad = tabRootScrollPaddingBottom(tabBarHeight, theme.spacing);
 
   const mealsLoadFailed =
     userReady &&
@@ -337,7 +329,6 @@ export function MealsScreen() {
           contentContainerStyle={[
             styles.scrollContent,
             {
-              flexGrow: 1,
               paddingTop: scrollContentPaddingTop,
               paddingHorizontal: theme.spacing.md,
               paddingBottom: scrollBottomPad,
@@ -358,7 +349,7 @@ export function MealsScreen() {
         >
           <FreeTierUsageBanner
             kind="meal"
-            currentCount={totalMealCount}
+            currentCount={meals.length}
             onPressUpgrade={handleOpenPlan}
           />
           {showWeekStrip ? (
@@ -371,8 +362,7 @@ export function MealsScreen() {
           <View
             style={[
               styles.planner,
-              { flex: 1, minHeight: 0 },
-              showWeekStrip && { paddingTop: theme.spacing.xs },
+              showWeekStrip && { paddingTop: RECIPE_CARD_GAP },
             ]}
           >
             <DaySection

@@ -8,12 +8,18 @@ import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
-import { ThemeProvider, useTheme } from './design/ThemeContext';
+import { ThemeProvider, useTheme, useThemePreferenceReady } from './design/ThemeContext';
 import { AuthNavigator } from './navigation/AuthNavigator';
 import type { RootStackParamList } from './navigation/types';
 import { buildRootLinkingOptions } from './navigation/linking';
 import { isSupabaseSyncRequiredButMisconfigured } from './services/supabaseClient';
 import { consumeSupabaseAuthFromUrl } from './services/authDeepLink';
+import { parseHouseholdInviteTokenFromUrl } from './services/householdService';
+import { parseQuickAddItemFromUrl } from './services/appDeepLinkService';
+import {
+  setPendingInviteToken,
+  setPendingQuickAddItem,
+} from './services/pendingDeepLinkActions';
 import {
   ensurePurchasesConfigured,
   fetchPremiumEntitlementActive,
@@ -100,6 +106,7 @@ const misconfigStyles = StyleSheet.create({
 
 function AppShell() {
   const { isAuthenticated, userId, userEmail } = useAuth();
+  const themePreferenceReady = useThemePreferenceReady();
   const misconfigured = isSupabaseSyncRequiredButMisconfigured();
   const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
@@ -130,6 +137,21 @@ function AppShell() {
 
     const handleUrl = async (url: string | null | undefined) => {
       if (!url || url === lastConsumedAuthUrlRef.current) return;
+
+      const inviteToken = parseHouseholdInviteTokenFromUrl(url);
+      if (inviteToken) {
+        setPendingInviteToken(inviteToken);
+        lastConsumedAuthUrlRef.current = url;
+        return;
+      }
+
+      const quickAddItem = parseQuickAddItemFromUrl(url);
+      if (quickAddItem) {
+        setPendingQuickAddItem(quickAddItem);
+        lastConsumedAuthUrlRef.current = url;
+        return;
+      }
+
       const { ok, passwordRecovery } = await consumeSupabaseAuthFromUrl(url);
       if (!ok) return;
       lastConsumedAuthUrlRef.current = url;
@@ -360,16 +382,17 @@ function AppShell() {
     return () => sub.remove();
   }, [mainAppActive]);
 
-  // Keep the native launch screen up until we're actually ready to render real UI —
-  // not a `<LoadingGate />`. Without this, users briefly see the branded splash,
-  // then an ActivityIndicator, then the app. With this they only ever see the splash
-  // transition straight into auth / onboarding / main app.
+  // Hide the native splash once we can show a real screen — auth, onboarding, the
+  // bootstrap loading card, or the main app. Bootstrap runs behind the splash if we
+  // wait for `mainAppActive`, which wedged users on slow home fetches / cache restore.
   const readyToRenderRealUi =
-    misconfigured ||
+    themePreferenceReady &&
+    (misconfigured ||
     isAuthenticated === false ||
     (isAuthenticated === true && passwordRecoveryPending) ||
     showOnboarding ||
-    mainAppActive;
+    needsBootstrapLoading ||
+    mainAppActive);
 
   useEffect(() => {
     if (!readyToRenderRealUi) return;

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AuthStackScreenProps } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
 import { Card } from '../../components/ui/Card';
@@ -9,12 +10,16 @@ import { TextField } from '../../components/ui/TextField';
 import { KeyboardSafeForm } from '../../components/ui/KeyboardSafeForm';
 import { supabase } from '../../services/supabaseClient';
 import { spacing } from '../../design/spacing';
+import { AppleSignInButton } from '../../components/auth/AppleSignInButton';
+import { signInWithApple } from '../../services/appleSignInService';
+import { logFunnelEvent } from '../../services/funnelAnalyticsService';
 
 type Props = AuthStackScreenProps<'Signup'>;
 
 export function SignupScreen(_props: Props) {
   const navigation = useNavigation<Props['navigation']>();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -46,6 +51,7 @@ export function SignupScreen(_props: Props) {
         setError(err.message ?? 'Sign up failed');
         return;
       }
+      logFunnelEvent('auth_signup_complete', { method: 'email' });
       // Session listener in App will switch to AppTabs
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Sign up failed');
@@ -54,10 +60,25 @@ export function SignupScreen(_props: Props) {
     }
   };
 
+  const handleAppleSignIn = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await signInWithApple();
+      if (!result.ok && !result.cancelled && result.message) {
+        setError(result.message);
+      } else if (result.ok) {
+        logFunnelEvent('auth_signup_complete', { method: 'apple' });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <KeyboardSafeForm style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.xl }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -65,7 +86,7 @@ export function SignupScreen(_props: Props) {
           Create account
         </Text>
         <Text style={[theme.typography.body, { color: theme.textSecondary, marginBottom: theme.spacing.xl }]}>
-          Enter your email and a password
+          Start with a beautiful aisle-sorted grocery list. Add meals and recipes anytime.
         </Text>
         <Card style={styles.card}>
           <TextField
@@ -94,6 +115,7 @@ export function SignupScreen(_props: Props) {
             secureTextEntry
           />
           <Button title="Sign up" onPress={handleSignup} loading={loading} />
+          <AppleSignInButton onPress={() => void handleAppleSignIn()} disabled={loading} />
         </Card>
         <TouchableOpacity
           onPress={() => navigation.navigate('Login')}
@@ -111,7 +133,7 @@ export function SignupScreen(_props: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.lg, paddingTop: 80 },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.lg, paddingBottom: spacing.xl },
   card: { marginBottom: spacing.lg },
   nameField: { marginBottom: spacing.sm },
   link: { alignSelf: 'center' },

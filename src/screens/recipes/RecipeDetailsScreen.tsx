@@ -10,12 +10,12 @@ import {
   Share,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RecipesStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
+import { scrollPaddingBottomWithoutTabBar } from '../../design/layout';
 import { Screen } from '../../components/ui/Screen';
 import { HeaderIconButton } from '../../components/ui/HeaderIconButton';
 import { PushedScreenHeader } from '../../components/ui/PushedScreenHeader';
@@ -25,6 +25,7 @@ import { SecondaryButton } from '../../components/ui/SecondaryButton';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
 import { NativeContextMenu } from '../../components/ui/NativeContextMenu';
 import { IngredientList } from '../../components/recipes/IngredientList';
+import { RecipeActionStack } from '../../components/recipes/RecipeActionStack';
 import { RecipeMetaPills } from '../../components/recipes/RecipeMetaPills';
 import { RecipeInstructionsSection } from '../../components/recipes/RecipeInstructionsSection';
 import { RECIPE_CATEGORY_LABELS } from '../../components/recipes/RecipeCategorySheet';
@@ -56,6 +57,10 @@ import { ZONE_LABELS } from '../../data/zone';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
 import {
+  RECIPE_CARD_GAP,
+  recipeListSectionProps,
+} from '../../design/recipeLayout';
+import {
   AddRecipeToMealSheet,
   type AddRecipeToMealPayload,
 } from '../../components/recipes/AddRecipeToMealSheet';
@@ -65,12 +70,10 @@ type Route = RouteProp<RecipesStackParamList, 'RecipeDetails'>;
 export function RecipeDetailsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
   const queryClient = useQueryClient();
   const invalidateHomeList = useInvalidateHomeList();
   const { isPremium, isPremiumLoading } = usePremiumEntitlement();
-  /** Tab bar is absolutely positioned over the scene; pad scroll content so CTAs clear it + home indicator. */
-  const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
+  const scrollBottomPad = scrollPaddingBottomWithoutTabBar(insets.bottom, theme.spacing);
   const navigation = useNavigation<NativeStackNavigationProp<RecipesStackParamList>>();
   const route = useRoute<Route>();
   const { recipeId } = route.params;
@@ -116,7 +119,7 @@ export function RecipeDetailsScreen() {
     } catch {
       showError('Could not duplicate recipe.');
     }
-  }, [recipeId, navigation, isPremium]);
+  }, [recipeId, navigation, isPremium, isPremiumLoading]);
 
   const handleToggleFavorite = useCallback(async () => {
     try {
@@ -263,7 +266,7 @@ export function RecipeDetailsScreen() {
         setConfirmingMeal(false);
       }
     },
-    [recipeId, queryClient, navigation, invalidateRecipeDetail, invalidateHomeList, isPremium]
+    [recipeId, queryClient, navigation, invalidateRecipeDetail, invalidateHomeList, isPremium, isPremiumLoading]
   );
 
   const handleDelete = useCallback(async () => {
@@ -320,7 +323,7 @@ export function RecipeDetailsScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[theme.typography.title2, { color: theme.textPrimary, marginBottom: theme.spacing.sm }]}>
+        <Text style={[theme.typography.title2, { color: theme.textPrimary, marginBottom: theme.spacing.xs }]}>
           {recipe.name}
         </Text>
 
@@ -328,7 +331,7 @@ export function RecipeDetailsScreen() {
           <RecipeMetaPills labels={detailPills} />
         </View>
 
-        <Text style={[theme.typography.footnote, { color: theme.textSecondary, marginBottom: theme.spacing.sm }]}>
+        <Text style={[theme.typography.footnote, { color: theme.textSecondary, marginBottom: theme.spacing.xs }]}>
           Scale ingredient amounts for the number of servings you are cooking.
         </Text>
 
@@ -338,7 +341,7 @@ export function RecipeDetailsScreen() {
             {
               backgroundColor: theme.surface,
               borderColor: theme.divider,
-              marginBottom: theme.spacing.lg,
+              marginBottom: RECIPE_CARD_GAP,
             },
           ]}
         >
@@ -350,9 +353,17 @@ export function RecipeDetailsScreen() {
           >
             <Ionicons name="remove" size={20} color={theme.textPrimary} />
           </TouchableOpacity>
-          <Text style={[theme.typography.headline, styles.servingsValue, { color: theme.textPrimary }]}>
-            {servings}
-          </Text>
+          <TouchableOpacity
+            style={styles.servingsValueBtn}
+            onLongPress={() => setDisplayServings(null)}
+            accessibilityRole="button"
+            accessibilityLabel={`${servings} servings`}
+            accessibilityHint="Hold to reset to default"
+          >
+            <Text style={[theme.typography.headline, styles.servingsValue, { color: theme.textPrimary }]}>
+              {servings}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.servingsBtn, { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: theme.divider }]}
             onPress={() => setDisplayServings((s) => (s ?? baseServings) + 1)}
@@ -365,7 +376,7 @@ export function RecipeDetailsScreen() {
 
         {recipe.recipe_url?.trim() ? (
           <TouchableOpacity
-            style={[styles.linkRow, { marginBottom: theme.spacing.lg }]}
+            style={[styles.linkRow, { marginBottom: RECIPE_CARD_GAP }]}
             onPress={() => Linking.openURL(recipe.recipe_url!)}
           >
             <Ionicons name="link" size={18} color={theme.accent} />
@@ -375,36 +386,36 @@ export function RecipeDetailsScreen() {
           </TouchableOpacity>
         ) : null}
 
-        <ListSection title="Ingredients" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Ingredients" {...recipeListSectionProps}>
           <IngredientList ingredients={scaledIngredients} showTitle={false} />
         </ListSection>
 
-        <ListSection title="Instructions" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Instructions" {...recipeListSectionProps}>
           <RecipeInstructionsSection instructions={recipe.instructions} />
         </ListSection>
 
         {recipe.notes?.trim() ? (
-          <ListSection title="Tips" titleVariant="small" glass={false} style={styles.section}>
+          <ListSection title="Tips" {...recipeListSectionProps}>
             <Text style={[theme.typography.body, { color: theme.textPrimary }]}>{recipe.notes.trim()}</Text>
           </ListSection>
         ) : null}
 
-        <PrimaryButton
-          title="Add ingredients to list"
-          onPress={handleAddToList}
-          loading={adding}
-          style={styles.primaryBtn}
-        />
-        <SecondaryButton
-          title="Add to meals"
-          onPress={() => setAddToMealSheetVisible(true)}
-          style={styles.secondaryBtn}
-        />
-        <SecondaryButton
-          title="Edit recipe"
-          onPress={() => navigation.navigate('RecipeEdit', { recipeId })}
-          style={styles.secondaryBtn}
-        />
+        <RecipeActionStack>
+          <PrimaryButton
+            title="Add ingredients to list"
+            onPress={handleAddToList}
+            loading={adding}
+            disabled={ingredients.length === 0}
+          />
+          <SecondaryButton
+            title="Add to meals"
+            onPress={() => setAddToMealSheetVisible(true)}
+          />
+          <SecondaryButton
+            title="Edit recipe"
+            onPress={() => navigation.navigate('RecipeEdit', { recipeId })}
+          />
+        </RecipeActionStack>
       </ScrollView>
 
       <AddRecipeToMealSheet
@@ -436,32 +447,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'flex-start',
+    alignSelf: 'stretch',
     borderRadius: radius.input,
     borderWidth: 1,
     overflow: 'hidden',
   },
   pillsBlock: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.base,
   },
   servingsBtn: {
-    width: 44,
+    flex: 1,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  servingsValueBtn: {
+    flex: 2,
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },
   servingsValue: {
-    minWidth: 40,
     textAlign: 'center',
   },
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
   },
-  section: { marginBottom: spacing.lg },
-  primaryBtn: { marginBottom: spacing.sm },
-  secondaryBtn: { marginBottom: spacing.sm },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',

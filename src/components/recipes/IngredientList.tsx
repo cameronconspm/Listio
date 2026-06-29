@@ -77,9 +77,9 @@ export function IngredientList({ ingredients, showTitle = true }: IngredientList
 }
 
 const styles = StyleSheet.create({
-  container: { paddingVertical: spacing.xs },
+  container: { paddingVertical: 0 },
   row: {
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     paddingHorizontal: 0,
   },
   rowInner: {

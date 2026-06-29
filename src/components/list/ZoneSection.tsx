@@ -69,6 +69,10 @@ type ZoneSectionProps = {
   zoneIconOverrides?: ZoneIconOverrides | null;
   /** When true, skip layout animation on expand/collapse */
   reduceMotion?: boolean;
+  /** Shop mode: long-press section header to check all unchecked items. */
+  onCheckAllZone?: () => void;
+  /** Tap quantity chip to open inline quantity editor. */
+  onTapQuantity?: (item: ListItem) => void;
 };
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -97,6 +101,8 @@ function ZoneSectionInner({
   linkedMealLabels,
   zoneIconOverrides,
   reduceMotion = false,
+  onCheckAllZone,
+  onTapQuantity,
 }: ZoneSectionProps) {
   if (__DEV__) markRender('ZoneSection');
   const theme = useTheme();
@@ -172,6 +178,17 @@ function ZoneSectionInner({
     onEnterZoneClearMode?.();
   };
 
+  const handleHeaderLongPress = () => {
+    if (isShopMode && onCheckAllZone) {
+      haptics.selection();
+      onCheckAllZone();
+      return;
+    }
+    if (onRequestDeleteZone && onEnterZoneClearMode) {
+      handleEnterClearMode();
+    }
+  };
+
   const shopCurrentChrome =
     isCurrent && isShopMode
       ? {
@@ -200,16 +217,22 @@ function ZoneSectionInner({
           <Pressable
             style={[headerStyle, styles.headerTap]}
             onPress={handleHeaderPress}
-            onLongPress={onRequestDeleteZone && onEnterZoneClearMode ? handleEnterClearMode : undefined}
+            onLongPress={
+              (isShopMode && onCheckAllZone) || (onRequestDeleteZone && onEnterZoneClearMode)
+                ? handleHeaderLongPress
+                : undefined
+            }
             delayLongPress={450}
             accessibilityRole="button"
             accessibilityLabel={
               sectionComplete ? `${label} section, all items checked` : `${label} section`
             }
             accessibilityHint={
-              onRequestDeleteZone && onEnterZoneClearMode
-                ? 'Tap to expand or collapse. Long press to remove all items in this section. Scroll or use the escape gesture to leave clear mode.'
-                : undefined
+              isShopMode && onCheckAllZone
+                ? 'Tap to expand or collapse. Long press to check all items in this section.'
+                : onRequestDeleteZone && onEnterZoneClearMode
+                  ? 'Tap to expand or collapse. Long press to remove all items in this section. Scroll or use the escape gesture to leave clear mode.'
+                  : undefined
             }
             accessibilityActions={
               onRequestDeleteZone
@@ -323,6 +346,7 @@ function ZoneSectionInner({
                         swipeToCheck={isShopMode}
                         linkedMealLabel={mealMeta?.display}
                         linkedMealAccessibilityLabel={mealMeta?.accessibilityLabel}
+                        onTapQuantity={onTapQuantity}
                       />
                     );
                   }}
@@ -351,6 +375,7 @@ function ZoneSectionInner({
                       swipeToCheck={isShopMode}
                       linkedMealLabel={mealMeta?.display}
                       linkedMealAccessibilityLabel={mealMeta?.accessibilityLabel}
+                      onTapQuantity={onTapQuantity}
                     />
                   </React.Fragment>
                 );
@@ -387,7 +412,9 @@ function areZoneSectionPropsEqual(prev: ZoneSectionProps, next: ZoneSectionProps
     prev.hideEditIcon === next.hideEditIcon &&
     prev.linkedMealLabels === next.linkedMealLabels &&
     prev.zoneIconOverrides === next.zoneIconOverrides &&
-    prev.reduceMotion === next.reduceMotion
+    prev.reduceMotion === next.reduceMotion &&
+    prev.onCheckAllZone === next.onCheckAllZone &&
+    prev.onTapQuantity === next.onTapQuantity
   );
 }
 

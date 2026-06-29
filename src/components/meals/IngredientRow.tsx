@@ -91,7 +91,7 @@ export const IngredientRow = React.memo(IngredientRowInner);
 
 const styles = StyleSheet.create({
   row: {
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
   },
   rowInner: {
     flexDirection: 'row',

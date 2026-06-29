@@ -11,6 +11,9 @@ import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog
 import { deleteAuthenticatedAccount } from '../../services/deleteAccountService';
 import { isSyncEnabled } from '../../services/supabaseClient';
 import { clearPersistedQueryCache } from '../../query/reactQueryPersistence';
+import {
+  settingsListSectionProps,
+} from '../../design/settingsLayout';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
@@ -71,16 +74,14 @@ export function DeleteAccountScreen() {
         contentInsetAdjustmentBehavior={scrollInsets.contentInsetBehavior}
         showsVerticalScrollIndicator={false}
       >
-        <ListSection title="Warning" titleVariant="small" glass={false} style={styles.section}>
-          <View style={[styles.warningBox, { backgroundColor: theme.surface }]}>
-            <Text style={[theme.typography.body, { color: theme.textSecondary, lineHeight: 22 }]}>
-              This deletes your account and everything in Listio tied to it, including lists, meals, and recipes. You can’t get this
-              data back.
-            </Text>
-          </View>
+        <ListSection title="Warning" {...settingsListSectionProps}>
+          <Text style={[theme.typography.body, { color: theme.textSecondary, lineHeight: 22 }]}>
+            This deletes your account and everything in Listio tied to it, including lists, meals, and recipes. You can’t get this
+            data back.
+          </Text>
         </ListSection>
 
-        <ListSection title="Confirm" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Confirm" {...settingsListSectionProps}>
           <View style={styles.fieldWrap}>
             <Text
               style={[
@@ -111,7 +112,7 @@ export function DeleteAccountScreen() {
           </View>
         </ListSection>
 
-        <ListSection title="Action" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Action" {...settingsListSectionProps}>
           <PrimaryButton
             title="Delete account"
             onPress={handleDeletePress}
@@ -139,10 +140,6 @@ export function DeleteAccountScreen() {
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {},
-  section: { marginBottom: spacing.lg },
-  warningBox: {
-    padding: spacing.md,
-  },
   fieldWrap: {
     paddingHorizontal: 0,
   },

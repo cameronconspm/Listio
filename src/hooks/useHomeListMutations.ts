@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  checkAllZoneItems,
   deleteAllListItems,
   deleteCheckedListItems,
   deleteListItem,
@@ -264,6 +265,27 @@ export function useHomeListMutations() {
     onSettled: (_d, _e, { userId }) => invalidateList(userId),
   });
 
+  const checkAllZone = useMutation<
+    void,
+    unknown,
+    { userId: string; zoneKey: ZoneKey },
+    MutationContext
+  >({
+    mutationFn: ({ userId, zoneKey }) => checkAllZoneItems(userId, zoneKey),
+    onMutate: async ({ userId, zoneKey }) => {
+      const ctx = await cancelAndSnapshot(userId);
+      writeCache(userId, (prev) => ({
+        ...prev,
+        listItems: prev.listItems.map((i) =>
+          i.zone_key === zoneKey && !i.is_checked ? { ...i, is_checked: true } : i
+        ),
+      }));
+      return ctx;
+    },
+    onError: (_e, { userId }, ctx) => rollback(userId, ctx),
+    onSettled: (_d, _e, { userId }) => invalidateList(userId),
+  });
+
   return {
     insertItems,
     updateItem,
@@ -272,5 +294,6 @@ export function useHomeListMutations() {
     removeAllItems,
     removeZoneItems,
     removeCheckedItems,
+    checkAllZone,
   };
 }

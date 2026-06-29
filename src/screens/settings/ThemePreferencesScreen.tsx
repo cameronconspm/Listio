@@ -10,7 +10,7 @@ import { ListSection } from '../../components/ui/ListSection';
 import { SegmentedPillControl } from '../../ui/components/SegmentedPillControl/SegmentedPillControl';
 import { useSettingsScrollHandler } from '../../navigation/NavigationChromeScrollContext';
 import { useSettingsScrollInsets } from './settingsScrollLayout';
-import { spacing } from '../../design/spacing';
+import { settingsListSectionProps } from '../../design/settingsLayout';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 const THEME_LABEL: Record<ThemePreference, string> = {
@@ -52,26 +52,24 @@ export function ThemePreferencesScreen() {
         contentInsetAdjustmentBehavior={scrollInsets.contentInsetBehavior}
         showsVerticalScrollIndicator={false}
       >
-        <ListSection title="Appearance" titleVariant="small" glass={false} style={styles.section}>
-          <View style={styles.controlWrap}>
-            <SegmentedPillControl<ThemePreference>
-              segments={[
-                { key: 'system', label: THEME_LABEL.system },
-                { key: 'light', label: THEME_LABEL.light },
-                { key: 'dark', label: THEME_LABEL.dark },
-              ]}
-              value={selectedTheme}
-              onChange={setSelectedTheme}
-            />
-            <Text
-              style={[
-                theme.typography.footnote,
-                { color: theme.textSecondary, marginTop: theme.spacing.md, lineHeight: 19 },
-              ]}
-            >
-              {helperText}
-            </Text>
-          </View>
+        <ListSection title="Appearance" {...settingsListSectionProps}>
+          <SegmentedPillControl<ThemePreference>
+            segments={[
+              { key: 'system', label: THEME_LABEL.system },
+              { key: 'light', label: THEME_LABEL.light },
+              { key: 'dark', label: THEME_LABEL.dark },
+            ]}
+            value={selectedTheme}
+            onChange={setSelectedTheme}
+          />
+          <Text
+            style={[
+              theme.typography.footnote,
+              { color: theme.textSecondary, marginTop: theme.spacing.xs, lineHeight: 19 },
+            ]}
+          >
+            {helperText}
+          </Text>
         </ListSection>
       </ScrollView>
     </Screen>
@@ -81,9 +79,4 @@ export function ThemePreferencesScreen() {
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {},
-  section: { marginBottom: spacing.lg },
-  controlWrap: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
 });

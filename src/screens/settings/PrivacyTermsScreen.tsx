@@ -10,7 +10,7 @@ import { useSettingsScrollInsets } from './settingsScrollLayout';
 import { ListSection } from '../../components/ui/ListSection';
 import { ListRow } from '../../components/ui/ListRow';
 import { Chevron } from './SettingsChevron';
-import { spacing } from '../../design/spacing';
+import { settingsRowListSectionProps } from '../../design/settingsLayout';
 import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../../constants/legalUrls';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
@@ -43,7 +43,7 @@ export function PrivacyTermsScreen() {
         contentInsetAdjustmentBehavior={scrollInsets.contentInsetBehavior}
         showsVerticalScrollIndicator={false}
       >
-        <ListSection title="Documents" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Documents" {...settingsRowListSectionProps}>
           <ListRow
             title="Privacy policy"
             onPress={() => openLegalUrl(PRIVACY_POLICY_URL)}
@@ -60,7 +60,7 @@ export function PrivacyTermsScreen() {
           />
         </ListSection>
 
-        <ListSection title="Account controls" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Account controls" {...settingsRowListSectionProps}>
           <ListRow
             title="Delete account"
             subtitle="Delete your account and everything stored with it"
@@ -79,5 +79,4 @@ export function PrivacyTermsScreen() {
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {},
-  section: { marginBottom: spacing.lg },
 });

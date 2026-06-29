@@ -17,10 +17,12 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
+import { recipeActionStackStyle } from '../../design/recipeLayout';
 import { PrimaryButton } from '../ui/PrimaryButton';
 
 const PARSING_ICONS = [
@@ -82,6 +84,8 @@ type RecipeAiImportOverlayProps = {
   progressFraction?: number;
   errorMessage?: string;
   onDismiss: () => void;
+  /** Link import failure: switch the form to paste mode instead of retrying the URL. */
+  onTryPaste?: () => void;
   onCancel?: () => void;
   reduceMotion: boolean;
 };
@@ -97,6 +101,7 @@ export function RecipeAiImportOverlay({
   progressFraction,
   errorMessage,
   onDismiss,
+  onTryPaste,
   onCancel,
   reduceMotion,
 }: RecipeAiImportOverlayProps) {
@@ -116,12 +121,30 @@ export function RecipeAiImportOverlay({
     if (!visible || phase !== 'parsing') return;
     setStatusIndex(0);
     if (progressFraction != null) {
-      progress.value = withTiming(Math.min(1, Math.max(0, progressFraction)), {
-        duration: rm ? 80 : 220,
-        easing: Easing.out(Easing.cubic),
-      });
+      const target = Math.min(1, Math.max(0, progressFraction));
+      if (rm) {
+        // Reduced motion: snap to milestone, no crawl.
+        progress.value = withTiming(target, { duration: 80, easing: Easing.out(Easing.cubic) });
+      } else {
+        // Jump to the milestone, then crawl forward at a constant velocity
+        // so the bar is always visibly moving. Constant velocity (Easing.linear)
+        // means it never decelerates to a stop between milestones — the crawl
+        // only slows if the operation itself is genuinely stalling.
+        const CRAWL_CEIL = 0.95;
+        const VELOCITY = 0.028; // progress-units per second
+        const crawlMs = Math.round(Math.max(0, (CRAWL_CEIL - target) / VELOCITY) * 1000);
+        if (crawlMs > 300 && target < CRAWL_CEIL) {
+          progress.value = withSequence(
+            withTiming(target, { duration: 220, easing: Easing.out(Easing.cubic) }),
+            withTiming(CRAWL_CEIL, { duration: crawlMs, easing: Easing.linear }),
+          );
+        } else {
+          progress.value = withTiming(target, { duration: 220, easing: Easing.out(Easing.cubic) });
+        }
+      }
       return;
     }
+    // No fraction provided: legacy timed full-bar animation.
     progress.value = 0;
     progress.value = withTiming(0.92, {
       duration: rm ? 400 : 11_000,
@@ -238,6 +261,7 @@ export function RecipeAiImportOverlay({
           lineHeight: 20,
           marginBottom: theme.spacing.lg,
         },
+        actionStack: recipeActionStackStyle,
       }),
     [theme, insets.top, insets.bottom, windowWidth],
   );
@@ -248,6 +272,7 @@ export function RecipeAiImportOverlay({
 
   const canDismiss = phase === 'success' || phase === 'failure';
   const dismissLabel = phase === 'success' ? 'Continue' : 'Dismiss';
+  const showTryPaste = phase === 'failure' && mode === 'link' && onTryPaste != null;
 
   const heroIcon =
     phase === 'success'
@@ -353,7 +378,21 @@ export function RecipeAiImportOverlay({
             <PrimaryButton title="Cancel" onPress={onCancel} flat style={{ alignSelf: 'stretch' }} />
           ) : null}
           {canDismiss ? (
-            <PrimaryButton title={dismissLabel} onPress={onDismiss} flat style={{ alignSelf: 'stretch' }} />
+            <View style={styles.actionStack}>
+              {showTryPaste ? (
+                <PrimaryButton
+                  title="Link didn't work? Try paste"
+                  onPress={onTryPaste}
+                  style={{ alignSelf: 'stretch' }}
+                />
+              ) : null}
+              <PrimaryButton
+                title={dismissLabel}
+                onPress={onDismiss}
+                flat={showTryPaste}
+                style={{ alignSelf: 'stretch' }}
+              />
+            </View>
           ) : null}
         </Animated.View>
       </View>

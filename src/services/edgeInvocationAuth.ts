@@ -65,6 +65,14 @@ const MESSAGES: Record<
   },
 };
 
+/** Auth state changed while a session read was in flight — retry once with a fresh cache. */
+class EdgeAuthStaleLoadError extends Error {
+  constructor() {
+    super('edge-auth-stale-load');
+    this.name = 'EdgeAuthStaleLoadError';
+  }
+}
+
 type MemoryCache = {
   accessToken: string;
   expiresAtSec: number | null;
@@ -136,7 +144,7 @@ async function loadFreshSession(purpose: EdgeAuthPurpose, gen: number): Promise<
     throw new Error(msg.noToken);
   }
   if (gen !== cacheGeneration) {
-    throw new Error(msg.corrupt);
+    throw new EdgeAuthStaleLoadError();
   }
   return {
     accessToken: session.access_token,
@@ -150,7 +158,8 @@ async function loadFreshSession(purpose: EdgeAuthPurpose, gen: number): Promise<
  * Uses a short-lived in-memory cache and single-flight deduplication for concurrent callers.
  */
 export async function getValidAccessTokenForEdgeInvoke(
-  purpose: EdgeAuthPurpose
+  purpose: EdgeAuthPurpose,
+  attempt = 0
 ): Promise<{ accessToken: string }> {
   const nowSec = Math.floor(Date.now() / 1000);
   if (memory) {
@@ -171,7 +180,7 @@ export async function getValidAccessTokenForEdgeInvoke(
     inflight = loadFreshSession(purpose, gen)
       .then((next) => {
         if (gen !== cacheGeneration) {
-          throw new Error(MESSAGES[purpose].corrupt);
+          throw new EdgeAuthStaleLoadError();
         }
         memory = next;
         return next;
@@ -181,8 +190,18 @@ export async function getValidAccessTokenForEdgeInvoke(
       });
   }
 
-  const next = await inflight;
-  return { accessToken: next.accessToken };
+  try {
+    const next = await inflight;
+    return { accessToken: next.accessToken };
+  } catch (e) {
+    if (e instanceof EdgeAuthStaleLoadError && attempt < 1) {
+      return getValidAccessTokenForEdgeInvoke(purpose, attempt + 1);
+    }
+    if (e instanceof EdgeAuthStaleLoadError) {
+      throw new Error(MESSAGES[purpose].corrupt);
+    }
+    throw e;
+  }
 }
 
 let authListenerRegistered = false;

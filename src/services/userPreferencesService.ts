@@ -5,11 +5,14 @@ import { supabase, getUserId, isSyncEnabled } from './supabaseClient';
 
 /** Allows partial nested keys (e.g. `location`, `notifications`) — mergePayload deep-merges. */
 export type UserPreferencesPatch = Partial<
-  Omit<UserPreferencesPayload, 'appearance' | 'location' | 'notifications'>
+  Omit<UserPreferencesPayload, 'appearance' | 'location' | 'notifications' | 'listUi' | 'householdUi' | 'funnelAnalytics'>
 > & {
   appearance?: Partial<NonNullable<UserPreferencesPayload['appearance']>>;
   location?: Partial<NonNullable<UserPreferencesPayload['location']>>;
   notifications?: Partial<NonNullable<UserPreferencesPayload['notifications']>>;
+  listUi?: Partial<NonNullable<UserPreferencesPayload['listUi']>>;
+  householdUi?: Partial<NonNullable<UserPreferencesPayload['householdUi']>>;
+  funnelAnalytics?: Partial<NonNullable<UserPreferencesPayload['funnelAnalytics']>>;
 };
 
 export type { UserPreferencesPayload } from '../types/preferences';
@@ -54,6 +57,12 @@ function mergePayload(
   }
   if (patch.listUi !== undefined) {
     next.listUi = { ...prev.listUi, ...patch.listUi };
+  }
+  if (patch.funnelAnalytics !== undefined) {
+    next.funnelAnalytics = { ...prev.funnelAnalytics, ...patch.funnelAnalytics };
+  }
+  if (patch.householdUi !== undefined) {
+    next.householdUi = { ...prev.householdUi, ...patch.householdUi };
   }
   if (patch.mealsUi !== undefined) {
     next.mealsUi = { ...prev.mealsUi, ...patch.mealsUi };

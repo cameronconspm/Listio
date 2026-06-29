@@ -22,7 +22,7 @@ export function RecipePill({ label }: RecipePillProps) {
 const styles = StyleSheet.create({
   pill: {
     paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
+    paddingVertical: spacing.xs,
     borderRadius: radius.full,
     maxWidth: '100%',
   },

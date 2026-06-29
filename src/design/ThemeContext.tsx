@@ -3,7 +3,6 @@ import React, {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useState,
 } from 'react';
@@ -21,6 +20,7 @@ import type { SemanticTokenKey } from './tokens';
 import { logger } from '../utils/logger';
 import {
   hydrateThemePreference,
+  peekSessionThemePreference,
   persistThemePreference,
   type ThemePreference,
 } from '../services/themePreferenceService';
@@ -43,9 +43,24 @@ const ThemePreferenceContext = createContext<{
   selectedTheme: ThemePreference;
   setSelectedTheme: (theme: ThemePreference) => void;
 } | null>(null);
+const ThemeReadyContext = createContext(false);
 
 function readOsColorScheme(): ColorScheme {
   return Appearance.getColorScheme() === 'dark' ? 'dark' : 'light';
+}
+
+function resolveColorScheme(pref: ThemePreference): ColorScheme {
+  return pref === 'system' ? readOsColorScheme() : pref;
+}
+
+/** Sync React Native Appearance with the saved preference. */
+function applyThemePreferenceToOs(pref: ThemePreference): ColorScheme {
+  if (pref === 'system') {
+    Appearance.setColorScheme(null);
+    return readOsColorScheme();
+  }
+  Appearance.setColorScheme(pref);
+  return pref;
 }
 
 function buildTheme(scheme: ColorScheme, windowWidth: number): Theme {
@@ -63,8 +78,14 @@ function buildTheme(scheme: ColorScheme, windowWidth: number): Theme {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [selectedTheme, setSelectedThemeState] = useState<ThemePreference>('system');
-  const [osColorScheme, setOsColorScheme] = useState<ColorScheme>(readOsColorScheme);
+  const cachedPref = peekSessionThemePreference();
+  const [preferenceReady, setPreferenceReady] = useState(cachedPref != null);
+  const [selectedTheme, setSelectedThemeState] = useState<ThemePreference>(
+    () => cachedPref ?? 'system'
+  );
+  const [osColorScheme, setOsColorScheme] = useState<ColorScheme>(() =>
+    cachedPref ? resolveColorScheme(cachedPref) : readOsColorScheme()
+  );
   const colorScheme: ColorScheme =
     selectedTheme === 'system' ? osColorScheme : selectedTheme;
   const { width } = useWindowDimensions();
@@ -73,8 +94,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [colorScheme, width],
   );
 
+  const applyHydratedPreference = useCallback((pref: ThemePreference) => {
+    const scheme = applyThemePreferenceToOs(pref);
+    setSelectedThemeState(pref);
+    setOsColorScheme(scheme);
+    setPreferenceReady(true);
+  }, []);
+
   const setSelectedTheme = useCallback((next: ThemePreference) => {
+    const scheme = applyThemePreferenceToOs(next);
     setSelectedThemeState(next);
+    setOsColorScheme(scheme);
     void persistThemePreference(next);
   }, []);
 
@@ -83,33 +113,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [selectedTheme, setSelectedTheme],
   );
 
-  const syncOsAppearance = useCallback(() => {
-    if (selectedTheme === 'system') {
-      Appearance.setColorScheme(null);
-    }
-    setOsColorScheme(readOsColorScheme());
-  }, [selectedTheme]);
-
-  /** After the UIWindow exists — avoid touching Appearance before native window is ready. */
-  useLayoutEffect(() => {
-    syncOsAppearance();
-  }, [syncOsAppearance]);
-
-  useEffect(() => {
-    const appearanceSub = Appearance.addChangeListener(({ colorScheme: next }) => {
-      setOsColorScheme(next === 'dark' ? 'dark' : 'light');
-    });
-    const appStateSub = AppState.addEventListener('change', (state) => {
-      if (state === 'active' && selectedTheme === 'system') {
-        syncOsAppearance();
-      }
-    });
-    return () => {
-      appearanceSub.remove();
-      appStateSub.remove();
-    };
-  }, [selectedTheme, syncOsAppearance]);
-
   useEffect(() => {
     let cancelled = false;
     let unsubscribe: (() => void) | undefined;
@@ -117,14 +120,28 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const load = () => {
       void hydrateThemePreference()
         .then((pref) => {
-          if (!cancelled) setSelectedThemeState(pref);
+          if (cancelled) return;
+          clearTimeout(themeTimeoutId);
+          applyHydratedPreference(pref);
         })
         .catch((e) => {
           logger.warn('ThemeProvider: could not load appearance preference', e);
+          if (cancelled) return;
+          clearTimeout(themeTimeoutId);
+          applyHydratedPreference('system');
         });
     };
 
     load();
+
+    const themeHangMs = 10_000;
+    const themeTimeoutId = setTimeout(() => {
+      if (cancelled) return;
+      logger.warnRelease(
+        `Theme preference hydrate timed out after ${themeHangMs}ms; defaulting to system`
+      );
+      applyHydratedPreference('system');
+    }, themeHangMs);
 
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -135,9 +152,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         const {
           data: { subscription },
         } = supabase.auth.onAuthStateChange((_event, session) => {
+          if (cancelled) return;
           if (!session?.user) {
             void hydrateThemePreference().then((pref) => {
-              if (!cancelled) setSelectedThemeState(pref);
+              if (!cancelled) applyHydratedPreference(pref);
             });
             return;
           }
@@ -151,15 +169,39 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       cancelled = true;
+      clearTimeout(themeTimeoutId);
       unsubscribe?.();
     };
-  }, []);
+  }, [applyHydratedPreference]);
+
+  useEffect(() => {
+    const appearanceSub = Appearance.addChangeListener(({ colorScheme: next }) => {
+      if (selectedTheme !== 'system') return;
+      setOsColorScheme(next === 'dark' ? 'dark' : 'light');
+    });
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && selectedTheme === 'system') {
+        setOsColorScheme(readOsColorScheme());
+      }
+    });
+    return () => {
+      appearanceSub.remove();
+      appStateSub.remove();
+    };
+  }, [selectedTheme]);
 
   return (
-    <ThemePreferenceContext.Provider value={prefValue}>
-      <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>
-    </ThemePreferenceContext.Provider>
+    <ThemeReadyContext.Provider value={preferenceReady}>
+      <ThemePreferenceContext.Provider value={prefValue}>
+        <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>
+      </ThemePreferenceContext.Provider>
+    </ThemeReadyContext.Provider>
   );
+}
+
+/** True after the saved theme preference (default: system) has been applied. */
+export function useThemePreferenceReady(): boolean {
+  return useContext(ThemeReadyContext);
 }
 
 /** Module-level fallback theme used only when `useTheme` is called outside a

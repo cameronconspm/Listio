@@ -7,7 +7,7 @@ import { useResetSettingsScrollOnFocus } from '../../navigation/NavigationChrome
 import { Screen } from '../../components/ui/Screen';
 import { useSettingsScrollInsets } from './settingsScrollLayout';
 import { ListSection } from '../../components/ui/ListSection';
-import { spacing } from '../../design/spacing';
+import { settingsListSectionProps } from '../../design/settingsLayout';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 type SettingsPlaceholderScreenProps = {
@@ -36,12 +36,10 @@ export function SettingsPlaceholderScreen({ route }: SettingsPlaceholderScreenPr
           },
         ]}
       >
-        <ListSection title="Coming soon" titleVariant="small" glass={false} style={styles.section}>
-          <View style={[styles.placeholderRow, { backgroundColor: theme.surface }]}>
-            <Text style={[theme.typography.body, { color: theme.textSecondary }]}>
-              {title} will be available in a future update.
-            </Text>
-          </View>
+        <ListSection title="Coming soon" {...settingsListSectionProps}>
+          <Text style={[theme.typography.body, { color: theme.textSecondary }]}>
+            {title} will be available in a future update.
+          </Text>
         </ListSection>
       </View>
     </Screen>
@@ -50,11 +48,4 @@ export function SettingsPlaceholderScreen({ route }: SettingsPlaceholderScreenPr
 
 const styles = StyleSheet.create({
   content: { flex: 1 },
-  section: { marginBottom: spacing.lg },
-  placeholderRow: {
-    minHeight: 56,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    justifyContent: 'center',
-  },
 });

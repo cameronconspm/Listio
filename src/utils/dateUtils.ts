@@ -249,7 +249,6 @@ export function shiftScheduleStartToIncludeDate(
 
   const dates = getScheduleDates(startDate, length);
   const first = toDateString(dates[0]);
-  const last = toDateString(dates[dates.length - 1]);
 
   if (ymd < first) return ymd;
 

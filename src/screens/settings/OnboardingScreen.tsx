@@ -9,7 +9,10 @@ import { ListRow } from '../../components/ui/ListRow';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
 import { Chevron } from './SettingsChevron';
 import { useOnboardingControls } from '../../context/OnboardingControlsContext';
-import { spacing } from '../../design/spacing';
+import {
+  settingsListSectionProps,
+  settingsRowListSectionProps,
+} from '../../design/settingsLayout';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 export function OnboardingScreen() {
@@ -36,15 +39,13 @@ export function OnboardingScreen() {
         contentInsetAdjustmentBehavior={scrollInsets.contentInsetBehavior}
         showsVerticalScrollIndicator={false}
       >
-        <ListSection title="Intro" titleVariant="small" glass={false} style={styles.section}>
-          <View style={[styles.helper, { backgroundColor: theme.surface }]}>
-            <Text style={[theme.typography.body, { color: theme.textSecondary, lineHeight: 22 }]}>
-              Watch the welcome flow again, or reset so it appears the next time you open the app.
-            </Text>
-          </View>
+        <ListSection title="Intro" {...settingsListSectionProps}>
+          <Text style={[theme.typography.body, { color: theme.textSecondary, lineHeight: 22 }]}>
+            Watch the welcome flow again, or reset so it appears the next time you open the app.
+          </Text>
         </ListSection>
 
-        <ListSection title="Actions" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Actions" {...settingsRowListSectionProps}>
           <ListRow
             title="Replay onboarding"
             subtitle="Watch the welcome flow from the start"
@@ -87,8 +88,4 @@ export function OnboardingScreen() {
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {},
-  section: { marginBottom: spacing.lg },
-  helper: {
-    padding: spacing.md,
-  },
 });

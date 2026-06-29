@@ -13,6 +13,7 @@ type ListActionsSheetProps = {
   onCollapseAll: () => void;
   onExpandAll: () => void;
   onReorderSections: () => void;
+  onSwitchList?: () => void;
   onDeleteEntireList: () => void;
 };
 
@@ -23,6 +24,7 @@ export function ListActionsSheet({
   onCollapseAll,
   onExpandAll,
   onReorderSections,
+  onSwitchList,
   onDeleteEntireList,
 }: ListActionsSheetProps) {
   const theme = useTheme();
@@ -67,6 +69,19 @@ export function ListActionsSheet({
           <Text style={[theme.typography.body, { color: theme.textPrimary, flex: 1 }]}>Reorder sections</Text>
           <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
         </Pressable>
+        {onSwitchList ? (
+          <>
+            <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+            <Pressable
+              onPress={() => onSwitchList?.()}
+              style={({ pressed }) => [styles.actionRow, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="albums-outline" size={22} color={theme.textSecondary} />
+              <Text style={[theme.typography.body, { color: theme.textPrimary, flex: 1 }]}>Switch list</Text>
+              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            </Pressable>
+          </>
+        ) : null}
         <View style={[styles.divider, { backgroundColor: theme.divider }]} />
         <Pressable
           onPress={handleCollapse}

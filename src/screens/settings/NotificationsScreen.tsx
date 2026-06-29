@@ -26,7 +26,11 @@ import { registerAndSyncPushToken } from '../../services/pushTokenService';
 import { logNotificationMetric } from '../../services/notificationAnalyticsService';
 import { OnboardingShoppingRhythmFeatured } from '../../components/onboarding/OnboardingShoppingRhythmFeatured';
 import type { ShoppingTimeBucket } from '../../services/notificationTimeUtils';
-import { spacing } from '../../design/spacing';
+import {
+  SETTINGS_SECTION_GAP,
+  settingsListSectionProps,
+  settingsRowListSectionProps,
+} from '../../design/settingsLayout';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 
 function notificationsMasterOn(
@@ -226,7 +230,7 @@ export function NotificationsScreen() {
             yet.
           </Text>
         </View>
-        <ListSection title="Notifications" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Notifications" {...settingsRowListSectionProps}>
           <SettingsToggleRow
             title="Allow notifications"
             value={notificationsOn}
@@ -238,43 +242,41 @@ export function NotificationsScreen() {
 
         {isSyncEnabled() && notificationsOn ? (
           <>
-            <ListSection title="Meal reminders" titleVariant="small" glass={false} style={styles.section}>
-              <View style={styles.cadenceWrap}>
-                <Text
-                  style={[
-                    theme.typography.footnote,
-                    { color: theme.textSecondary, marginBottom: theme.spacing.sm },
-                  ]}
-                >
-                  Choose how often you want a heads-up about meals.
-                </Text>
-                <SegmentedPillControl<MealReminderMode>
-                  segments={[
-                    { key: 'daily', label: 'Daily' },
-                    { key: 'planned_only', label: 'Planned days' },
-                    { key: 'off', label: 'Off' },
-                  ]}
-                  value={mealMode}
-                  onChange={(m) => {
-                    void onChangeMealMode(m);
-                  }}
-                />
-                <Text
-                  style={[
-                    theme.typography.footnote,
-                    { color: theme.textSecondary, marginTop: theme.spacing.sm, lineHeight: 18 },
-                  ]}
-                >
-                  {mealMode === 'daily'
-                    ? 'A short nudge every evening, handy if you cook ad-hoc.'
-                    : mealMode === 'planned_only'
-                    ? 'Only on days with a meal planned. Quietest, most useful.'
-                    : 'No meal reminders. You can still get shopping nudges below.'}
-                </Text>
-              </View>
+            <ListSection title="Meal reminders" {...settingsListSectionProps}>
+              <Text
+                style={[
+                  theme.typography.footnote,
+                  { color: theme.textSecondary, marginBottom: theme.spacing.xs },
+                ]}
+              >
+                Choose how often you want a heads-up about meals.
+              </Text>
+              <SegmentedPillControl<MealReminderMode>
+                segments={[
+                  { key: 'daily', label: 'Daily' },
+                  { key: 'planned_only', label: 'Planned days' },
+                  { key: 'off', label: 'Off' },
+                ]}
+                value={mealMode}
+                onChange={(m) => {
+                  void onChangeMealMode(m);
+                }}
+              />
+              <Text
+                style={[
+                  theme.typography.footnote,
+                  { color: theme.textSecondary, marginTop: theme.spacing.xs, lineHeight: 18 },
+                ]}
+              >
+                {mealMode === 'daily'
+                  ? 'A short nudge every evening, handy if you cook ad-hoc.'
+                  : mealMode === 'planned_only'
+                  ? 'Only on days with a meal planned. Quietest, most useful.'
+                  : 'No meal reminders. You can still get shopping nudges below.'}
+              </Text>
             </ListSection>
 
-            <ListSection title="Engaging extras" titleVariant="small" glass={false} style={styles.section}>
+            <ListSection title="Engaging extras" {...settingsRowListSectionProps}>
               <SettingsToggleRow
                 title="Weekly preview"
                 subtitle="Sunday morning rundown of this week’s planned meals."
@@ -293,7 +295,7 @@ export function NotificationsScreen() {
               />
             </ListSection>
 
-            <ListSection title="Shopping schedule" titleVariant="small" glass={false} style={styles.section}>
+            <ListSection title="Shopping schedule" {...settingsRowListSectionProps}>
               <SettingsToggleRow
                 title="Match my shopping days"
                 subtitle="Reminders match the shopping days and times you choose"
@@ -323,7 +325,5 @@ export function NotificationsScreen() {
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {},
-  section: { marginBottom: spacing.lg },
-  infoBlock: { paddingHorizontal: spacing.md, marginBottom: spacing.md },
-  cadenceWrap: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  infoBlock: { marginBottom: SETTINGS_SECTION_GAP },
 });

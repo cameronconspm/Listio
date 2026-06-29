@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -14,6 +15,7 @@ type Props = {
 
 export function SetPasswordAfterRecoveryScreen({ onFinished }: Props) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function SetPasswordAfterRecoveryScreen({ onFinished }: Props) {
   return (
     <KeyboardSafeForm style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.xl }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -87,7 +89,7 @@ export function SetPasswordAfterRecoveryScreen({ onFinished }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.lg, paddingTop: 80 },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.lg, paddingBottom: spacing.xl },
   card: { marginBottom: spacing.lg },
   field: { marginBottom: spacing.md },
 });

@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.xxs,
     paddingBottom: spacing.xs,
   },
   track: {
@@ -97,7 +97,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   label: {
-    width: 44,
+    minWidth: 36,
     textAlign: 'right',
+    flexShrink: 0,
   },
 });

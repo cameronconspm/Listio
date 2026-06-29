@@ -41,24 +41,25 @@ function DaySectionInner({
       <Text style={[theme.typography.title3, styles.dayHeading, { color: theme.textPrimary }]}>
         {dateLabel}
       </Text>
-      <Card glass={false} style={[styles.slotsCard, theme.shadows.card, styles.slotsCardFlex]}>
+      <Card glass={false} style={[styles.slotsCard, theme.shadows.card]}>
         <View style={styles.slots}>
           {FIXED_SLOTS.map((slotKey) => {
             const m = mealsBySlot.get(slotKey) ?? null;
             const rid = m?.recipe_id ?? null;
             const recipeMeta = rid ? recipeMetaByRecipeId[rid] ?? null : null;
+            const displayLabel = slotKey.charAt(0).toUpperCase() + slotKey.slice(1);
             return (
               <MealSlotRow
                 key={slotKey}
                 slotKey={slotKey}
-                slotLabel={slotKey}
+                slotLabel={displayLabel}
                 meal={m}
                 recipeMeta={recipeMeta}
                 ingredientCount={ingredientCountByMealId[m?.id ?? ''] ?? 0}
                 onPressMeal={() => {
                   if (m) onPressMeal(m);
                 }}
-                onPressAdd={() => onPressAdd(dateString, slotKey, slotKey)}
+                onPressAdd={() => onPressAdd(dateString, slotKey, displayLabel)}
                 onDeleteMeal={onDeleteMeal}
               />
             );
@@ -93,9 +94,7 @@ function DaySectionInner({
 export const DaySection = React.memo(DaySectionInner);
 
 const styles = StyleSheet.create({
-  section: {
-    flex: 1,
-  },
+  section: {},
   dayHeading: {
     marginBottom: spacing.sm,
   },
@@ -103,13 +102,7 @@ const styles = StyleSheet.create({
     overflow: 'visible',
     padding: 0,
   },
-  /** Lets the day planner card fill remaining scroll height so the area below the last row matches the card. */
-  slotsCardFlex: {
-    flex: 1,
-    minHeight: 0,
-  },
   slots: {
     overflow: 'visible',
-    flex: 1,
   },
 });

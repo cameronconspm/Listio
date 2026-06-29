@@ -15,8 +15,11 @@ import {
   LISTIO_PLUS_MONTHLY_USD_LABEL,
 } from '../../constants/subscription';
 import { isSyncEnabled } from '../../services/supabaseClient';
-import { spacing } from '../../design/spacing';
-import { radius } from '../../design/radius';
+import {
+  SETTINGS_SECTION_GAP,
+  settingsListSectionProps,
+  settingsRowListSectionProps,
+} from '../../design/settingsLayout';
 import {
   fetchPremiumEntitlementActive,
   getRevenueCatIosApiKey,
@@ -131,34 +134,30 @@ export function PlanScreen() {
         contentInsetAdjustmentBehavior={scrollInsets.contentInsetBehavior}
         showsVerticalScrollIndicator={false}
       >
-        <ListSection title="Current plan" titleVariant="small" glass={false} style={styles.section}>
-          <View style={styles.planCard}>
-            <Text style={[theme.typography.title3, { color: theme.textPrimary, marginBottom: theme.spacing.xs }]}>
-              {planTitle}
-            </Text>
-            <Text style={[theme.typography.footnote, { color: theme.textSecondary, lineHeight: 20 }]}>
-              {planBody}
-            </Text>
-          </View>
+        <ListSection title="Current plan" {...settingsListSectionProps}>
+          <Text style={[theme.typography.title3, { color: theme.textPrimary, marginBottom: theme.spacing.xs }]}>
+            {planTitle}
+          </Text>
+          <Text style={[theme.typography.footnote, { color: theme.textSecondary, lineHeight: 20 }]}>
+            {planBody}
+          </Text>
         </ListSection>
 
         {Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate() && subscribed === false ? (
           <>
-            <ListSection title="Upgrade" titleVariant="small" glass={false} style={styles.section}>
-              <View style={styles.ctaCard}>
-                <Text
-                  style={[
-                    theme.typography.footnote,
-                    { color: theme.textSecondary, lineHeight: 20, marginBottom: theme.spacing.md },
-                  ]}
-                >
-                  Listio+ monthly ({LISTIO_PLUS_MONTHLY_USD_LABEL}) or yearly ({LISTIO_PLUS_ANNUAL_USD_LABEL}). Cancel
-                  anytime in Settings.
-                </Text>
-                <PrimaryButton title="View plans" onPress={handleSubscribe} loading={paywallBusy} />
-              </View>
+            <ListSection title="Upgrade" {...settingsListSectionProps}>
+              <Text
+                style={[
+                  theme.typography.footnote,
+                  { color: theme.textSecondary, lineHeight: 20, marginBottom: theme.spacing.base },
+                ]}
+              >
+                Listio+ monthly ({LISTIO_PLUS_MONTHLY_USD_LABEL}) or yearly ({LISTIO_PLUS_ANNUAL_USD_LABEL}). Cancel
+                anytime in Settings.
+              </Text>
+              <PrimaryButton title="View plans" onPress={handleSubscribe} loading={paywallBusy} />
             </ListSection>
-            <ListSection title="Already subscribed?" titleVariant="small" glass={false} style={styles.section}>
+            <ListSection title="Already subscribed?" {...settingsRowListSectionProps}>
               <ListRow
                 title="Restore purchases"
                 subtitle="Get Listio+ back if you already subscribed"
@@ -173,7 +172,7 @@ export function PlanScreen() {
           </>
         ) : null}
 
-        <ListSection title="Included with Listio+" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Included with Listio+" {...settingsRowListSectionProps}>
           <ListRow
             title="Use on all your devices"
             rightAccessory={
@@ -207,7 +206,7 @@ export function PlanScreen() {
         </ListSection>
 
         {Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate() && subscribed === true ? (
-          <ListSection title="Billing" titleVariant="small" glass={false} style={styles.section}>
+          <ListSection title="Billing" {...settingsRowListSectionProps}>
             <ListRow
               title="Manage subscription"
               subtitle="Cancel, change plan, or update payment"
@@ -219,7 +218,7 @@ export function PlanScreen() {
         ) : null}
 
         {Platform.OS === 'ios' ? (
-          <View style={[styles.legalFooter, { marginBottom: spacing.lg }]}>
+          <View style={[styles.legalFooter, { marginBottom: SETTINGS_SECTION_GAP }]}>
             <SubscriptionLegalLinks />
           </View>
         ) : null}
@@ -231,15 +230,6 @@ export function PlanScreen() {
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {},
-  section: { marginBottom: spacing.lg },
-  planCard: {
-    padding: spacing.md,
-    borderRadius: radius.card,
-  },
-  ctaCard: {
-    padding: spacing.md,
-    borderRadius: radius.card,
-  },
   legalFooter: {
     alignItems: 'center',
   },

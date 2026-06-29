@@ -9,6 +9,10 @@ jest.mock('../src/services/syncInsertScope', () => ({
   resolveDataScopeId: jest.fn(async () => 'scope-1'),
 }));
 
+jest.mock('../src/services/userPreferencesService', () => ({
+  fetchUserPreferences: jest.fn(async () => ({})),
+}));
+
 import { supabase } from '../src/services/supabaseClient';
 import { invalidateDefaultListIdCache, resolveDefaultListId } from '../src/services/shoppingListService';
 

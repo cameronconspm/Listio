@@ -11,7 +11,20 @@
  *   lastRunAt        — ISO string of last completed run (or null)
  *   updatedAt        — ISO string when this data was last written
  */
-import { NativeModules, Platform } from 'react-native';
+import { Platform } from 'react-native';
+
+let nativeBridge: { setWidgetData: (appGroup: string, key: string, json: string) => void } | null =
+  null;
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module
+  const mod = require('listio-widget-bridge') as {
+    ListioWidgetBridge?: { setWidgetData: (appGroup: string, key: string, json: string) => void };
+  };
+  nativeBridge = mod.ListioWidgetBridge ?? null;
+} catch {
+  nativeBridge = null;
+}
 
 const APP_GROUP_ID = 'group.com.cameroncons.listio';
 const WIDGET_DEFAULTS_KEY = 'listio_widget_data';
@@ -32,9 +45,7 @@ export type WidgetData = {
 export async function writeWidgetData(data: Omit<WidgetData, 'updatedAt'>): Promise<void> {
   if (Platform.OS !== 'ios') return;
 
-  const bridge = NativeModules.ListioWidgetBridge as
-    | { setWidgetData: (appGroup: string, key: string, json: string) => void }
-    | undefined;
+  const bridge = nativeBridge;
 
   if (!bridge?.setWidgetData) return; // native module not linked yet
 

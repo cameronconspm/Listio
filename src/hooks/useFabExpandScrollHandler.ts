@@ -27,7 +27,7 @@ const FAB_SETTLE_SPRING = {
 } as const;
 
 /** Space reserved above tab bar so list clears FAB + touch margin (FAB height 56). */
-export const FAB_CLEARANCE = 56 + 20;
+export const FAB_CLEARANCE = 56 + 12;
 
 /**
  * Drives tab-root scroll offset + FAB expand/collapse (collapse while scrolling, spring settle when idle).

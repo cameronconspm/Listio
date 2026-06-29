@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   Keyboard,
   ActivityIndicator,
   Linking,
@@ -19,7 +20,7 @@ import type { RecipesStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
 import { Screen } from '../../components/ui/Screen';
 import { PushedScreenHeader } from '../../components/ui/PushedScreenHeader';
-import { KeyboardSafeForm } from '../../components/ui/KeyboardSafeForm';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { ListSection } from '../../components/ui/ListSection';
 import { SecondaryButton } from '../../components/ui/SecondaryButton';
 import { TextField } from '../../components/ui/TextField';
@@ -40,6 +41,7 @@ import { titleCaseWords } from '../../utils/titleCaseWords';
 import { showError, showSuccess } from '../../utils/appToast';
 import { MAX_RECIPE_AI_INPUT, MAX_RECIPE_INSTRUCTIONS, clampStr } from '../../constants/textLimits';
 import { spacing } from '../../design/spacing';
+import { recipeListSectionProps } from '../../design/recipeLayout';
 import { radius } from '../../design/radius';
 import { AI_RECIPE_IMPORT_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDisclosure';
 import { PRIVACY_POLICY_URL } from '../../constants/legalUrls';
@@ -99,6 +101,18 @@ function emptyStepRow(): StepRow {
 
 /** Single-line visual minimum until content measurement expands the field (matches touch target + TextField center math). */
 const STEP_FIELD_MIN_HEIGHT = MIN_TOUCH_TARGET;
+const STEP_FIELD_MAX_HEIGHT = 360;
+const STEP_FIELD_LINE_HEIGHT = 22;
+
+function estimateStepFieldHeight(text: string): number {
+  if (!text.trim()) return STEP_FIELD_MIN_HEIGHT;
+  const lines = Math.max(1, text.split('\n').length);
+  const pad = 14;
+  return Math.min(
+    STEP_FIELD_MAX_HEIGHT,
+    Math.max(STEP_FIELD_MIN_HEIGHT, Math.ceil(lines * STEP_FIELD_LINE_HEIGHT + pad))
+  );
+}
 
 function instructionsFromSteps(rows: StepRow[]): string {
   return rows
@@ -131,6 +145,7 @@ export function RecipeEditScreen() {
   const [unitPickerIdx, setUnitPickerIdx] = useState<number | null>(null);
 
   const [smartImportTab, setSmartImportTab] = useState<SmartImportTab>('link');
+  const [smartImportExpanded, setSmartImportExpanded] = useState(false);
   const [importLinkUrl, setImportLinkUrl] = useState('');
   const [importPasteText, setImportPasteText] = useState('');
   const [aiImportOverlay, setAiImportOverlay] = useState<{
@@ -140,6 +155,7 @@ export function RecipeEditScreen() {
     errorMessage?: string;
   } | null>(null);
   const importAbortRef = useRef<AbortController | null>(null);
+  const focusedStepIdRef = useRef<string | null>(null);
   const [errorDialog, setErrorDialog] = useState<{ title: string; message: string } | null>(null);
   const reduceMotion = useReduceMotion();
   const haptics = useHaptics();
@@ -159,6 +175,8 @@ export function RecipeEditScreen() {
     setNotes(mapped.notes);
     setRecipeUrl(mapped.recipeUrl);
     setIngredients(mapped.ingredients.length > 0 ? mapped.ingredients : [{ ...defaultIngredient }]);
+    Keyboard.dismiss();
+    setSmartImportExpanded(false);
   }, []);
 
   const detailQuery = useQuery({
@@ -249,8 +267,27 @@ export function RecipeEditScreen() {
     setSteps((prev) => prev.map((r) => (r.id === id ? { ...r, text: value } : r)));
   };
 
+  const stepIdsKey = steps.map((row) => row.id).join('|');
+
+  useEffect(() => {
+    setStepHeights((prev) => {
+      const next: Record<string, number> = {};
+      let changed = false;
+      for (const row of steps) {
+        const height = prev[row.id] ?? estimateStepFieldHeight(row.text);
+        next[row.id] = height;
+        if (prev[row.id] !== height) changed = true;
+      }
+      if (Object.keys(prev).length !== steps.length) changed = true;
+      return changed ? next : prev;
+    });
+  }, [stepIdsKey]);
+
   const onStepContentSizeChange = useCallback(
     (stepId: string, text: string) => (e: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
+      // Layout passes while scrolling fire spurious size changes and jump the scroll offset.
+      if (focusedStepIdRef.current !== stepId) return;
+
       let ch = e.nativeEvent.contentSize.height;
       // iOS: empty multiline TextInputs often report a huge intrinsic height; cap so the row stays short.
       if (!text.trim()) {
@@ -259,7 +296,10 @@ export function RecipeEditScreen() {
         ch = Math.min(ch, 2000);
       }
       const pad = 14;
-      const next = Math.min(360, Math.max(STEP_FIELD_MIN_HEIGHT, Math.ceil(ch + pad)));
+      const next = Math.min(
+        STEP_FIELD_MAX_HEIGHT,
+        Math.max(STEP_FIELD_MIN_HEIGHT, Math.ceil(ch + pad))
+      );
       setStepHeights((prev) => (prev[stepId] === next ? prev : { ...prev, [stepId]: next }));
     },
     []
@@ -360,6 +400,13 @@ export function RecipeEditScreen() {
     setAiImportOverlay(null);
   }, []);
 
+  const switchToPasteImport = useCallback(() => {
+    Keyboard.dismiss();
+    setAiImportOverlay(null);
+    setSmartImportExpanded(true);
+    setSmartImportTab('paste');
+  }, []);
+
   const handleImportFromLink = async () => {
     const raw = importLinkUrl.trim();
     if (!raw) {
@@ -379,6 +426,7 @@ export function RecipeEditScreen() {
     };
 
     setAiImportOverlay({ phase: 'parsing', mode: 'link', progress: 0.1 });
+    Keyboard.dismiss();
     try {
       const [{ parseRecipeFromUrl }, { mapParsedRecipeDraftToForm: mapDraft }] = await Promise.all([
         import('../../services/aiService'),
@@ -394,6 +442,10 @@ export function RecipeEditScreen() {
       const mapped = mapDraft(recipe);
       applyParsedDraft(mapped);
       if (gate.usesFreeAllowance) await commitAiTaste('recipe_import');
+      // Fill the bar to 100% before revealing the success screen.
+      setAiImportOverlay({ phase: 'parsing', mode: 'link', progress: 1 });
+      await new Promise<void>((resolve) => setTimeout(resolve, 380));
+      if (ac.signal.aborted) return;
       setAiImportOverlay({ phase: 'success', mode: 'link', progress: 1 });
       haptics.success();
     } catch (err) {
@@ -427,6 +479,7 @@ export function RecipeEditScreen() {
     };
 
     setAiImportOverlay({ phase: 'parsing', mode: 'paste', progress: 0.1 });
+    Keyboard.dismiss();
     try {
       const [{ parseRecipeFromText }, { mapParsedRecipeDraftToForm: mapDraft }] = await Promise.all([
         import('../../services/aiService'),
@@ -442,6 +495,10 @@ export function RecipeEditScreen() {
       const mapped = mapDraft(recipe);
       applyParsedDraft(mapped);
       if (gate.usesFreeAllowance) await commitAiTaste('recipe_import');
+      // Fill the bar to 100% before revealing the success screen.
+      setAiImportOverlay({ phase: 'parsing', mode: 'paste', progress: 1 });
+      await new Promise<void>((resolve) => setTimeout(resolve, 380));
+      if (ac.signal.aborted) return;
       setAiImportOverlay({ phase: 'success', mode: 'paste', progress: 1 });
       haptics.success();
     } catch (err) {
@@ -507,92 +564,148 @@ export function RecipeEditScreen() {
   return (
     <Screen padded safeTop={false} safeBottom={false}>
       <PushedScreenHeader title={headerTitle} onBack={() => navigation.goBack()} rightAccessory={savePill} />
-      <KeyboardSafeForm style={styles.keyboard}>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[
-            styles.content,
-            {
-              paddingBottom: insets.bottom + theme.spacing.xxl,
-            },
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
+      <KeyboardAwareScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingBottom: insets.bottom + theme.spacing.xxl,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        disableScrollOnKeyboardHide
+        bottomOffset={theme.spacing.md}
+      >
           {isNew ? (
-            <ListSection title="Smart import" titleVariant="small" glass={false} style={styles.smartImportSection}>
-              <SegmentedControl
-                segments={[
-                  { key: 'link', label: 'Paste link' },
-                  { key: 'paste', label: 'Paste recipe' },
+            <ListSection {...recipeListSectionProps}>
+              <Pressable
+                onPress={() => setSmartImportExpanded((open) => !open)}
+                style={({ pressed }) => [
+                  styles.smartImportHeader,
+                  smartImportExpanded && styles.smartImportHeaderExpanded,
+                  pressed && { opacity: 0.75 },
                 ]}
-                value={smartImportTab}
-                onChange={(value) => {
-                  setSmartImportTab(value);
-                }}
-              />
-              {smartImportTab === 'link' ? (
-                <View style={styles.smartImportBody}>
-                  <TextField
-                    label="Recipe URL"
-                    value={importLinkUrl}
-                    onChangeText={setImportLinkUrl}
-                    placeholder="https://..."
-                    autoCapitalize="none"
-                    keyboardType="url"
-                    containerStyle={styles.smartImportField}
-                    style={styles.compactLineInput}
-                  />
-                  <SecondaryButton
-                    title="Import"
-                    onPress={handleImportFromLink}
-                    disabled={!importLinkUrl.trim() || aiImportOverlay != null}
-                    style={styles.smartImportAction}
-                  />
-                </View>
-              ) : (
-                <View style={styles.smartImportBody}>
-                  <TextField
-                    label="Paste full recipe text"
-                    value={importPasteText}
-                    onChangeText={setImportPasteText}
-                    placeholder={'Recipe title\n\nIngredients:\n- 2 eggs\n...\n\nInstructions:\n1. ...'}
-                    multiline
-                    maxLength={MAX_RECIPE_AI_INPUT}
-                    scrollEnabled
-                    textAlignVertical="top"
-                    style={styles.pasteTextInput}
-                    containerStyle={styles.smartImportField}
-                  />
-                  <SecondaryButton
-                    title="Extract"
-                    onPress={handleExtractFromPaste}
-                    disabled={!importPasteText.trim() || aiImportOverlay != null}
-                    style={styles.smartImportAction}
-                  />
+                accessibilityRole="button"
+                accessibilityState={{ expanded: smartImportExpanded }}
+                accessibilityLabel={
+                  smartImportExpanded
+                    ? 'Collapse smart import'
+                    : 'Smart import, optional. Paste a link or recipe text.'
+                }
+              >
+                <View style={styles.smartImportHeaderCopy}>
                   <Text
                     style={[
-                      theme.typography.footnote,
-                      { color: theme.textSecondary, lineHeight: 20, marginTop: theme.spacing.sm },
+                      theme.typography.caption1,
+                      {
+                        color: theme.textSecondary,
+                        textTransform: 'uppercase',
+                      },
                     ]}
                   >
-                    {AI_RECIPE_IMPORT_DISCLOSURE_LEAD}{' '}
-                    <Text
-                      onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
-                      style={{ color: theme.accent }}
-                      accessibilityRole="link"
-                      accessibilityLabel="Open privacy policy"
-                    >
-                      Privacy policy
-                    </Text>
-                    .
+                    Smart import
                   </Text>
+                  {!smartImportExpanded ? (
+                    <View style={styles.smartImportCollapsedHint}>
+                      <Ionicons name="sparkles-outline" size={18} color={theme.accent} />
+                      <Text
+                        style={[
+                          theme.typography.footnote,
+                          { color: theme.textSecondary, flex: 1, lineHeight: 18 },
+                        ]}
+                      >
+                        Optional — paste a link or recipe text. If a link fails, copy the recipe from the page and use Paste recipe.
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
-              )}
+                <Ionicons
+                  name={smartImportExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={theme.textSecondary}
+                  style={smartImportExpanded ? styles.smartImportChevronExpanded : styles.smartImportChevron}
+                />
+              </Pressable>
+              {smartImportExpanded ? (
+                <View style={styles.smartImportExpanded}>
+                  <SegmentedControl
+                    segments={[
+                      { key: 'link', label: 'Paste link' },
+                      { key: 'paste', label: 'Paste recipe' },
+                    ]}
+                    value={smartImportTab}
+                    onChange={(value) => {
+                      setSmartImportTab(value);
+                    }}
+                  />
+                  {smartImportTab === 'link' ? (
+                    <View style={styles.smartImportBody}>
+                      <TextField
+                        label="Recipe URL"
+                        value={importLinkUrl}
+                        onChangeText={setImportLinkUrl}
+                        placeholder="https://example.com/your-recipe"
+                        autoCapitalize="none"
+                        keyboardType="url"
+                        editable={aiImportOverlay == null}
+                        containerStyle={styles.smartImportField}
+                        style={styles.compactLineInput}
+                      />
+                      <SecondaryButton
+                        title="Import"
+                        onPress={handleImportFromLink}
+                        disabled={!importLinkUrl.trim() || aiImportOverlay != null}
+                        style={styles.smartImportAction}
+                      />
+                    </View>
+                  ) : (
+                    <View style={styles.smartImportBody}>
+                      <TextField
+                        label="Paste full recipe text"
+                        value={importPasteText}
+                        onChangeText={setImportPasteText}
+                        placeholder={'Title\n\nIngredients\n- 2 eggs\n...\n\nInstructions\n1. ...'}
+                        multiline
+                        maxLength={MAX_RECIPE_AI_INPUT}
+                        scrollEnabled
+                        textAlignVertical="top"
+                        editable={aiImportOverlay == null}
+                        style={styles.pasteTextInput}
+                        containerStyle={styles.smartImportField}
+                      />
+                      <SecondaryButton
+                        title="Extract"
+                        onPress={handleExtractFromPaste}
+                        disabled={!importPasteText.trim() || aiImportOverlay != null}
+                        style={styles.smartImportAction}
+                      />
+                      <Text
+                        style={[
+                          theme.typography.footnote,
+                          { color: theme.textSecondary, lineHeight: 18, marginTop: theme.spacing.xs },
+                        ]}
+                      >
+                        {AI_RECIPE_IMPORT_DISCLOSURE_LEAD}{' '}
+                        <Text
+                          onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
+                          style={{ color: theme.accent }}
+                          accessibilityRole="link"
+                          accessibilityLabel="Open privacy policy"
+                        >
+                          Privacy policy
+                        </Text>
+                        .
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ) : null}
             </ListSection>
           ) : null}
 
-          <ListSection title="Basics" titleVariant="small" glass={false} style={styles.basicsSection}>
+          <ListSection title="Basics" {...recipeListSectionProps}>
             <TextField
               label="Recipe name"
               value={name}
@@ -625,15 +738,18 @@ export function RecipeEditScreen() {
             <Text
               style={[
                 theme.typography.caption1,
-                { color: theme.textSecondary, textTransform: 'uppercase', marginBottom: theme.spacing.sm },
+                { color: theme.textSecondary, textTransform: 'uppercase', marginBottom: theme.spacing.xs },
               ]}
             >
               Category
             </Text>
             <ScrollView
               horizontal
+              nestedScrollEnabled
+              directionalLockEnabled
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.chipRow}
+              style={styles.chipScrollView}
               keyboardShouldPersistTaps="handled"
             >
               {CATEGORY_CHIP_ORDER.map((opt) => {
@@ -665,13 +781,24 @@ export function RecipeEditScreen() {
                 );
               })}
             </ScrollView>
+            {!isNew ? (
+              <TextField
+                label="Recipe link"
+                value={recipeUrl}
+                onChangeText={setRecipeUrl}
+                placeholder="https://..."
+                keyboardType="url"
+                autoCapitalize="none"
+                autoCorrect={false}
+                containerStyle={styles.recipeUrlField}
+                style={styles.compactLineInput}
+              />
+            ) : null}
           </ListSection>
 
           <ListSection
             title="Ingredients"
-            titleVariant="small"
-            glass={false}
-            style={styles.ingSection}
+            {...recipeListSectionProps}
             headerRight={
               <TouchableOpacity
                 onPress={addIngredient}
@@ -694,11 +821,20 @@ export function RecipeEditScreen() {
                   idx < ingredients.length - 1 && {
                     borderBottomWidth: StyleSheet.hairlineWidth,
                     borderBottomColor: theme.divider,
-                    paddingBottom: theme.spacing.sm,
-                    marginBottom: theme.spacing.sm,
+                    paddingBottom: theme.spacing.xs,
+                    marginBottom: theme.spacing.xs,
                   },
                 ]}
               >
+                <TextField
+                  value={ing.name}
+                  onChangeText={(v) => updateIngredient(idx, 'name', v)}
+                  placeholder="Name"
+                  accessibilityLabel="Ingredient name"
+                  containerStyle={styles.ingName}
+                  style={styles.compactLineInput}
+                  formatOnBlur="titleWords"
+                />
                 <TextField
                   value={ing.quantity_value}
                   onChangeText={(v) => updateIngredient(idx, 'quantity_value', v)}
@@ -722,15 +858,6 @@ export function RecipeEditScreen() {
                     <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
                   </TouchableOpacity>
                 </View>
-                <TextField
-                  value={ing.name}
-                  onChangeText={(v) => updateIngredient(idx, 'name', v)}
-                  placeholder="Name"
-                  accessibilityLabel="Ingredient name"
-                  containerStyle={styles.ingName}
-                  style={styles.compactLineInput}
-                  formatOnBlur="titleWords"
-                />
                 <TouchableOpacity
                   onPress={() => removeIngredient(idx)}
                   style={[styles.removeBtn, { backgroundColor: theme.surface }]}
@@ -746,9 +873,7 @@ export function RecipeEditScreen() {
 
           <ListSection
             title="Steps"
-            titleVariant="small"
-            glass={false}
-            style={styles.stepsSection}
+            {...recipeListSectionProps}
             headerRight={
               <TouchableOpacity
                 onPress={addStep}
@@ -771,8 +896,8 @@ export function RecipeEditScreen() {
                   idx < steps.length - 1 && {
                     borderBottomWidth: StyleSheet.hairlineWidth,
                     borderBottomColor: theme.divider,
-                    paddingBottom: theme.spacing.sm,
-                    marginBottom: theme.spacing.sm,
+                    paddingBottom: theme.spacing.xs,
+                    marginBottom: theme.spacing.xs,
                   },
                 ]}
               >
@@ -794,6 +919,14 @@ export function RecipeEditScreen() {
                   inputVariant="shrinkWrap"
                   value={row.text}
                   onChangeText={(v) => updateStep(row.id, v)}
+                  onFocus={() => {
+                    focusedStepIdRef.current = row.id;
+                  }}
+                  onBlur={() => {
+                    if (focusedStepIdRef.current === row.id) {
+                      focusedStepIdRef.current = null;
+                    }
+                  }}
                   placeholder="Step…"
                   multiline
                   multilineVerticalAlign="center"
@@ -804,7 +937,7 @@ export function RecipeEditScreen() {
                     styles.stepInput,
                     {
                       height: stepHeights[row.id] ?? STEP_FIELD_MIN_HEIGHT,
-                      maxHeight: 360,
+                      maxHeight: STEP_FIELD_MAX_HEIGHT,
                     },
                   ]}
                   containerStyle={styles.stepField}
@@ -821,8 +954,18 @@ export function RecipeEditScreen() {
               </View>
             ))}
           </ListSection>
-        </ScrollView>
-      </KeyboardSafeForm>
+
+          <ListSection title="Notes" {...recipeListSectionProps}>
+            <TextField
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Tips, variations, sourcing notes…"
+              multiline
+              multilineVerticalAlign="center"
+              containerStyle={{ marginBottom: 0 }}
+            />
+          </ListSection>
+      </KeyboardAwareScrollView>
 
       <UnitPickerSheet
         visible={unitPickerIdx !== null}
@@ -853,10 +996,17 @@ export function RecipeEditScreen() {
           if (aiImportOverlay?.phase === 'parsing') {
             dismissAiImport();
           } else {
+            Keyboard.dismiss();
+            setSmartImportExpanded(false);
             setAiImportOverlay(null);
           }
         }}
         onCancel={aiImportOverlay?.phase === 'parsing' ? dismissAiImport : undefined}
+        onTryPaste={
+          aiImportOverlay?.phase === 'failure' && aiImportOverlay?.mode === 'link'
+            ? switchToPasteImport
+            : undefined
+        }
         reduceMotion={reduceMotion}
       />
     </Screen>
@@ -865,7 +1015,6 @@ export function RecipeEditScreen() {
 
 const styles = StyleSheet.create({
   centeredLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 200 },
-  keyboard: { flex: 1 },
   scroll: { flex: 1 },
   content: { flexGrow: 1 },
   savePill: {
@@ -876,32 +1025,54 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  smartImportSection: { marginBottom: spacing.lg },
-  smartImportBody: { marginTop: spacing.sm },
-  smartImportField: { marginBottom: spacing.sm },
-  smartImportAction: { marginBottom: spacing.xs },
-  pasteTextInput: { minHeight: 160 },
-  basicsSection: { marginBottom: spacing.lg },
-  titleField: { marginBottom: spacing.md },
+  smartImportHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    minHeight: MIN_TOUCH_TARGET,
+  },
+  smartImportHeaderExpanded: {
+    alignItems: 'center',
+    gap: spacing.xs,
+    minHeight: 0,
+  },
+  smartImportHeaderCopy: { flex: 1, minWidth: 0 },
+  smartImportCollapsedHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  smartImportChevron: { marginTop: 2 },
+  smartImportChevronExpanded: { marginTop: 0 },
+  smartImportExpanded: { marginTop: spacing.xs },
+  smartImportBody: { marginTop: spacing.xs },
+  smartImportField: { marginBottom: spacing.xs },
+  smartImportAction: { marginBottom: 0 },
+  pasteTextInput: { minHeight: 140 },
+  titleField: { marginBottom: spacing.base },
   twoColRow: {
     flexDirection: 'row',
-    gap: spacing.md,
-    marginBottom: spacing.md,
+    gap: spacing.sm,
+    marginBottom: spacing.base,
   },
   twoColField: { flex: 1, marginBottom: 0, minWidth: 0 },
+  chipScrollView: {
+    marginBottom: 0,
+  },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
     gap: spacing.sm,
-    paddingVertical: spacing.xs,
+    paddingVertical: 0,
   },
   categoryChip: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  ingSection: { marginBottom: spacing.lg },
   ingredientRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -914,7 +1085,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   ingQtyInput: { paddingHorizontal: spacing.xs },
-  ingUnitWrap: { width: 96, marginBottom: 0, flexShrink: 0 },
+  ingUnitWrap: { maxWidth: 96, flexBasis: 96, marginBottom: 0, flexShrink: 1 },
   ingUnit: { marginBottom: 0 },
   unitTrigger: {
     flexDirection: 'row',
@@ -934,7 +1105,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  stepsSection: { marginBottom: spacing.lg },
+  recipeUrlField: { marginTop: spacing.base, marginBottom: 0 },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -9,12 +9,12 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MealsStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
+import { scrollPaddingBottomWithoutTabBar } from '../../design/layout';
 import { Screen } from '../../components/ui/Screen';
 import { HeaderIconButton } from '../../components/ui/HeaderIconButton';
 import { PushedScreenHeader } from '../../components/ui/PushedScreenHeader';
@@ -23,6 +23,7 @@ import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { SecondaryButton } from '../../components/ui/SecondaryButton';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
 import { IngredientRow } from '../../components/meals/IngredientRow';
+import { RecipeActionStack } from '../../components/recipes/RecipeActionStack';
 import { RecipeMetaPills } from '../../components/recipes/RecipeMetaPills';
 import { addMissingIngredientsToList, deleteMeal, copyMealToDates, getMeals } from '../../services/mealService';
 import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
@@ -43,6 +44,7 @@ import { showError } from '../../utils/appToast';
 import { queryKeys } from '../../query/keys';
 import { fetchMealDetailBundle, MEAL_DETAIL_STALE_MS } from '../../query/mealDetailBundle';
 import { spacing } from '../../design/spacing';
+import { RECIPE_CARD_GAP, recipeListSectionProps } from '../../design/recipeLayout';
 
 type Route = RouteProp<MealsStackParamList, 'MealDetails'>;
 
@@ -57,11 +59,10 @@ const SLOT_LABELS: Record<string, string> = {
 export function MealDetailsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
   const queryClient = useQueryClient();
   const invalidateHomeList = useInvalidateHomeList();
   const { isPremium, isPremiumLoading } = usePremiumEntitlement();
-  const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xl;
+  const scrollBottomPad = scrollPaddingBottomWithoutTabBar(insets.bottom, theme.spacing);
   const navigation = useNavigation<NativeStackNavigationProp<MealsStackParamList>>();
   const route = useRoute<Route>();
   const { mealId } = route.params;
@@ -138,8 +139,8 @@ export function MealDetailsScreen() {
 
   const handleCopyConfirm = useCallback(async () => {
     if (!meal) return;
-    const userId = await getUserId();
-    if (!userId) return;
+    const uid = await getUserId();
+    if (!uid) return;
     const fromToday = new Date();
     fromToday.setHours(0, 0, 0, 0);
     const targetDates = expandMealDatesFromWeekdaySchedule({
@@ -152,14 +153,14 @@ export function MealDetailsScreen() {
     if (targetDates.length === 0) return;
     setCopying(true);
     try {
-      const existing = isPremium ? [] : await getMeals(userId);
+      const existing = isPremium ? [] : await getMeals(uid);
       const allowed = await ensureFreeTierCapacity('meal', existing.length, targetDates.length, isPremium, isPremiumLoading);
       if (!allowed) {
         setCopying(false);
         return;
       }
-      await copyMealToDates(mealId, userId, targetDates);
-      await invalidateMealsRange(queryClient, userId);
+      await copyMealToDates(mealId, uid, targetDates);
+      await invalidateMealsRange(queryClient, uid);
       setCopySheetVisible(false);
       navigation.goBack();
     } catch {
@@ -295,7 +296,7 @@ export function MealDetailsScreen() {
 
         {meal.recipe_url ? (
           <TouchableOpacity
-            style={[styles.linkRow, { marginBottom: theme.spacing.lg }]}
+            style={[styles.linkRow, { marginBottom: RECIPE_CARD_GAP }]}
             onPress={() => Linking.openURL(meal.recipe_url!)}
           >
             <Ionicons name="link" size={18} color={theme.accent} />
@@ -305,7 +306,7 @@ export function MealDetailsScreen() {
           </TouchableOpacity>
         ) : null}
 
-        <ListSection title="Ingredients" titleVariant="small" glass={false} style={styles.section}>
+        <ListSection title="Ingredients" {...recipeListSectionProps}>
           {ingredients.length === 0 ? (
             <Text style={[theme.typography.body, { color: theme.textSecondary }]}>No ingredients</Text>
           ) : (
@@ -321,30 +322,29 @@ export function MealDetailsScreen() {
         </ListSection>
 
         {meal.notes?.trim() ? (
-          <ListSection title="Tips" titleVariant="small" glass={false} style={styles.section}>
+          <ListSection title="Tips" {...recipeListSectionProps}>
             <Text style={[theme.typography.body, { color: theme.textPrimary }]}>{meal.notes.trim()}</Text>
           </ListSection>
         ) : null}
 
-        {missingCount > 0 && (
-          <PrimaryButton
-            title="Add missing to list"
-            onPress={handleAddMissing}
-            loading={adding}
-            style={styles.button}
+        <RecipeActionStack>
+          {missingCount > 0 ? (
+            <PrimaryButton
+              title="Add missing to list"
+              onPress={handleAddMissing}
+              loading={adding}
+            />
+          ) : null}
+          <SecondaryButton
+            title="Copy to other days"
+            onPress={() => setCopySheetVisible(true)}
+            loading={copying}
           />
-        )}
-        <SecondaryButton
-          title="Copy to other days"
-          onPress={() => setCopySheetVisible(true)}
-          loading={copying}
-          style={styles.button}
-        />
-        <SecondaryButton
-          title="Edit meal"
-          onPress={() => navigation.navigate('MealEdit', { mealId })}
-          style={styles.button}
-        />
+          <SecondaryButton
+            title="Edit meal"
+            onPress={() => navigation.navigate('MealEdit', { mealId })}
+          />
+        </RecipeActionStack>
       </ScrollView>
 
       <MealWeekdayScheduleSheet
@@ -386,8 +386,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   pillsBlock: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.base,
   },
-  section: { marginBottom: spacing.lg },
-  button: { marginBottom: spacing.sm },
 });

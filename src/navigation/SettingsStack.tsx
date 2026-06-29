@@ -12,6 +12,7 @@ import { ThemePreferencesScreen } from '../screens/settings/ThemePreferencesScre
 import { OnboardingScreen } from '../screens/settings/OnboardingScreen';
 import { PrivacyTermsScreen } from '../screens/settings/PrivacyTermsScreen';
 import { DeleteAccountScreen } from '../screens/settings/DeleteAccountScreen';
+import { ShareListScreen } from '../screens/settings/ShareListScreen';
 import { SettingsPlaceholderScreen } from '../screens/settings/SettingsPlaceholderScreen';
 import { HeaderIconButton } from '../components/ui/HeaderIconButton';
 import { createChromePushedStackScreenOptions } from '../ui/motion/navigation';
@@ -125,6 +126,14 @@ export function SettingsStack({ hubPresentation = 'modal' }: SettingsStackProps)
         component={DeleteAccountScreen}
         options={{
           title: 'Delete account',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="ShareList"
+        component={ShareListScreen}
+        options={{
+          title: 'Share list',
           headerShown: false,
         }}
       />

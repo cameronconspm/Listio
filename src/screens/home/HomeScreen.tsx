@@ -6,7 +6,7 @@ import { useNavigationChromeScroll } from '../../navigation/NavigationChromeScro
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
-import { tabRootScrollPaddingTop } from '../../design/layout';
+import { listTabScrollPaddingTop } from '../../design/layout';
 import { Screen } from '../../components/ui/Screen';
 import { QueryLoadErrorPanel } from '../../components/ui/QueryLoadErrorPanel';
 import {
@@ -32,7 +32,6 @@ import {
   bottomQuickAddClearance,
   type BottomQuickAddBarHandle,
 } from '../../components/list/BottomQuickAddBar';
-import { ITEM_NAME_SUGGESTION_UI_CAP } from '../../services/itemNameSuggestions';
 import { putCachedCategories } from '../../services/aiCategoryCache';
 import { normalize, toBoolean } from '../../utils/normalize';
 import type { ParsedItem } from '../../utils/parseItems';
@@ -42,6 +41,7 @@ import { normalizePersistedZoneOrder } from '../../utils/zoneOrderPrefs';
 import { showError, showMascotSuccess } from '../../utils/appToast';
 import { isPendingListItemId } from '../../utils/listItemPending';
 import { ListActionsSheet } from '../../components/list/ListActionsSheet';
+import { QuantityEditSheet } from '../../components/list/QuantityEditSheet';
 import { AppActionSheet } from '../../components/ui/AppActionSheet';
 import { ListScreenHeader } from '../../components/list/ListScreenHeader';
 import { recordItemAdded } from '../../services/recentItemsStore';
@@ -52,6 +52,7 @@ import { queryKeys } from '../../query/keys';
 import { HOME_LIST_STALE_MS } from '../../query/homeListBundle';
 import { safeZoneOrderOrDefault, type HomeSectionItem } from './homeScreenListDerived';
 import { useHomeListScreenState } from './useHomeListScreenState';
+import { useInvalidateHomeList } from '../../hooks/useInvalidateHomeList';
 import { useListRealtimeSync } from '../../hooks/useListRealtimeSync';
 import { HomeScreenEmptyState } from './HomeScreenEmptyState';
 import { HomeScreenZoneList } from './HomeScreenZoneList';
@@ -67,6 +68,15 @@ import { writeWidgetData } from '../../services/widgetDataBridge';
 import { FreeTierUsageBanner } from '../../components/subscription/FreeTierUsageBanner';
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { openPlanScreen } from '../../navigation/openPlanScreen';
+import { ShoppingListPickerSheet } from '../../components/list/ShoppingListPickerSheet';
+import { fetchShoppingLists } from '../../services/shoppingListService';
+import type { ShoppingList } from '../../types/models';
+import {
+  consumePendingInviteToken,
+  consumePendingQuickAddItem,
+} from '../../services/pendingDeepLinkActions';
+import { acceptHouseholdInvite } from '../../services/householdService';
+import { logFunnelEvent } from '../../services/funnelAnalyticsService';
 
 const VALID_LIST_ZONES = new Set<ZoneKey>(DEFAULT_ZONE_ORDER);
 
@@ -107,7 +117,6 @@ export function HomeScreen() {
   const handleOpenPlan = useCallback(() => {
     openPlanScreen(tabNavigation);
   }, [tabNavigation]);
-  const scrollTopBelowTabHeader = tabRootScrollPaddingTop(insets.top, theme.spacing);
   const tabBarHeight = useBottomTabBarHeight();
   const haptics = useHaptics();
   const reduceMotion = useReduceMotion();
@@ -121,6 +130,7 @@ export function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   /** undefined = getUserId not resolved yet; null = not signed in. */
   const userId = useAuthUserId();
+  const invalidateHomeList = useInvalidateHomeList();
   const [composerVisible, setComposerVisible] = useState(false);
   const [listDeleteDialog, setListDeleteDialog] = useState<ListDeleteDialogState>(null);
   const [editingItem, setEditingItem] = useState<ListItem | null>(null);
@@ -133,6 +143,11 @@ export function HomeScreen() {
   const [sessionZoneOrder, setSessionZoneOrder] = useState<ZoneKey[] | null>(null);
   const [reorderSections, setReorderSections] = useState<HomeSectionItem[]>([]);
   const [listActionsVisible, setListActionsVisible] = useState(false);
+  const [listPickerVisible, setListPickerVisible] = useState(false);
+  const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([]);
+  const funnelFirstItemLoggedRef = useRef(false);
+  const funnelFirstShopRunLoggedRef = useRef(false);
   /** Long-press section header: wiggle + delete affordance; cleared by Done/Cancel or after zone delete. */
   const [zoneClearMode, setZoneClearMode] = useState<ZoneKey | null>(null);
   const [shopRunCompleteVisible, setShopRunCompleteVisible] = useState(false);
@@ -142,9 +157,11 @@ export function HomeScreen() {
     runCount?: number;
     streakWeeks?: number;
   } | null>(null);
+  const [quantityEditItem, setQuantityEditItem] = useState<ListItem | null>(null);
   const shopRunCompleteGateRef = useRef(false);
   /** Set when user chooses “Delete entire list”; confirmation opens in `onDismissed` after the sheet modal exits. */
   const pendingDeleteEntireListAfterSheetRef = useRef(false);
+  const pendingSwitchListAfterSheetRef = useRef(false);
   const [reorderSaveSheetVisible, setReorderSaveSheetVisible] = useState(false);
   const [reorderSaveOrder, setReorderSaveOrder] = useState<ZoneKey[] | null>(null);
   const [categorizeFallbackPending, setCategorizeFallbackPending] =
@@ -180,6 +197,7 @@ export function HomeScreen() {
     removeAllItems,
     removeZoneItems,
     removeCheckedItems,
+    checkAllZone,
   } = useHomeListScreenState({
     userId,
     shoppingMode,
@@ -275,6 +293,12 @@ export function HomeScreen() {
     },
     [haptics]
   );
+
+  const trackFirstItemAdded = useCallback(() => {
+    if (funnelFirstItemLoggedRef.current) return;
+    funnelFirstItemLoggedRef.current = true;
+    logFunnelEvent('first_item_added');
+  }, []);
 
   const handleComposerSubmit = useCallback(
     async (parsedItems: ParsedItem[], zoneOverride: ZoneKey | null, opts?: ComposerSubmitOptions) => {
@@ -402,6 +426,7 @@ export function HomeScreen() {
         }
         setComposerVisible(false);
         setEditingItem(null);
+        trackFirstItemAdded();
         return;
       }
 
@@ -486,8 +511,9 @@ export function HomeScreen() {
       }
       setComposerVisible(false);
       setEditingItem(null);
+      trackFirstItemAdded();
     },
-    [insertItems, items, zoneOrder, sessionZoneOrder, store, haptics, isPremium, isPremiumLoading, userId]
+    [insertItems, items, zoneOrder, sessionZoneOrder, store, haptics, isPremium, isPremiumLoading, userId, trackFirstItemAdded]
   );
 
   /** Bulk-insert items already parsed + categorized by Smart Add (no second categorize call). */
@@ -559,6 +585,36 @@ export function HomeScreen() {
       await handleComposerSubmit([incoming], null, { skipDuplicateCheck: true });
     },
     [handleComposerSubmit]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void fetchUserPreferences().then((prefs) => {
+        setActiveListId(prefs.listUi?.activeListId ?? null);
+      });
+      void fetchShoppingLists()
+        .then(setShoppingLists)
+        .catch(() => undefined);
+
+      const quickAdd = consumePendingQuickAddItem();
+      if (quickAdd) {
+        void handleComposerSubmit([{ name: quickAdd, quantity: 1, unit: '' }], null, {
+          skipDuplicateCheck: true,
+        })
+          .then(() => trackFirstItemAdded())
+          .catch(() => undefined);
+      }
+
+      const inviteToken = consumePendingInviteToken();
+      if (inviteToken) {
+        void acceptHouseholdInvite(inviteToken).then((result) => {
+          if (result.ok) {
+            invalidateHomeList();
+            showMascotSuccess('List shared', 'You joined a shared grocery list.');
+          }
+        });
+      }
+    }, [handleComposerSubmit, trackFirstItemAdded, invalidateHomeList])
   );
 
   const handleConfirmCategorizeFallback = useCallback(async () => {
@@ -706,10 +762,80 @@ export function HomeScreen() {
     setZoneClearMode(null);
   }, []);
 
+  const handleCheckAllZone = useCallback(
+    async (zoneKey: ZoneKey) => {
+      if (typeof userId !== 'string' || !userId) return;
+      const currentItems = itemsRef.current;
+      const zoneItems = currentItems.filter((i) => i.zone_key === zoneKey);
+      const hasUnchecked = zoneItems.some((i) => !toBoolean(i.is_checked));
+      if (!hasUnchecked) return;
+      haptics.celebrate();
+      setCollapsedZones((prev) => new Set(prev).add(zoneKey));
+      showMascotSuccess(`${ZONE_LABELS[zoneKey]} done!`, 'All items checked.');
+      try {
+        await checkAllZone.mutateAsync({ userId, zoneKey });
+      } catch {
+        // checkAllZone's onError rolls back the optimistic update
+      }
+    },
+    [userId, haptics, checkAllZone]
+  );
+
+  const handleTapQuantity = useCallback((item: ListItem) => {
+    setQuantityEditItem(item);
+  }, []);
+
+  const handleQuantitySave = useCallback(
+    async (item: ListItem, newValue: number | null) => {
+      setQuantityEditItem(null);
+      if (typeof userId !== 'string' || !userId) return;
+      try {
+        await updateItem.mutateAsync({
+          userId,
+          id: item.id,
+          updates: { quantity_value: newValue },
+        });
+      } catch {
+        // updateItem rolls back on error
+      }
+    },
+    [userId, updateItem]
+  );
+
   const openListActionsSheet = useCallback(() => {
     setZoneClearMode(null);
     setListActionsVisible(true);
   }, []);
+
+  const openListPicker = useCallback(() => {
+    setZoneClearMode(null);
+    setListPickerVisible(true);
+  }, []);
+
+  const activeListMeta = useMemo(() => {
+    if (shoppingLists.length === 0) return null;
+    if (activeListId) {
+      return shoppingLists.find((list) => list.id === activeListId) ?? null;
+    }
+    return shoppingLists.find((list) => list.is_default) ?? shoppingLists[0] ?? null;
+  }, [shoppingLists, activeListId]);
+
+  const showListSwitcher = shoppingLists.length > 1;
+
+  const showListSwitcherChrome = showListSwitcher && !!activeListMeta?.name?.trim();
+
+  const scrollTopBelowTabHeader = useMemo(
+    () =>
+      listTabScrollPaddingTop(insets.top, theme.spacing, {
+        showListSwitcher: showListSwitcherChrome,
+      }),
+    [insets.top, theme.spacing, showListSwitcherChrome]
+  );
+
+  const headerListSwitcher = useMemo(() => {
+    if (!showListSwitcher || !activeListMeta?.name?.trim()) return null;
+    return { name: activeListMeta.name.trim(), onPress: openListPicker };
+  }, [showListSwitcher, activeListMeta?.name, openListPicker]);
 
   const handleDeleteEntireListFromMenu = useCallback(() => {
     pendingDeleteEntireListAfterSheetRef.current = true;
@@ -717,11 +843,23 @@ export function HomeScreen() {
   }, []);
 
   const handleListActionsSheetDismissed = useCallback(() => {
+    if (pendingSwitchListAfterSheetRef.current) {
+      pendingSwitchListAfterSheetRef.current = false;
+      requestAnimationFrame(() => {
+        setListPickerVisible(true);
+      });
+      return;
+    }
     if (!pendingDeleteEntireListAfterSheetRef.current) return;
     pendingDeleteEntireListAfterSheetRef.current = false;
     requestAnimationFrame(() => {
       setListDeleteDialog({ kind: 'all' });
     });
+  }, []);
+
+  const handleSwitchListFromMenu = useCallback(() => {
+    pendingSwitchListAfterSheetRef.current = true;
+    setListActionsVisible(false);
   }, []);
 
   const handleListDeleteDialogClose = useCallback(() => {
@@ -864,16 +1002,9 @@ export function HomeScreen() {
 
   // Memoize derived layout values: they feed props to memoized children (FAB, zone list)
   // and were previously recomputed on every parent render, forcing children to diff them.
-  const bottomBarBottom = useMemo(
-    () => tabBarHeight + Math.max(insets.bottom, theme.spacing.sm) + theme.spacing.sm,
-    [tabBarHeight, insets.bottom, theme.spacing.sm]
-  );
   const listContentBottomPad = useMemo(
-    () =>
-      bottomBarBottom +
-      bottomQuickAddClearance(ITEM_NAME_SUGGESTION_UI_CAP) +
-      theme.spacing.sm,
-    [bottomBarBottom, theme.spacing.sm]
+    () => tabBarHeight + bottomQuickAddClearance(0) + theme.spacing.sm,
+    [tabBarHeight, theme.spacing.sm]
   );
   const showFreeTierBanner =
     shouldEnforceIosSubscriptionGate() && !isPremium && !isPremiumLoading;
@@ -944,6 +1075,10 @@ export function HomeScreen() {
           streakWeeks: runState.streakWeeks,
           lastRunAt: runState.lastRunAt,
         });
+        if (!funnelFirstShopRunLoggedRef.current) {
+          funnelFirstShopRunLoggedRef.current = true;
+          logFunnelEvent('first_shop_run_complete');
+        }
       });
     }
   }, [
@@ -1067,11 +1202,9 @@ export function HomeScreen() {
     <Screen padded={false} safeTop={false} safeBottom={false}>
       <View style={styles.homeRoot}>
         <View style={styles.headerOverlay} pointerEvents="box-none">
-          <ListScreenHeader
-            shoppingMode={shoppingMode}
-            onShoppingModeChange={handleModeChange}
-            reorderMode={reorderMode}
-          />
+          {headerListSwitcher ? (
+            <ListScreenHeader listSwitcher={headerListSwitcher} reorderMode={reorderMode} />
+          ) : null}
         </View>
         <View style={{ paddingTop: showFreeTierBanner ? scrollTopBelowTabHeader : 0 }}>
           <FreeTierUsageBanner
@@ -1081,7 +1214,13 @@ export function HomeScreen() {
           />
         </View>
         {items.length === 0 ? (
-          <HomeScreenEmptyState scrollContentPaddingTop={0} />
+          <HomeScreenEmptyState
+            scrollContentPaddingTop={listScrollTopInset}
+            scrollContentPaddingBottom={listContentBottomPad}
+            shoppingMode={shoppingMode}
+            onShoppingModeChange={handleModeChange}
+            reorderMode={reorderMode}
+          />
         ) : (
           <View style={[styles.container, { backgroundColor: theme.background }]}>
             <HomeScreenZoneList
@@ -1097,6 +1236,7 @@ export function HomeScreen() {
               collapsedZones={collapsedZones}
               filterZone={filterZone}
               shoppingMode={shoppingMode}
+              onShoppingModeChange={handleModeChange}
               safeItems={items}
               zoneCounts={zoneCounts}
               zoneRemaining={zoneRemaining}
@@ -1138,6 +1278,8 @@ export function HomeScreen() {
               reorderHaptics={haptics}
               lastPlaceholderIndexRef={lastPlaceholderIndexRef}
               listScrollShared={listScrollShared}
+              onCheckAllZone={handleCheckAllZone}
+              onTapQuantity={handleTapQuantity}
             />
           </View>
         )}
@@ -1181,9 +1323,26 @@ export function HomeScreen() {
           onCollapseAll={collapseAll}
           onExpandAll={expandAll}
           onReorderSections={enterReorderMode}
+          onSwitchList={handleSwitchListFromMenu}
           onDeleteEntireList={handleDeleteEntireListFromMenu}
         />
       ) : null}
+      <ShoppingListPickerSheet
+        visible={listPickerVisible}
+        onClose={() => setListPickerVisible(false)}
+        activeListId={activeListId}
+        onActiveListChange={(listId) => {
+          setActiveListId(listId);
+          void fetchShoppingLists()
+            .then(setShoppingLists)
+            .catch(() => undefined);
+        }}
+      />
+      <QuantityEditSheet
+        item={quantityEditItem}
+        onClose={() => setQuantityEditItem(null)}
+        onSave={handleQuantitySave}
+      />
       {reorderSaveSheetMounted ? (
         <AppActionSheet
           visible={reorderSaveSheetVisible}

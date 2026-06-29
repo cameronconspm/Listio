@@ -14,6 +14,7 @@ import { logger } from '../utils/logger';
 import type { CategorizeItemResult, ParseRecipeResponse, ParsedListItem } from '../types/api';
 import type { ZoneKey } from '../types/models';
 import { MAX_RECIPE_AI_INPUT, MAX_RECIPE_URL } from '../constants/textLimits';
+import { normalizeRecipeImportUrl } from '../utils/normalizeRecipeImportUrl';
 import {
   putCachedCategories,
   resolveCategoryFast,
@@ -703,7 +704,7 @@ export async function parseRecipeFromUrl(
   recipeUrl: string,
   options?: { premiumHint?: PremiumHint; signal?: AbortSignal }
 ): Promise<ParseRecipeResponse> {
-  const prepared = recipeUrl.trim();
+  const prepared = normalizeRecipeImportUrl(recipeUrl);
   if (!prepared) {
     throw new Error('Recipe URL is required.');
   }

@@ -1,10 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
 import { GlassSurface } from './GlassSurface';
 import { Mascot, type MascotMood } from '../brand/Mascot';
-import { spacing } from '../../design/spacing';
 type EmptyStateProps = {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -30,12 +29,37 @@ export function EmptyState({
 }: EmptyStateProps) {
   const theme = useTheme();
   const iconSize = 56;
+
+  const spacingStyles = useMemo(
+    () => ({
+      wrapper: {
+        paddingHorizontal: theme.spacing.xl,
+        paddingVertical: theme.spacing.lg,
+      } as ViewStyle,
+      glass: {
+        padding: theme.spacing.xxl,
+      } as ViewStyle,
+      iconWrap: {
+        marginBottom: theme.spacing.lg,
+      } as ViewStyle,
+      mascot: {
+        marginBottom: theme.spacing.md,
+      } as ViewStyle,
+      title: {
+        marginBottom: theme.spacing.sm,
+      } as ViewStyle,
+      children: {
+        marginTop: theme.spacing.lg,
+      } as ViewStyle,
+    }),
+    [theme.spacing],
+  );
   const content = (
     <View style={styles.content}>
       {mascot ? (
-        <Mascot mood={mascot} size={132} style={styles.mascot} />
+        <Mascot mood={mascot} size={132} style={spacingStyles.mascot} />
       ) : (
-        <View style={[styles.iconWrap, { backgroundColor: theme.surface }]}>
+        <View style={[styles.iconWrap, spacingStyles.iconWrap, { backgroundColor: theme.surface }]}>
           <Ionicons name={icon} size={iconSize * 0.6} color={theme.textSecondary} />
         </View>
       )}
@@ -55,21 +79,21 @@ export function EmptyState({
       >
         {message}
       </Text>
-      {children ? <View style={styles.children}>{children}</View> : null}
+      {children ? <View style={[styles.children, spacingStyles.children]}>{children}</View> : null}
     </View>
   );
 
   if (glass) {
     return (
-      <View style={[styles.wrapper, style]}>
-        <GlassSurface style={styles.glass} borderRadius={theme.radius.glass}>
+      <View style={[styles.wrapper, spacingStyles.wrapper, style]}>
+        <GlassSurface style={[styles.glass, spacingStyles.glass]} borderRadius={theme.radius.glass}>
           {content}
         </GlassSurface>
       </View>
     );
   }
 
-  return <View style={[styles.wrapper, style]}>{content}</View>;
+  return <View style={[styles.wrapper, spacingStyles.wrapper, style]}>{content}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -77,11 +101,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
   },
   glass: {
-    padding: spacing.xxl,
     minWidth: 280,
   },
   content: {
@@ -94,13 +115,8 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  mascot: {
-    marginBottom: spacing.md,
   },
   children: {
-    marginTop: spacing.lg,
     alignSelf: 'stretch',
     width: '100%',
   },

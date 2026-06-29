@@ -12,6 +12,9 @@ import { KeyboardSafeForm } from '../../components/ui/KeyboardSafeForm';
 import { supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 import { createOnboardingLayout, onboardingPageGradient } from '../onboarding/onboardingTokens';
 import { SignInValueStrip } from '../../components/auth/SignInValueStrip';
+import { AppleSignInButton } from '../../components/auth/AppleSignInButton';
+import { signInWithApple } from '../../services/appleSignInService';
+import { logFunnelEvent } from '../../services/funnelAnalyticsService';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
 
 const LOGIN_CONTENT_FADE_MS = 420;
@@ -95,6 +98,7 @@ export function LoginScreen(_props: Props) {
         setError(err.message ?? 'Login failed');
         return;
       }
+      logFunnelEvent('auth_login_success', { method: 'email' });
       // Session listener in App will switch to AppTabs
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Login failed';
@@ -103,6 +107,19 @@ export function LoginScreen(_props: Props) {
           ? 'Network error. Check your connection and try again.'
           : msg
       );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await signInWithApple();
+      if (!result.ok && !result.cancelled && result.message) {
+        setError(result.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -138,7 +155,11 @@ export function LoginScreen(_props: Props) {
                 },
               ]}
             >
-              Plan what you are cooking, send recipe ingredients to your list, and shop aisle by aisle.
+              Your beautiful grocery list, sorted by store aisle. Shop mode keeps you moving — meals and recipes connect when you want them.
+            </Text>
+
+            <Text style={[theme.typography.footnote, { color: theme.textSecondary, marginBottom: theme.spacing.md }]}>
+              Built for iPhone · Private by default
             </Text>
 
             <SignInValueStrip />
@@ -172,6 +193,7 @@ export function LoginScreen(_props: Props) {
                 <Text style={[theme.typography.footnote, { color: theme.accent }]}>Forgot password?</Text>
               </TouchableOpacity>
               <Button title="Log in" onPress={handleLogin} loading={loading} />
+              <AppleSignInButton onPress={() => void handleAppleSignIn()} disabled={loading} />
             </Card>
             <TouchableOpacity
               onPress={() => navigation.navigate('Signup')}

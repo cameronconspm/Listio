@@ -10,6 +10,14 @@ import {
   OpenAiUpstreamTimeoutError,
   openAiTimeoutResponse,
 } from '../_shared/openaiFetch.ts';
+import {
+  extractBestJsonLdRecipeDraft,
+  detectLikelyUnusablePageText,
+  isRecipeDraftUsable,
+  normalizePastedRecipeText,
+  recipeDraftToPlainText,
+  type ExtractedRecipeDraft,
+} from '../_shared/recipeUrlExtract.ts';
 
 const MAX_RECIPE_TEXT_CHARS = 12000;
 const MAX_RECIPE_TEXT_BYTES = 24000;
@@ -30,7 +38,7 @@ const DEFAULT_GLOBAL_PER_HOUR_LIMIT = 5000;
 const DEFAULT_CACHE_TTL_SECONDS = 60 * 60 * 24 * 14;
 
 /** Bump when parser/prompt changes so stale cache entries are not reused. */
-const PARSER_CACHE_VERSION = 'v5';
+const PARSER_CACHE_VERSION = 'v6';
 
 const MAX_FETCH_BYTES = 2 * 1024 * 1024;
 const MAX_FETCH_REDIRECTS = 5;
@@ -201,21 +209,35 @@ function assertFetchableHttpUrl(urlStr: string): URL {
   return u;
 }
 
-async function fetchRecipeUrlToPlainText(inputUrl: string): Promise<{ text: string; finalUrl: string }> {
+const BOT_USER_AGENT = 'ListioRecipeBot/1.0 (+https://listio.app)';
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+/**
+ * Attempts to fetch page HTML using the given User-Agent.
+ * Returns `null` if the server responds with 401/403 (access denied — caller should
+ * retry with a different UA). Throws for all other non-OK statuses.
+ */
+async function tryFetchUrlHtml(
+  inputUrl: string,
+  userAgent: string,
+): Promise<{ html: string; finalUrl: string } | null> {
   let current = assertFetchableHttpUrl(inputUrl).toString();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
     for (let redirect = 0; redirect <= MAX_FETCH_REDIRECTS; redirect++) {
-      assertFetchableHttpUrl(current);
+      const pageUrl = assertFetchableHttpUrl(current);
       const res = await fetch(current, {
         method: 'GET',
         redirect: 'manual',
         signal: controller.signal,
         headers: {
-          'User-Agent': 'ListioRecipeBot/1.0 (+https://listio.app)',
-          Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+          'User-Agent': userAgent,
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          Referer: `${pageUrl.origin}/`,
         },
       });
 
@@ -226,6 +248,11 @@ async function fetchRecipeUrlToPlainText(inputUrl: string): Promise<{ text: stri
         }
         current = new URL(loc, current).toString();
         continue;
+      }
+
+      // Access-denied — signal caller to retry with a different User-Agent.
+      if (res.status === 401 || res.status === 403) {
+        return null;
       }
 
       if (!res.ok) {
@@ -239,26 +266,55 @@ async function fetchRecipeUrlToPlainText(inputUrl: string): Promise<{ text: stri
       const ct = (res.headers.get('content-type') ?? '').toLowerCase();
       const charsetMatch = /charset=([^;]+)/i.exec(ct);
       const label = charsetMatch ? charsetMatch[1].trim().replace(/^["']|["']$/g, '') : 'utf-8';
-      let text: string;
+      let html: string;
       try {
-        text = new TextDecoder(label).decode(buf);
+        html = new TextDecoder(label).decode(buf);
       } catch {
-        text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+        html = new TextDecoder('utf-8', { fatal: false }).decode(buf);
       }
 
-      const plain = ct.includes('html') || ct.includes('xml') || /<html[\s>]/i.test(text.slice(0, 2000))
-        ? htmlToPlainText(text)
-        : normalizeRecipeText(text);
-
-      if (!plain) {
+      if (!html.trim()) {
         throw new Error('No readable text found at that URL');
       }
-      return { text: plain, finalUrl: current };
+      return { html, finalUrl: current };
     }
     throw new Error('Too many redirects');
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Fetches a recipe URL, preferring embedded JSON-LD recipe data when present.
+ */
+async function fetchRecipeUrlContent(inputUrl: string): Promise<{
+  text: string;
+  finalUrl: string;
+  structuredDraft: ExtractedRecipeDraft | null;
+}> {
+  const botResult = await tryFetchUrlHtml(inputUrl, BOT_USER_AGENT);
+  const htmlResult = botResult ?? (await tryFetchUrlHtml(inputUrl, BROWSER_USER_AGENT));
+  if (!htmlResult) {
+    throw new Error(
+      "That website doesn't allow recipe import. Try copying and pasting the recipe text instead.",
+    );
+  }
+
+  const { html, finalUrl } = htmlResult;
+  const structuredDraft = extractBestJsonLdRecipeDraft(html, finalUrl);
+  const usableStructured = structuredDraft && isRecipeDraftUsable(structuredDraft) ? structuredDraft : null;
+  const plain = usableStructured ? recipeDraftToPlainText(usableStructured) : htmlToPlainText(html);
+
+  if (!plain) {
+    throw new Error('No readable text found at that URL');
+  }
+
+  const unusableHint = detectLikelyUnusablePageText(plain);
+  if (unusableHint && !usableStructured) {
+    throw new Error(unusableHint);
+  }
+
+  return { text: plain, finalUrl, structuredDraft: usableStructured };
 }
 
 function hasSuspiciousControlChars(input: string): boolean {
@@ -374,6 +430,24 @@ function normalizeRecipePayload(raw: unknown) {
 }
 
 type NormalizedRecipe = NonNullable<ReturnType<typeof normalizeRecipePayload>>;
+
+function structuredDraftToNormalized(draft: ExtractedRecipeDraft): NormalizedRecipe {
+  return {
+    name: draft.name,
+    servings: draft.servings,
+    total_time_minutes: draft.total_time_minutes,
+    category: draft.category,
+    instructions: draft.instructions,
+    notes: draft.notes,
+    recipe_url: draft.recipe_url,
+    ingredients: draft.ingredients.map((ing) => ({
+      name: ing.name,
+      quantity_value: ing.quantity_value,
+      quantity_unit: ing.quantity_unit,
+      notes: ing.notes,
+    })),
+  };
+}
 
 function mergeSourceRecipeUrl(recipe: NormalizedRecipe, sourceUrl: string | null): NormalizedRecipe {
   if (!sourceUrl) return recipe;
@@ -647,15 +721,17 @@ Deno.serve(async (req) => {
 
     let normalizedText: string;
     let sourceUrlForRecipe: string | null = null;
+    let structuredDraftFromUrl: ExtractedRecipeDraft | null = null;
     const reqData = parsedBody.data;
     const urlTrim = reqData.recipeUrl?.trim() ?? '';
     const textTrim = reqData.recipeText?.trim() ?? '';
 
     if (urlTrim) {
       try {
-        const { text, finalUrl } = await fetchRecipeUrlToPlainText(urlTrim);
-        normalizedText = normalizeRecipeText(text);
+        const { text, finalUrl, structuredDraft } = await fetchRecipeUrlContent(urlTrim);
+        normalizedText = normalizeRecipeText(normalizePastedRecipeText(text));
         sourceUrlForRecipe = finalUrl;
+        structuredDraftFromUrl = structuredDraft;
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Could not fetch that URL';
         return new Response(JSON.stringify({ error: msg }), {
@@ -664,7 +740,7 @@ Deno.serve(async (req) => {
         });
       }
     } else {
-      normalizedText = normalizeRecipeText(textTrim);
+      normalizedText = normalizeRecipeText(normalizePastedRecipeText(textTrim));
     }
 
     if (!normalizedText) {
@@ -715,6 +791,29 @@ Deno.serve(async (req) => {
         sourceUrlForRecipe
       );
       return new Response(JSON.stringify({ recipe: enrichedCached, cache_hit: true }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (structuredDraftFromUrl) {
+      const normalizedRecipe = mergeSourceRecipeUrl(
+        enrichRecipeDraftEdge(structuredDraftToNormalized(structuredDraftFromUrl), normalizedText),
+        sourceUrlForRecipe
+      );
+      const nowIso = new Date().toISOString();
+      const { error: cacheUpsertErr } = await supabaseAdmin.from('parse_recipe_cache').upsert(
+        {
+          input_hash: inputHash,
+          recipe_json: normalizedRecipe,
+          updated_at: nowIso,
+        },
+        { onConflict: 'input_hash' }
+      );
+      if (cacheUpsertErr) {
+        console.error('parse-recipe: failed to cache json-ld response', cacheUpsertErr);
+      }
+      return new Response(JSON.stringify({ recipe: normalizedRecipe, cache_hit: false }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

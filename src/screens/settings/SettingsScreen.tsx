@@ -12,7 +12,7 @@ import { Screen } from '../../components/ui/Screen';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { SettingsHubHeader } from '../../components/settings/SettingsHubHeader';
 import { useSettingsScrollHandler } from '../../navigation/NavigationChromeScrollContext';
-import { useSettingsScrollInsets } from './settingsScrollLayout';
+import { useTabRootScrollInsets } from './settingsScrollLayout';
 import { ListSection } from '../../components/ui/ListSection';
 import { ListRow } from '../../components/ui/ListRow';
 import { AppConfirmationDialog } from '../../components/ui/AppConfirmationDialog';
@@ -36,7 +36,10 @@ import { getPerfSnapshot, resetPerfSnapshot } from '../../utils/perf';
 import { formatBuildHealthAlert, getBuildHealthSnapshot } from '../../utils/buildHealth';
 import { useAppReview } from '../../context/AppReviewContext';
 import { resetAppReviewState } from '../../services/appReviewService';
-import { spacing } from '../../design/spacing';
+import {
+  SETTINGS_HUB_TOP_GAP,
+  settingsRowListSectionProps,
+} from '../../design/settingsLayout';
 import { SUPPORT_HELP_CENTER_URL } from '../../constants/legalUrls';
 
 const FEEDBACK_EMAIL = 'feedback@thelistioapp.com';
@@ -51,7 +54,7 @@ export function SettingsScreen() {
   const queryClient = useQueryClient();
   const invalidateHomeList = useInvalidateHomeList();
   const onScroll = useSettingsScrollHandler();
-  const scrollInsets = useSettingsScrollInsets();
+  const scrollInsets = useTabRootScrollInsets();
   const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
   const insets = useSafeAreaInsets();
   const scrollPaddingTop = tabRootScrollPaddingTop(insets.top, theme.spacing);
@@ -95,6 +98,17 @@ export function SettingsScreen() {
         'name',
         'sign in',
         'change password',
+        'share list',
+        'shared',
+        'household',
+        'invite',
+      ]),
+      shareList: match('Account', 'Share list', 'Invite someone to shop from the same list', [
+        'shared',
+        'household',
+        'partner',
+        'family',
+        'invite',
       ]),
       subscriptionRestore:
         Platform.OS === 'ios' &&
@@ -375,7 +389,7 @@ export function SettingsScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: scrollPaddingTop + theme.spacing.md,
+            paddingTop: scrollPaddingTop + SETTINGS_HUB_TOP_GAP,
             paddingBottom: scrollInsets.paddingBottom,
             paddingHorizontal: theme.spacing.md,
           },
@@ -397,21 +411,31 @@ export function SettingsScreen() {
           <>
             {/* Account */}
             {hubVisibility.account ? (
-              <ListSection title="Account" titleVariant="small" glass={false} style={styles.section}>
+              <ListSection title="Account" {...settingsRowListSectionProps}>
                 <ListRow
                   title="Profile"
                   subtitle={profileSubtitle}
                   onPress={() => navigation.navigate('Profile')}
                   rightAccessory={<Chevron />}
-                  showSeparator={false}
+                  showSeparator={hubVisibility.shareList}
                   fullWidthDivider
                 />
+                {hubVisibility.shareList ? (
+                  <ListRow
+                    title="Share list"
+                    subtitle="Invite someone to shop from the same list"
+                    onPress={() => navigation.navigate('ShareList')}
+                    rightAccessory={<Chevron />}
+                    showSeparator={false}
+                    fullWidthDivider
+                  />
+                ) : null}
               </ListSection>
             ) : null}
 
             {Platform.OS === 'ios' &&
             (hubVisibility.subscriptionRestore || hubVisibility.subscriptionManage) ? (
-              <ListSection title="Subscription" titleVariant="small" glass={false} style={styles.section}>
+              <ListSection title="Subscription" {...settingsRowListSectionProps}>
                 {hubVisibility.subscriptionRestore ? (
                   <ListRow
                     title="Restore purchases"
@@ -438,7 +462,7 @@ export function SettingsScreen() {
             ) : null}
 
             {hubVisibility.notifications || hubVisibility.theme ? (
-              <ListSection title="Preferences" titleVariant="small" glass={false} style={styles.section}>
+              <ListSection title="Preferences" {...settingsRowListSectionProps}>
                 {hubVisibility.notifications ? (
                   <ListRow
                     title="Notifications"
@@ -463,7 +487,7 @@ export function SettingsScreen() {
             ) : null}
 
             {hubVisibility.help || hubVisibility.feedback || hubVisibility.privacy ? (
-              <ListSection title="Support" titleVariant="small" glass={false} style={styles.section}>
+              <ListSection title="Support" {...settingsRowListSectionProps}>
                 {hubVisibility.help ? (
                   <ListRow
                     title="Help center"
@@ -505,7 +529,7 @@ export function SettingsScreen() {
               hubVisibility.demoReviewPrompt ||
               hubVisibility.demoDeleteData ||
               hubVisibility.buildHealth) ? (
-              <ListSection title="Demo" titleVariant="small" glass={false} style={styles.section}>
+              <ListSection title="Demo" {...settingsRowListSectionProps}>
                 {hubVisibility.demoLoad ? (
                   <ListRow
                     title="Load demo data"
@@ -651,7 +675,7 @@ export function SettingsScreen() {
             ) : null}
 
             {hubVisibility.session ? (
-              <ListSection title="Session" titleVariant="small" glass={false} dense style={styles.section}>
+              <ListSection title="Session" {...settingsRowListSectionProps}>
                 <ListRow
                   title="Log out"
                   onPress={handleLogout}
@@ -715,5 +739,4 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   content: {},
-  section: { marginBottom: spacing.lg },
 });

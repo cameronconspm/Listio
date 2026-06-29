@@ -2,6 +2,8 @@ import { supabase, isSyncEnabled } from './supabaseClient';
 import { LOCAL_SYNC_SCOPE_ID } from '../constants/localSyncScope';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
 import { resolveDataScopeId } from './syncInsertScope';
+import { fetchUserPreferences, patchUserPreferencesIfSync } from './userPreferencesService';
+import type { ShoppingList } from '../types/models';
 
 let listIdInflight: Promise<string> | null = null;
 let listIdInflightScope: string | null = null;
@@ -75,9 +77,9 @@ async function fetchOrCreateDefaultListRow(scopeId: string): Promise<string> {
 }
 
 /**
- * Active shopping list id for inserts/fetches (default list for the user).
+ * Active shopping list id for inserts/fetches (user-selected or default).
  */
-export async function resolveDefaultListId(): Promise<string> {
+export async function resolveActiveListId(): Promise<string> {
   if (!isSyncEnabled()) return LOCAL_SYNC_SCOPE_ID;
 
   const scopeId = await resolveDataScopeId();
@@ -86,7 +88,7 @@ export async function resolveDefaultListId(): Promise<string> {
 
   const generation = listResolutionGeneration;
   listIdInflightScope = scopeId;
-  listIdInflight = fetchOrCreateDefaultListRow(scopeId)
+  listIdInflight = resolveActiveListRow(scopeId)
     .then((value) => {
       if (generation === listResolutionGeneration) {
         listIdResolved = { scopeId, value };
@@ -101,4 +103,81 @@ export async function resolveDefaultListId(): Promise<string> {
     });
 
   return listIdInflight;
+}
+
+/** @deprecated Use resolveActiveListId — kept for call-site compatibility. */
+export async function resolveDefaultListId(): Promise<string> {
+  return resolveActiveListId();
+}
+
+async function resolveActiveListRow(scopeId: string): Promise<string> {
+  const prefs = await fetchUserPreferences();
+  const preferredId = prefs.listUi?.activeListId;
+  if (preferredId) {
+    const { data, error } = await supabase
+      .from('shopping_lists')
+      .select('id')
+      .eq('id', preferredId)
+      .eq('household_id', scopeId)
+      .maybeSingle();
+    if (!error && data?.id) return String(data.id);
+  }
+  return fetchOrCreateDefaultListRow(scopeId);
+}
+
+export async function fetchShoppingLists(): Promise<ShoppingList[]> {
+  if (!isSyncEnabled()) return [];
+  const scopeId = await resolveDataScopeId();
+  const { data, error } = await supabase
+    .from('shopping_lists')
+    .select('id, household_id, name, is_default, sort_order, created_at, updated_at')
+    .eq('household_id', scopeId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw new Error(mapDbErrorToUserMessage(error, 'Could not load lists.'));
+  }
+  return (data ?? []) as ShoppingList[];
+}
+
+export async function createShoppingList(name: string): Promise<ShoppingList> {
+  if (!isSyncEnabled()) throw new Error('Sign in to create lists.');
+  const scopeId = await resolveDataScopeId();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Enter a list name.');
+
+  const { data: existing, error: countError } = await supabase
+    .from('shopping_lists')
+    .select('sort_order')
+    .eq('household_id', scopeId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+
+  if (countError) {
+    throw new Error(mapDbErrorToUserMessage(countError, 'Could not create list.'));
+  }
+
+  const nextSort = ((existing?.[0]?.sort_order as number | undefined) ?? 0) + 1;
+
+  const { data, error } = await supabase
+    .from('shopping_lists')
+    .insert({
+      household_id: scopeId,
+      name: trimmed,
+      is_default: false,
+      sort_order: nextSort,
+    })
+    .select('id, household_id, name, is_default, sort_order, created_at, updated_at')
+    .single();
+
+  if (error) {
+    throw new Error(mapDbErrorToUserMessage(error, 'Could not create list.'));
+  }
+  return data as ShoppingList;
+}
+
+export async function setActiveShoppingListId(listId: string): Promise<void> {
+  await patchUserPreferencesIfSync({ listUi: { activeListId: listId } });
+  invalidateDefaultListIdCache();
 }

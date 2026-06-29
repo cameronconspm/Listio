@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AuthStackScreenProps } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
 import { Card } from '../../components/ui/Card';
@@ -16,6 +17,7 @@ type Props = AuthStackScreenProps<'ForgotPassword'>;
 export function ForgotPasswordScreen(_props: Props) {
   const navigation = useNavigation<Props['navigation']>();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -59,7 +61,7 @@ export function ForgotPasswordScreen(_props: Props) {
   return (
     <KeyboardSafeForm style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.xl }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -102,7 +104,7 @@ export function ForgotPasswordScreen(_props: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.lg, paddingTop: 80 },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.lg, paddingBottom: spacing.xl },
   card: { marginBottom: spacing.lg },
   link: {
     alignSelf: 'center',

@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
+import { TouchableOpacity as GHTouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -38,6 +39,8 @@ type ListItemRowProps = {
   linkedMealLabel?: string;
   /** Full meal phrase for VoiceOver (e.g. "Sunday dinner") */
   linkedMealAccessibilityLabel?: string;
+  /** When provided, tapping the quantity chip opens inline quantity editing. */
+  onTapQuantity?: (item: ListItem) => void;
 };
 
 function ListItemRowInner({
@@ -50,6 +53,7 @@ function ListItemRowInner({
   swipeToCheck = false,
   linkedMealLabel,
   linkedMealAccessibilityLabel,
+  onTapQuantity,
 }: ListItemRowProps) {
   if (__DEV__) markRender('ListItemRow');
   const theme = useTheme();
@@ -171,10 +175,14 @@ function ListItemRowInner({
         overshootRight={false}
       >
         <Animated.View style={rowAnimStyle}>
-          {/* Swipe-to-check hint: thin accent bar on the left edge in Shop mode */}
+          {/* Swipe-to-check hint: thin bar on left edge; red for high-priority, accent otherwise */}
           {swipeToCheck && !checked && !rowPending ? (
             <Animated.View
-              style={[styles.swipeHint, { backgroundColor: theme.accent }, leadingAnimStyle]}
+              style={[
+                styles.swipeHint,
+                { backgroundColor: item.priority === 'high' ? theme.danger : theme.accent },
+                leadingAnimStyle,
+              ]}
             />
           ) : null}
           <Pressable
@@ -210,9 +218,8 @@ function ListItemRowInner({
                 {(showHighPriorityBadge || secondarySegments.length > 0) ? (
                   <Animated.View
                     style={[styles.secondaryPillsRow, secondaryAnimStyle]}
-                    accessible
-                    accessibilityRole="text"
-                    accessibilityLabel={[showHighPriorityBadge ? 'High priority' : '', secondaryA11y].filter(Boolean).join(', ')}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
                   >
                     {showHighPriorityBadge && (
                       <View
@@ -226,27 +233,51 @@ function ListItemRowInner({
                         </Text>
                       </View>
                     )}
-                    {secondarySegments.map((segment, index) =>
-                      segment.kind === 'meal' ? (
-                        <View
-                          key={index}
-                          style={[styles.metaPill, styles.mealMetaPill, { backgroundColor: theme.accent + '18' }]}
-                          accessibilityElementsHidden
-                          importantForAccessibility="no-hide-descendants"
-                        >
-                          <Ionicons name="restaurant-outline" size={13} color={theme.accent} style={styles.mealMetaIcon} />
-                          <Text style={[theme.typography.caption1, { color: theme.textPrimary }]} numberOfLines={1}>
-                            {segment.text}
-                          </Text>
-                        </View>
-                      ) : (
+                    {secondarySegments.map((segment, index) => {
+                      const isQtyPill =
+                        index === 0 &&
+                        segment.kind === 'text' &&
+                        item.quantity_value != null &&
+                        item.quantity_unit != null;
+                      if (segment.kind === 'meal') {
+                        return (
+                          <View
+                            key={index}
+                            style={[styles.metaPill, styles.mealMetaPill, { backgroundColor: theme.accent + '18' }]}
+                            accessibilityElementsHidden
+                            importantForAccessibility="no-hide-descendants"
+                          >
+                            <Ionicons name="restaurant-outline" size={13} color={theme.accent} style={styles.mealMetaIcon} />
+                            <Text style={[theme.typography.caption1, { color: theme.textPrimary }]} numberOfLines={1}>
+                              {segment.text}
+                            </Text>
+                          </View>
+                        );
+                      }
+                      if (isQtyPill && onTapQuantity) {
+                        return (
+                          <Pressable
+                            key={index}
+                            onPress={() => onTapQuantity(item)}
+                            style={[styles.metaPill, styles.qtyPill, { backgroundColor: theme.accent + '18' }]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Edit quantity of ${item.name}, ${segment.text}`}
+                          >
+                            <Ionicons name="create-outline" size={12} color={theme.accent} style={styles.qtyEditIcon} />
+                            <Text style={[theme.typography.caption1, styles.qtyPillText, { color: theme.textPrimary }]} numberOfLines={1}>
+                              {segment.text}
+                            </Text>
+                          </Pressable>
+                        );
+                      }
+                      return (
                         <View key={index} style={[styles.metaPill, { backgroundColor: theme.textSecondary + '16' }]}>
                           <Text style={[theme.typography.caption1, { color: theme.textPrimary }]} numberOfLines={1}>
                             {segment.text}
                           </Text>
                         </View>
-                      )
-                    )}
+                      );
+                    })}
                   </Animated.View>
                 ) : null}
               </View>
@@ -283,6 +314,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   row: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.sm,
@@ -343,6 +375,15 @@ const styles = StyleSheet.create({
   priorityHighText: {
     fontWeight: '500',
   },
+  qtyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  qtyEditIcon: {
+    flexShrink: 0,
+  },
+  qtyPillText: {},
   editBtn: {
     marginLeft: spacing.xs,
     width: MIN_TOUCH_TARGET,

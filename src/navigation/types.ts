@@ -25,6 +25,7 @@ export type SettingsStackParamList = {
   SettingsPlaceholder: { title: string };
   PrivacyTerms: undefined;
   DeleteAccount: undefined;
+  ShareList: undefined;
 };
 
 export type TabsParamList = {

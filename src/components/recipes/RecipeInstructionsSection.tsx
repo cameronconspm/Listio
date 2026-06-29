@@ -14,8 +14,8 @@ export function RecipeInstructionsSection({ instructions }: RecipeInstructionsSe
 
   if (steps.length === 0) {
     return (
-      <Text style={[theme.typography.subhead, { color: theme.textSecondary }]}>
-        No instructions yet. Tap Edit recipe to add step-by-step directions.
+      <Text style={[theme.typography.footnote, { color: theme.textSecondary, fontStyle: 'italic' }]}>
+        No instructions yet. Edit the recipe to add step-by-step directions.
       </Text>
     );
   }
@@ -27,7 +27,7 @@ export function RecipeInstructionsSection({ instructions }: RecipeInstructionsSe
           key={index}
           style={[
             styles.stepRow,
-            index > 0 && { marginTop: theme.spacing.md },
+            index > 0 && { marginTop: theme.spacing.xs },
           ]}
         >
           <View style={[styles.indexBadge, { backgroundColor: theme.textSecondary + '18' }]}>
@@ -44,12 +44,12 @@ export function RecipeInstructionsSection({ instructions }: RecipeInstructionsSe
 
 const styles = StyleSheet.create({
   steps: {
-    paddingVertical: spacing.xs,
+    paddingVertical: 0,
   },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   indexBadge: {
     minWidth: 28,

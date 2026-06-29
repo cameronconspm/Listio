@@ -48,10 +48,11 @@ export function RecipeFilterRow({ filter, onFilterChange }: RecipeFilterRowProps
           flexDirection: 'row',
           alignItems: 'center',
           alignSelf: 'center',
-          paddingVertical: 6,
+          paddingVertical: theme.spacing.xs,
           paddingHorizontal: theme.spacing.sm,
           borderRadius: 9999,
-          minHeight: 0,
+          minHeight: 44,
+          justifyContent: 'center',
         },
         chipIcon: {
           marginRight: theme.spacing.xs,

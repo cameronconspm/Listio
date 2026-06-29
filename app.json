@@ -10,6 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.cameroncons.listio",
+      "appleTeamId": "8BHN6DJ84V",
       "supportsTablet": true,
       "privacyManifests": {
         "NSPrivacyTracking": false,
@@ -73,6 +74,11 @@
       },
       "infoPlist": {
         "UIUserInterfaceStyle": "Automatic",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["listio"]
+          }
+        ],
         "NSAppTransportSecurity": {
           "NSExceptionDomains": {
             "localhost": {
@@ -84,6 +90,10 @@
           }
         },
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "usesAppleSignIn": true,
+      "entitlements": {
+        "com.apple.security.application-groups": ["group.com.cameroncons.listio"]
       },
       "config": {}
     },
@@ -107,6 +117,9 @@
     "plugins": [
       "@sentry/react-native",
       "./plugins/withListioStorekit.js",
+      "./plugins/withListioWidget.js",
+      "@bacons/apple-targets",
+      "expo-apple-authentication",
       "expo-font",
       "expo-localization",
       "@react-native-community/datetimepicker",

@@ -94,4 +94,28 @@ describe('edgeInvocationAuth', () => {
     expect(next.accessToken).toBe('token-c');
     expect(getSessionMock).toHaveBeenCalledTimes(1);
   });
+
+  it('retries once when auth cache is invalidated mid-flight', async () => {
+    let callCount = 0;
+    getSessionMock.mockImplementation(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        invalidateEdgeInvocationAuthCache();
+      }
+      return {
+        data: {
+          session: {
+            access_token: `token-${callCount}`,
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+            user: { id: 'user-z' },
+          },
+        },
+        error: null,
+      };
+    });
+
+    const next = await getValidAccessTokenForEdgeInvoke('categorizeItems');
+    expect(next.accessToken).toBe('token-2');
+    expect(getSessionMock).toHaveBeenCalledTimes(2);
+  });
 });

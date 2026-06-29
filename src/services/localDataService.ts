@@ -196,6 +196,16 @@ export async function deleteCheckedListItems(userId: string): Promise<void> {
   );
 }
 
+export async function checkAllZoneItems(userId: string, zoneKey: ZoneKey): Promise<void> {
+  const items = await loadListItems();
+  const updated = items.map((i) =>
+    i.user_id === userId && i.zone_key === zoneKey && !i.is_checked
+      ? { ...i, is_checked: true, updated_at: now() }
+      : i
+  );
+  await saveListItems(updated);
+}
+
 export async function updateListItem(id: string, updates: ListItemUpdate): Promise<void> {
   const safe = sanitizeListItemUpdate(updates);
   const items = await loadListItems();

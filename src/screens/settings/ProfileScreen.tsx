@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Text, StyleSheet, ScrollView, Keyboard, Alert } from 'react-native';
+import { Text, View, StyleSheet, ScrollView, Keyboard, Alert } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { SettingsStackParamList } from '../../navigation/types';
@@ -14,8 +14,17 @@ import { TextField } from '../../components/ui/TextField';
 import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { Chevron } from './SettingsChevron';
 import { supabase, isSyncEnabled } from '../../services/supabaseClient';
+import {
+  settingsFieldLastStyle,
+  settingsFieldStyle,
+  settingsListSectionProps,
+  settingsMascotHeaderStyle,
+  settingsRowListSectionProps,
+  SETTINGS_SECTION_GAP,
+} from '../../design/settingsLayout';
 import { spacing } from '../../design/spacing';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
+import { Mascot } from '../../components/brand/Mascot';
 
 export function ProfileScreen() {
   const theme = useTheme();
@@ -91,7 +100,15 @@ export function ProfileScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <ListSection title="Account info" titleVariant="small" glass={false} style={styles.section}>
+          <View style={settingsMascotHeaderStyle}>
+            <Mascot
+              mood="hero"
+              size={96}
+              animate
+              accessibilityLabel="Listio mascot"
+            />
+          </View>
+          <ListSection title="Account info" {...settingsListSectionProps}>
             {syncOn ? (
               <>
                 <TextField
@@ -99,7 +116,7 @@ export function ProfileScreen() {
                   value={fullName}
                   onChangeText={setFullName}
                   placeholder="Your name"
-                  containerStyle={styles.field}
+                  containerStyle={settingsFieldStyle}
                 />
                 <TextField
                   label="Email address"
@@ -107,7 +124,7 @@ export function ProfileScreen() {
                   onChangeText={setEmail}
                   placeholder="you@example.com"
                   editable={false}
-                  containerStyle={styles.fieldOptional}
+                  containerStyle={settingsFieldLastStyle}
                 />
                 <Text style={[theme.typography.caption1, { color: theme.textSecondary, marginTop: theme.spacing.xs }]}>
                   To change your email, sign out and sign in with a different account.
@@ -120,7 +137,7 @@ export function ProfileScreen() {
             )}
           </ListSection>
 
-          <ListSection title="Security" titleVariant="small" glass={false} style={styles.section}>
+          <ListSection title="Security" {...settingsRowListSectionProps}>
             <ListRow
               title="Change password"
               subtitle={syncOn ? 'Change the password you use to sign in' : 'Available after you sign in'}
@@ -132,7 +149,12 @@ export function ProfileScreen() {
           </ListSection>
 
           {hasChanges ? (
-            <PrimaryButton title="Save" onPress={handleSave} loading={saving} style={styles.saveBtn} />
+            <PrimaryButton
+              title="Save"
+              onPress={handleSave}
+              loading={saving}
+              style={{ marginTop: SETTINGS_SECTION_GAP }}
+            />
           ) : null}
         </ScrollView>
       </KeyboardSafeForm>
@@ -144,8 +166,4 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { flex: 1 },
   content: {},
-  section: { marginBottom: spacing.lg },
-  field: { marginBottom: spacing.sm },
-  fieldOptional: { marginBottom: 0 },
-  saveBtn: { marginTop: spacing.md, marginHorizontal: spacing.md },
 });

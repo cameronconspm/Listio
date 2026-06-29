@@ -1,6 +1,7 @@
 import { supabase, isSyncEnabled, signOutLocallyIfCorruptRefreshToken } from './supabaseClient';
 import { LOCAL_SYNC_SCOPE_ID } from '../constants/localSyncScope';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
+import { fetchUserPreferences } from './userPreferencesService';
 
 let scopeInflight: Promise<string> | null = null;
 let scopeInflightUid: string | null = null;
@@ -67,6 +68,13 @@ export function primeDataScope(uid: string | null | undefined): void {
 
 async function fetchScopeForUser(uid: string, generation: number): Promise<string> {
   await requireAuthenticatedUserId();
+  const preferred = await resolvePreferredHouseholdId(uid);
+  if (preferred) {
+    if (generation === scopeGeneration) {
+      scopeResolved = { uid, value: preferred };
+    }
+    return preferred;
+  }
   const { data, error } = await supabase.rpc('ensure_user_household');
   if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not load your data.'));
   if (data == null || data === '') throw new Error('Could not load your data.');
@@ -85,6 +93,26 @@ function beginScopeResolution(uid: string): Promise<string> {
       scopeInflightUid = null;
     }
   });
+}
+
+async function verifyHouseholdMembership(householdId: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('household_members')
+    .select('user_id')
+    .eq('household_id', householdId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) return false;
+  return Boolean(data?.user_id);
+}
+
+/** Prefer shared household from preferences when the user is still a member. */
+async function resolvePreferredHouseholdId(userId: string): Promise<string | null> {
+  const prefs = await fetchUserPreferences();
+  const activeId = prefs.householdUi?.activeHouseholdId;
+  if (!activeId) return null;
+  const ok = await verifyHouseholdMembership(activeId, userId);
+  return ok ? activeId : null;
 }
 
 /**

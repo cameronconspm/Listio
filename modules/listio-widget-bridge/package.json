@@ -1,0 +1,11 @@
+{
+  "name": "listio-widget-bridge",
+  "version": "1.0.0",
+  "description": "App Group UserDefaults bridge for the Listio home screen widget",
+  "main": "src/index.ts",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

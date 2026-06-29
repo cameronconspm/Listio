@@ -4,7 +4,7 @@ import type { ListItem, ItemPriority, ZoneKey } from '../types/models';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
 import { logger } from '../utils/logger';
 import { ServiceFetchError, throwOnSupabaseFetchError } from '../utils/serviceErrors';
-import { resolveDefaultListId } from './shoppingListService';
+import { resolveActiveListId } from './shoppingListService';
 import { requireAuthenticatedUserId, resolveDataScopeId } from './syncInsertScope';
 import { sanitizeListItemInsert, sanitizeListItemUpdate } from '../utils/sanitizeUserText';
 
@@ -27,7 +27,7 @@ export interface ListItemInsert {
 
 export async function fetchListItems(userId: string): Promise<ListItem[]> {
   if (!isSyncEnabled()) return local.fetchListItems(userId);
-  const listId = await resolveDefaultListId();
+  const listId = await resolveActiveListId();
   const { data, error } = await supabase
     .from('list_items')
     .select('*')
@@ -50,14 +50,14 @@ export async function deleteListItem(id: string): Promise<void> {
 
 export async function deleteAllListItems(userId: string): Promise<void> {
   if (!isSyncEnabled()) return local.deleteAllListItems(userId);
-  const listId = await resolveDefaultListId();
+  const listId = await resolveActiveListId();
   const { error } = await supabase.from('list_items').delete().eq('list_id', listId);
   if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not clear your list.'));
 }
 
 export async function deleteListItemsInZone(userId: string, zoneKey: ZoneKey): Promise<void> {
   if (!isSyncEnabled()) return local.deleteListItemsInZone(userId, zoneKey);
-  const listId = await resolveDefaultListId();
+  const listId = await resolveActiveListId();
   const { error } = await supabase
     .from('list_items')
     .delete()
@@ -66,10 +66,22 @@ export async function deleteListItemsInZone(userId: string, zoneKey: ZoneKey): P
   if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not delete that section.'));
 }
 
+export async function checkAllZoneItems(userId: string, zoneKey: ZoneKey): Promise<void> {
+  if (!isSyncEnabled()) return local.checkAllZoneItems(userId, zoneKey);
+  const listId = await resolveActiveListId();
+  const { error } = await supabase
+    .from('list_items')
+    .update({ is_checked: true })
+    .eq('list_id', listId)
+    .eq('zone_key', zoneKey)
+    .eq('is_checked', false);
+  if (error) throw new Error(mapDbErrorToUserMessage(error, 'Could not check all items.'));
+}
+
 /** Removes every checked item for the user (Shop run finished). */
 export async function deleteCheckedListItems(userId: string): Promise<void> {
   if (!isSyncEnabled()) return local.deleteCheckedListItems(userId);
-  const listId = await resolveDefaultListId();
+  const listId = await resolveActiveListId();
   const { error } = await supabase
     .from('list_items')
     .delete()
@@ -126,7 +138,7 @@ export async function insertListItems(userId: string, items: ListItemInsert[]): 
   const [authUserId, scopeId, listId] = await Promise.all([
     requireAuthenticatedUserId(),
     resolveDataScopeId(),
-    resolveDefaultListId(),
+    resolveActiveListId(),
   ]);
   const rows = sanitized.map((s) => {
     return {

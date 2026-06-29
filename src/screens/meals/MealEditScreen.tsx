@@ -10,12 +10,12 @@ import {
   TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MealsStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
+import { scrollPaddingBottomWithoutTabBar } from '../../design/layout';
 import { Screen } from '../../components/ui/Screen';
 import { PushedScreenHeader } from '../../components/ui/PushedScreenHeader';
 import { KeyboardSafeForm } from '../../components/ui/KeyboardSafeForm';
@@ -51,6 +51,7 @@ import { titleCaseWords } from '../../utils/titleCaseWords';
 import type { MealSlot, Recipe } from '../../types/models';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
+import { recipeListSectionProps } from '../../design/recipeLayout';
 import { notifyMealSavedForMilestones } from '../../firstLaunchTour/milestoneUnlockFlow';
 
 type Route = RouteProp<MealsStackParamList, 'MealEdit'>;
@@ -132,8 +133,7 @@ export function MealEditScreen() {
   const queryClient = useQueryClient();
   const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
-  const scrollBottomPad = tabBarHeight + Math.max(insets.bottom, theme.spacing.md) + theme.spacing.xxl;
+  const scrollBottomPad = scrollPaddingBottomWithoutTabBar(insets.bottom, theme.spacing);
   const navigation = useNavigation<NativeStackNavigationProp<MealsStackParamList>>();
   const route = useRoute<Route>();
   const { mealId, preFillDate, preFillSlot, preFillCustomSlotName } = route.params ?? {};
@@ -161,6 +161,7 @@ export function MealEditScreen() {
   const userSelectedRecipeThisSessionRef = useRef(false);
   const recipeSearchInputRef = useRef<TextInput>(null);
   const recipeSearchBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chipScrollRef = useRef<ScrollView>(null);
 
   const userId = useAuthUserId();
   const userReady = typeof userId === 'string' && userId.length > 0;
@@ -260,6 +261,19 @@ export function MealEditScreen() {
       setMealDate(preFillDate);
     }
   }, [preFillDate, preFillSlot, preFillCustomSlotName]);
+
+  /** Scroll the meal type chip row so the pre-selected chip is always visible. */
+  useEffect(() => {
+    const selectedIdx = MEAL_SLOT_CHIPS.findIndex((c) => chipSelected(c, mealSlot, customSlotName));
+    if (selectedIdx < 0 || !chipScrollRef.current) return;
+    const chipStride = spacing.md * 2 + spacing.sm + 60;
+    chipScrollRef.current.scrollTo({
+      x: Math.max(0, selectedIdx * chipStride - spacing.md),
+      animated: false,
+    });
+  // Run once on mount to position the strip; subsequent selection changes are visible inline.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!selectedRecipeId || !recipeDetailQuery.data) return;
@@ -553,7 +567,7 @@ export function MealEditScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <ListSection title="Recipe" titleVariant="small" glass={false} style={styles.card}>
+          <ListSection title="Recipe" {...recipeListSectionProps}>
             {displayRecipeForRow ? (
               <View
                 style={[
@@ -704,7 +718,7 @@ export function MealEditScreen() {
             )}
           </ListSection>
 
-          <ListSection title="Schedule" titleVariant="small" glass={false} style={styles.card}>
+          <ListSection title="Schedule" {...recipeListSectionProps}>
             <View
               style={[
                 styles.group,
@@ -760,6 +774,7 @@ export function MealEditScreen() {
               Meal type
             </Text>
             <ScrollView
+              ref={chipScrollRef}
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.chipRow}
@@ -779,6 +794,7 @@ export function MealEditScreen() {
                       },
                     ]}
                     accessibilityRole="button"
+                    accessibilityLabel={`${chip.label} meal type`}
                     accessibilityState={{ selected }}
                   >
                     <Text
@@ -800,9 +816,7 @@ export function MealEditScreen() {
 
           <ListSection
             title="Ingredients"
-            titleVariant="small"
-            glass={false}
-            style={styles.card}
+            {...recipeListSectionProps}
             headerRight={
               <TouchableOpacity
                 onPress={addIngredient}
@@ -872,7 +886,7 @@ export function MealEditScreen() {
             ))}
           </ListSection>
 
-          <ListSection title="Notes" titleVariant="small" glass={false} style={styles.card}>
+          <ListSection title="Notes" {...recipeListSectionProps}>
             <TextField
               value={notes}
               onChangeText={setNotes}
@@ -927,7 +941,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  card: { marginBottom: spacing.lg },
   inlineResults: {
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
@@ -1020,7 +1033,7 @@ const styles = StyleSheet.create({
   ingQtyInput: { paddingHorizontal: spacing.xs },
   ingName: { flex: 1, minWidth: 0, marginBottom: 0 },
   ingQty: { width: spacing.md * 5, minWidth: spacing.md * 5, marginBottom: 0, flexShrink: 0 },
-  ingUnitWrap: { width: 96, marginBottom: 0, flexShrink: 0 },
+  ingUnitWrap: { maxWidth: 96, flexBasis: 96, marginBottom: 0, flexShrink: 1 },
   ingUnit: { marginBottom: 0 },
   unitTrigger: {
     flexDirection: 'row',

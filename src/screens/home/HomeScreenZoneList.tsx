@@ -29,6 +29,7 @@ import {
 } from '../../ui/motion/lists';
 import { fadeThrough } from '../../ui/motion/navigation';
 import { ListStatsHeader } from '../../components/list/ListStatsHeader';
+import { ListModeToggleBar } from '../../components/list/ListModeToggleBar';
 import { ListSummaryStrip } from '../../components/list/ListSummaryStrip';
 import { ShopProgressBar } from '../../components/list/ShopProgressBar';
 import { PlanReadinessStrip } from '../../components/list/PlanReadinessStrip';
@@ -63,6 +64,7 @@ type Props = {
   collapsedZones: Set<ZoneKey>;
   filterZone: ZoneKey | 'all';
   shoppingMode: 'plan' | 'shop';
+  onShoppingModeChange: (mode: 'plan' | 'shop') => void;
   safeItems: ListItem[];
   zoneCounts: Record<ZoneKey, number>;
   zoneRemaining: Record<ZoneKey, number>;
@@ -99,6 +101,8 @@ type Props = {
   reorderHaptics: { light: () => void; selection: () => void };
   lastPlaceholderIndexRef: React.MutableRefObject<number | null>;
   listScrollShared: SharedValue<number>;
+  onCheckAllZone: (zoneKey: ZoneKey) => void;
+  onTapQuantity: (item: ListItem) => void;
 };
 
 export function HomeScreenZoneList({
@@ -114,6 +118,7 @@ export function HomeScreenZoneList({
   collapsedZones,
   filterZone,
   shoppingMode,
+  onShoppingModeChange,
   safeItems,
   zoneCounts,
   zoneRemaining,
@@ -149,6 +154,8 @@ export function HomeScreenZoneList({
   reorderHaptics,
   lastPlaceholderIndexRef,
   listScrollShared,
+  onCheckAllZone,
+  onTapQuantity,
 }: Props) {
   const theme = useTheme();
   const haptics = useHaptics();
@@ -193,6 +200,9 @@ export function HomeScreenZoneList({
         listHeader: {
           paddingTop: theme.spacing.xs,
           paddingBottom: 0,
+        },
+        modeToggleWrap: {
+          marginBottom: theme.spacing.sm,
         },
         headerInteractiveBlock: {
           opacity: 1,
@@ -261,14 +271,21 @@ export function HomeScreenZoneList({
 
   const listHeader = useMemo(
     () => (
-      <Pressable
-        style={styles.listHeader}
-        onPress={zoneClearMode && !reorderMode ? onExitZoneClearMode : undefined}
-      >
-        <View
-          style={[styles.headerInteractiveBlock, reorderMode && styles.headerDimmed]}
-          pointerEvents={reorderMode ? 'none' : 'auto'}
+      <View style={styles.listHeader}>
+        <View style={styles.modeToggleWrap}>
+          <ListModeToggleBar
+            shoppingMode={shoppingMode}
+            onShoppingModeChange={onShoppingModeChange}
+            reorderMode={reorderMode}
+          />
+        </View>
+        <Pressable
+          onPress={zoneClearMode && !reorderMode ? onExitZoneClearMode : undefined}
         >
+          <View
+            style={[styles.headerInteractiveBlock, reorderMode && styles.headerDimmed]}
+            pointerEvents={reorderMode ? 'none' : 'auto'}
+          >
           <ListStatsHeader
             totalItems={safeItems.length}
             zoneCounts={zoneCounts}
@@ -303,7 +320,8 @@ export function HomeScreenZoneList({
             linkedItemCount={linkedItemCount}
           />
         ) : null}
-      </Pressable>
+        </Pressable>
+      </View>
     ),
     [
       styles.listHeader,
@@ -318,6 +336,7 @@ export function HomeScreenZoneList({
       filterZone,
       handleFilterChange,
       shoppingMode,
+      onShoppingModeChange,
       isFiltered,
       filteredItems.length,
       filteredZoneCount,
@@ -377,6 +396,8 @@ export function HomeScreenZoneList({
         hideEditIcon={shoppingMode === 'shop'}
         linkedMealLabels={linkedMealLabels}
         zoneIconOverrides={zoneIconOverrides}
+        onCheckAllZone={shoppingMode === 'shop' ? onCheckAllZone : undefined}
+        onTapQuantity={onTapQuantity}
       />
     ),
     [
@@ -396,6 +417,8 @@ export function HomeScreenZoneList({
       zoneRemaining,
       linkedMealLabels,
       zoneIconOverrides,
+      onCheckAllZone,
+      onTapQuantity,
     ]
   );
 
@@ -547,6 +570,8 @@ type RenderZoneSectionProps = {
   hideEditIcon: boolean;
   linkedMealLabels: Map<string, LinkedMealRowMeta>;
   zoneIconOverrides: ZoneIconOverrides;
+  onCheckAllZone?: (zoneKey: ZoneKey) => void;
+  onTapQuantity: (item: ListItem) => void;
 };
 
 /** Binds zone-specific callbacks with `useCallback` so the `ZoneSection` memo
@@ -569,6 +594,8 @@ const RenderZoneSection = React.memo(function RenderZoneSection({
   hideEditIcon,
   linkedMealLabels,
   zoneIconOverrides,
+  onCheckAllZone,
+  onTapQuantity,
 }: RenderZoneSectionProps) {
   if (__DEV__) markRender('RenderZoneSection');
   const zone = item.zone;
@@ -576,6 +603,10 @@ const RenderZoneSection = React.memo(function RenderZoneSection({
   const handleEnterZoneClearMode = useCallback(
     () => onEnterZoneClearMode(zone),
     [onEnterZoneClearMode, zone]
+  );
+  const handleCheckAllZone = useCallback(
+    () => onCheckAllZone?.(zone),
+    [onCheckAllZone, zone]
   );
   return (
     <Animated.View
@@ -602,6 +633,8 @@ const RenderZoneSection = React.memo(function RenderZoneSection({
         hideEditIcon={hideEditIcon}
         linkedMealLabels={linkedMealLabels}
         zoneIconOverrides={zoneIconOverrides}
+        onCheckAllZone={onCheckAllZone ? handleCheckAllZone : undefined}
+        onTapQuantity={onTapQuantity}
       />
     </Animated.View>
   );

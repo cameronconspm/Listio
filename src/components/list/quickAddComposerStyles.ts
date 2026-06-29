@@ -1,16 +1,24 @@
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import type { AppTheme } from '../../design/ThemeContext';
 
+/** Matches `BottomQuickAddBar` item field — left-aligned, vertically centered in a 44pt track. */
+function singleLineComposerInput(theme: Pick<AppTheme, 'spacing'>) {
+  return {
+    minHeight: 44,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    textAlign: 'left' as const,
+    textAlignVertical: 'center' as const,
+    ...Platform.select({
+      android: { includeFontPadding: false as const },
+    }),
+  };
+}
+
 /**
- * Edit/Add item composer — redesigned to mirror Apple Reminders' edit sheet:
- *   • Hero name input as the visual anchor (no border, no chrome)
- *   • Inline transparent note input directly below
- *   • One grouped meta card with icon + label + value rows
- *
- * Rationale: the previous form-style stack (labelled, bordered field per row)
- * read as many disconnected pill containers. The grouped-list pattern is the
- * iOS-native pattern for short metadata edits and significantly improves
- * scannability inside the modal sheet.
+ * Edit/Add item composer — matches Listio form patterns (TextField + grouped list rows):
+ *   • Body typography in bordered inputs (same as recipe/meal editors)
+ *   • Grouped meta card using raised surface + ListRow-style rows
  */
 export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | 'radius'>) {
   const { spacing, radius } = theme;
@@ -30,9 +38,7 @@ export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | '
       position: 'relative' as const,
     },
     sheetHeader: {
-      paddingHorizontal: spacing.md,
-      paddingBottom: 0,
-      marginBottom: 0,
+      paddingBottom: spacing.xxs,
     },
     headerTopRow: {
       flexDirection: 'row',
@@ -44,11 +50,7 @@ export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | '
     headerTitle: {
       flex: 1,
     },
-    headerDivider: {
-      height: StyleSheet.hairlineWidth,
-      marginTop: spacing.sm,
-      marginHorizontal: -spacing.md,
-    },
+
     panelBody: {
       flexGrow: 0,
       flexShrink: 1,
@@ -65,49 +67,52 @@ export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | '
     },
     scrollContentContainer: {
       paddingHorizontal: spacing.md,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.lg,
+      paddingTop: spacing.xs,
+      paddingBottom: spacing.sm,
     },
     content: {
       paddingBottom: 0,
     },
 
-    // ─── Hero name input ─────────────────────────────────────────────────
-    /** Row holds the title input + optional sparkle (smart) toggle. */
-    heroBlock: {
+    // ─── Form fields (TextField-aligned) ─────────────────────────────────
+    fieldLabel: {
+      marginBottom: spacing.xxs,
+    },
+    /** Row holds the name input shell + optional sparkle toggle. */
+    nameFieldRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
     },
-    /** Title2 typography lives on the consumer; this just owns layout. */
-    heroInput: {
+    nameFieldShell: {
       flex: 1,
-      paddingVertical: spacing.xs,
-      paddingHorizontal: 0,
-      minHeight: 40,
+      minHeight: 44,
+      borderWidth: 1,
+      borderRadius: radius.input,
+      justifyContent: 'center',
+    },
+    nameInput: {
+      flex: 1,
+      margin: 0,
+      ...singleLineComposerInput({ spacing }),
+    },
+    noteFieldShell: {
+      minHeight: 44,
+      borderWidth: 1,
+      borderRadius: radius.input,
+      justifyContent: 'center',
+    },
+    noteInput: {
+      margin: 0,
+      ...singleLineComposerInput({ spacing }),
     },
     heroSmartBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+      width: 44,
+      height: 44,
+      borderRadius: radius.input,
       borderWidth: StyleSheet.hairlineWidth,
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    /** Thin separator below the hero, matches list-divider rhythm. */
-    heroDivider: {
-      height: StyleSheet.hairlineWidth,
-      marginTop: spacing.xs,
-    },
-
-    // ─── Inline note input ───────────────────────────────────────────────
-    /** Tight to the hero — the note is a continuation of the title, not a separate field. */
-    noteInput: {
-      paddingVertical: spacing.xxs,
-      paddingHorizontal: 0,
-      marginTop: spacing.xxs,
-      minHeight: 28,
-      textAlignVertical: 'top' as const,
     },
 
     // ─── Smart-mode (natural language) input ─────────────────────────────
@@ -116,7 +121,7 @@ export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | '
       maxHeight: 200,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.md,
-      borderRadius: radius.lg,
+      borderRadius: radius.input,
       borderWidth: 1,
       textAlignVertical: 'top' as const,
       marginTop: spacing.sm,
@@ -142,47 +147,37 @@ export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | '
     },
 
     // ─── Meta card (grouped list) ────────────────────────────────────────
-    /** One container, rows divided by hairlines — iOS Settings/Reminders pattern. */
-    metaCard: {
+    metaSectionTitle: {
       marginTop: spacing.md,
-      borderRadius: radius.lg,
+      marginBottom: spacing.xs,
+      textTransform: 'uppercase' as const,
+    },
+    metaCard: {
+      borderRadius: radius.card,
       overflow: 'hidden',
-      borderWidth: StyleSheet.hairlineWidth,
     },
     metaRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: spacing.sm + 2,
+      paddingVertical: spacing.xs,
       paddingHorizontal: spacing.md,
-      gap: spacing.md,
-      minHeight: 56,
-    },
-    /** Compact tinted square (28pt) holding the row icon. */
-    metaIcon: {
-      width: 28,
-      height: 28,
-      borderRadius: radius.xs + 2,
-      alignItems: 'center',
-      justifyContent: 'center',
+      minHeight: 44,
+      gap: spacing.sm,
     },
     metaLabel: {
-      flex: 0,
-      minWidth: 88,
-    },
-    metaSpacer: {
       flex: 1,
+      minWidth: 0,
     },
     metaValueText: {
       flexShrink: 1,
       textAlign: 'right',
     },
     metaChevron: {
-      marginLeft: spacing.xs,
+      marginLeft: spacing.xxs,
     },
-    /** Hairline divider inset past the icon (matches iOS inset separators). */
     metaDivider: {
       height: StyleSheet.hairlineWidth,
-      marginLeft: spacing.md + 28 + spacing.md,
+      marginLeft: spacing.md,
     },
 
     // ─── Inline stepper (lives inside a meta row) ────────────────────────
@@ -192,11 +187,11 @@ export function createQuickAddComposerStyles(theme: Pick<AppTheme, 'spacing' | '
       borderRadius: radius.full,
       borderWidth: StyleSheet.hairlineWidth,
       overflow: 'hidden',
-      height: 34,
+      height: 32,
     },
     inlineStepperBtn: {
-      width: 36,
-      height: 34,
+      width: 32,
+      height: 32,
       alignItems: 'center',
       justifyContent: 'center',
     },

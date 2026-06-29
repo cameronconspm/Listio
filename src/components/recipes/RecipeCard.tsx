@@ -11,6 +11,7 @@ import { RecipeMetaPills } from './RecipeMetaPills';
 import { NativeContextMenu } from '../ui/NativeContextMenu';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';
+import { RECIPE_CARD_GAP, recipeCardInnerPadding } from '../../design/recipeLayout';
 
 const MIN_TOUCH_TARGET = 44;
 
@@ -44,7 +45,9 @@ function RecipeCardInner({ recipe, ingredientCount, onPress, onFavorite, onEdit,
   const timeLabel = formatRecipeDurationMinutes(recipe.total_time_minutes);
   const pillLabels: string[] = [];
   if (timeLabel) pillLabels.push(timeLabel);
-  pillLabels.push(`${recipe.servings} servings`);
+  if (recipe.servings != null && recipe.servings > 0) {
+    pillLabels.push(`${recipe.servings} serving${recipe.servings === 1 ? '' : 's'}`);
+  }
   pillLabels.push(
     `${ingredientCount} ingredient${ingredientCount === 1 ? '' : 's'}`
   );
@@ -116,6 +119,8 @@ function RecipeCardInner({ recipe, ingredientCount, onPress, onFavorite, onEdit,
         >
           <Pressable
             onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={recipe.name}
             style={({ pressed }) => [
               styles.cardInner,
               cardShellStyle(theme, 'raised', 'interactive'),
@@ -169,14 +174,14 @@ export const RecipeCard = React.memo(RecipeCardInner);
 
 const styles = StyleSheet.create({
   cardOuter: {
-    marginBottom: spacing.comfort,
+    marginBottom: RECIPE_CARD_GAP,
   },
   swipeClip: {
     overflow: 'hidden' as const,
   },
   /** Rounded + overflow so the translated swipe row keeps card corners (avoids a square trailing edge). */
   cardInner: {
-    padding: spacing.base,
+    ...recipeCardInnerPadding,
     borderRadius: radius.card,
     overflow: 'hidden' as const,
   },
@@ -196,7 +201,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pillsWrap: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
   },
   swipeActionsOuterRight: {
     flexDirection: 'row',

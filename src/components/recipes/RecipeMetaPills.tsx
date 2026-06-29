@@ -15,7 +15,7 @@ export function RecipeMetaPills({ labels }: RecipeMetaPillsProps) {
         row: {
           flexDirection: 'row',
           flexWrap: 'wrap',
-          gap: theme.spacing.sm,
+          gap: theme.spacing.xs,
           alignItems: 'center',
         },
       }),
