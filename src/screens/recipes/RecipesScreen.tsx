@@ -12,13 +12,12 @@ import {
 import { useQuery, useQueryClient, keepPreviousData, useIsRestoring } from '@tanstack/react-query';
 import { createAnimatedComponent } from 'react-native-reanimated';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RecipesStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
 import { RECIPE_CARD_GAP } from '../../design/recipeLayout';
-import { tabRootFloatingControlBottom, tabRootScrollPaddingTop } from '../../design/layout';
+import { tabRootFloatingControlBottom, tabRootScrollPaddingTop, useTabRootBarHeight } from '../../design/layout';
 import { useNavigationChromeScroll } from '../../navigation/NavigationChromeScrollContext';
 import { FAB_CLEARANCE, useFabExpandScrollHandler } from '../../hooks/useFabExpandScrollHandler';
 import { RecipeCard } from '../../components/recipes/RecipeCard';
@@ -107,7 +106,7 @@ export function RecipesScreen() {
   const { scrollY } = useNavigationChromeScroll();
   const recipesScrollShared = scrollY.RecipesStack;
   const { fabExpandProgress, listScrollHandler } = useFabExpandScrollHandler(recipesScrollShared);
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useTabRootBarHeight();
   const navigation = useNavigation<NativeStackNavigationProp<RecipesStackParamList>>();
   const tabNavigation = useNavigation<NavigationProp<ParamListBase>>();
   const userId = useAuthUserId();

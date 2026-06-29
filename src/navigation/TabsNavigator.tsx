@@ -11,10 +11,8 @@ import { RecipesStack } from './RecipesStack';
 import { ProfileStack } from './ProfileStack';
 import { useTheme } from '../design/ThemeContext';
 import { TabBarBlurBackground } from './TabBarBlurBackground';
+import { createTabBarStyleVisible } from './tabBarLayout';
 const Tabs = createBottomTabNavigator<TabsParamList>();
-
-/** Apple HIG: tab bar content height 49pt + safe area */
-const TAB_BAR_CONTENT_HEIGHT = 49;
 
 export function TabsNavigator() {
   const theme = useTheme();
@@ -22,20 +20,7 @@ export function TabsNavigator() {
 
   // Required for BlurView: bar must overlay the scene so content scrolls beneath
   // and the blur has something real to sample (see tabBarBackground in bottom-tabs types).
-  const tabBarStyleVisible = {
-    position: 'absolute' as const,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopWidth: 0,
-    paddingTop: 0,
-    backgroundColor: 'transparent',
-    elevation: 0,
-    shadowOpacity: 0,
-    height: TAB_BAR_CONTENT_HEIGHT + insets.bottom,
-  };
-
-  const tabBarStyleHidden = { display: 'none' as const };
+  const tabBarStyleVisible = createTabBarStyleVisible(insets.bottom);
 
   return (
     <Tabs.Navigator
@@ -61,35 +46,25 @@ export function TabsNavigator() {
       <Tabs.Screen
         name="MealsStack"
         component={MealsStack}
-        options={({ route }) => {
-          const focused = getFocusedRouteNameFromRoute(route) ?? 'MealsList';
-          const hideTabBar = focused !== 'MealsList';
-          return {
-            title: 'Meals',
-            tabBarLabel: 'Meals',
-            tabBarButton: (props) => <PlatformPressable {...props} />,
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="restaurant-outline" size={size ?? 24} color={color} />
-            ),
-            tabBarStyle: hideTabBar ? tabBarStyleHidden : tabBarStyleVisible,
-          };
+        options={{
+          title: 'Meals',
+          tabBarLabel: 'Meals',
+          tabBarButton: (props) => <PlatformPressable {...props} />,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="restaurant-outline" size={size ?? 24} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="RecipesStack"
         component={RecipesStack}
-        options={({ route }) => {
-          const focused = getFocusedRouteNameFromRoute(route) ?? 'RecipesList';
-          const hideTabBar = focused !== 'RecipesList';
-          return {
-            title: 'Recipes',
-            tabBarLabel: 'Recipes',
-            tabBarButton: (props) => <PlatformPressable {...props} />,
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="book-outline" size={size ?? 24} color={color} />
-            ),
-            tabBarStyle: hideTabBar ? tabBarStyleHidden : tabBarStyleVisible,
-          };
+        options={{
+          title: 'Recipes',
+          tabBarLabel: 'Recipes',
+          tabBarButton: (props) => <PlatformPressable {...props} />,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="book-outline" size={size ?? 24} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -103,17 +78,12 @@ export function TabsNavigator() {
             }
           },
         })}
-        options={({ route }) => {
-          const focused = getFocusedRouteNameFromRoute(route) ?? 'SettingsHub';
-          const hideTabBar = focused !== 'SettingsHub';
-          return {
-            title: 'Profile',
-            tabBarLabel: 'Profile',
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="person-circle-outline" size={size ?? 24} color={color} />
-            ),
-            tabBarStyle: hideTabBar ? tabBarStyleHidden : tabBarStyleVisible,
-          };
+        options={{
+          title: 'Profile',
+          tabBarLabel: 'Profile',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person-circle-outline" size={size ?? 24} color={color} />
+          ),
         }}
       />
     </Tabs.Navigator>

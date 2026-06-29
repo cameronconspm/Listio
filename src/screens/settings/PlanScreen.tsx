@@ -24,9 +24,9 @@ import {
   fetchPremiumEntitlementActive,
   getRevenueCatIosApiKey,
   presentAppleSubscriptionManagement,
-  presentPaywallForPurchase,
   shouldEnforceIosSubscriptionGate,
 } from '../../services/purchasesService';
+import { useContextualPaywall } from '../../context/ContextualPaywallContext';
 import { ensureServerSubscriptionMirror } from '../../services/subscriptionEntitlementSyncService';
 import { restorePurchasesWithUserFeedback } from '../../services/restorePurchasesFlow';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
@@ -37,6 +37,7 @@ export function PlanScreen() {
   const scrollInsets = useSettingsScrollInsets();
   const theme = useTheme();
   const syncOn = isSyncEnabled();
+  const { presentPaywall } = useContextualPaywall();
   const reviewSubscriptionBypass = Platform.OS === 'ios' && isIosSubscriptionGateDisabledViaEnv();
   const [subscribed, setSubscribed] = useState<boolean | null>(null);
   const [paywallBusy, setPaywallBusy] = useState(false);
@@ -67,7 +68,7 @@ export function PlanScreen() {
     }
     setPaywallBusy(true);
     try {
-      const ok = await presentPaywallForPurchase();
+      const ok = await presentPaywall();
       if (ok) setSubscribed(true);
     } finally {
       setPaywallBusy(false);

@@ -1,7 +1,6 @@
 import { Linking, Platform } from 'react-native';
 import Constants from 'expo-constants';
-import Purchases, { LOG_LEVEL, type CustomerInfo } from 'react-native-purchases';
-import RevenueCatUI from 'react-native-purchases-ui';
+import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesPackage } from 'react-native-purchases';
 import {
   REVENUECAT_ENTITLEMENT_ID,
   isIosSubscriptionGateDisabledViaEnv,
@@ -106,16 +105,24 @@ function revenueCatVerboseLogsEnabled(): boolean {
   return v === '1' || v === 'true' || v === 'yes';
 }
 
+function isBenignRevenueCatLog(level: (typeof LOG_LEVEL)[keyof typeof LOG_LEVEL], message: string): boolean {
+  if (level !== LOG_LEVEL.ERROR) return false;
+  const lower = message.toLowerCase();
+  if (lower.includes('purchase was cancelled')) return true;
+  if (lower.includes('show manage subscription') && lower.includes('unable to complete request')) {
+    return true;
+  }
+  if (message.includes('$attConsentStatus') && message.includes('newer value exists')) {
+    return true;
+  }
+  return false;
+}
+
 function ensureRevenueCatLogHandlerInstalled(): void {
   if (revenueCatLoggingInstalled) return;
   revenueCatLoggingInstalled = true;
   Purchases.setLogHandler((level, message) => {
-    if (
-      level === LOG_LEVEL.ERROR &&
-      typeof message === 'string' &&
-      message.includes('$attConsentStatus') &&
-      message.includes('newer value exists')
-    ) {
+    if (typeof message === 'string' && isBenignRevenueCatLog(level, message)) {
       return;
     }
     const line = `[RevenueCat] ${message}`;
@@ -282,36 +289,33 @@ export async function syncPurchasesIdentity(
   }
 }
 
+function isPurchaseCancelledError(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false;
+  const code = (e as { code?: string }).code;
+  return code === Purchases.PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR;
+}
+
 /**
- * Presents the RevenueCat paywall (current offering). Returns true if the user has the entitlement after close.
+ * Purchases the selected Listio+ package via RevenueCat / StoreKit.
+ * Returns true when the premium entitlement is active after purchase.
  */
-export async function presentPaywallForPurchase(): Promise<boolean> {
-  if (!subscriptionPlatformEnforced()) return true;
-  if (isRevenueCatNativeLayerSkipped()) return true;
+export async function purchaseListioPlusPackage(pkg: PurchasesPackage): Promise<boolean> {
+  if (isRevenueCatNativeLayerSkipped()) return false;
   await ensurePurchasesConfigured();
   if (!purchasesConfigured) {
-    logger.warnRelease('RevenueCat: presentPaywall blocked — Purchases not configured');
-    return false;
+    throw new Error('Purchases not configured');
   }
   try {
-    await RevenueCatUI.presentPaywall();
-  } catch (e) {
-    logger.warnRelease('RevenueCat presentPaywall failed', e);
-    if (isPurchasesConfigurationFailure(e)) return false;
-    return false;
-  }
-  try {
-    const info = await Purchases.getCustomerInfo();
-    const hasPremium = customerInfoHasPremium(info);
+    const { customerInfo } = await Purchases.purchasePackage(pkg);
+    const hasPremium = customerInfoHasPremium(customerInfo);
     notifyPremiumStatusListeners(hasPremium);
     if (hasPremium) {
       await ensureServerSubscriptionMirror();
     }
     return hasPremium;
   } catch (e) {
-    logger.warnRelease('RevenueCat getCustomerInfo after paywall failed', e);
-    if (isPurchasesConfigurationFailure(e)) return false;
-    return false;
+    if (isPurchaseCancelledError(e)) return false;
+    throw e;
   }
 }
 
@@ -348,6 +352,11 @@ export async function presentAppleSubscriptionManagement(): Promise<void> {
 
   if (purchasesConfigured) {
     try {
+      const info = await Purchases.getCustomerInfo();
+      if (!customerInfoHasPremium(info)) {
+        await Linking.openURL(getManageSubscriptionsUrl());
+        return;
+      }
       await Purchases.showManageSubscriptions();
       return;
     } catch (e) {

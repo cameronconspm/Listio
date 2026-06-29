@@ -21,7 +21,7 @@ export function contextualPaywallHeadline(reason: ContextualPaywallReason): stri
     case 'recipe_paste':
       return 'Paste any recipe and Listio+ turns it into a list.';
     case 'smart_add':
-      return 'Rattle off your whole list and Listio+ sorts the rest.';
+      return 'Build your list in seconds, then shop aisle by aisle.';
     case 'engagement':
       return "You're on a roll. Listio+ takes the lid off.";
     case 'milestone_unlock':
@@ -90,7 +90,7 @@ export function contextualPaywallBody(reason: ContextualPaywallReason): string {
     case 'recipe_paste':
       return "Paste the recipe text and we'll pull out every ingredient. Subscribe to use it on this device.";
     case 'smart_add':
-      return "Describe your whole run (\u201cmilk, a dozen eggs, taco night stuff\u201d) and Smart add builds the list. Subscribe to use it on this device.";
+      return 'Smart add fills your list from a quick description. Listio+ adds shop mode so you can grab everything without backtracking.';
     case 'engagement':
       return "Unlimited lists, recipe imports, Smart add, and more. Take a look whenever you're ready.";
     case 'milestone_unlock':

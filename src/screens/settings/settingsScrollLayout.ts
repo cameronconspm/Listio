@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
 import {
   scrollPaddingBottomWithoutTabBar,
   tabRootScrollPaddingBottom,
+  useTabRootBarHeight,
 } from '../../design/layout';
 
 /**
@@ -12,7 +12,7 @@ import {
  */
 export function useTabRootScrollInsets() {
   const theme = useTheme();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useTabRootBarHeight();
   const paddingBottom = tabRootScrollPaddingBottom(tabBarHeight, theme.spacing);
   return useMemo(
     () => ({

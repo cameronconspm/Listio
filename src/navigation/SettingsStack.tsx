@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import type { SettingsStackParamList } from './types';
@@ -17,6 +17,11 @@ import { SettingsPlaceholderScreen } from '../screens/settings/SettingsPlacehold
 import { HeaderIconButton } from '../components/ui/HeaderIconButton';
 import { createChromePushedStackScreenOptions } from '../ui/motion/navigation';
 import { SettingsStackPresentationContext } from './NavigationChromeScrollContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  createTabBarStackSyncListeners,
+  syncTabBarWithStackDepth,
+} from './syncTabBarWithStackDepth';
 
 const Stack = createNativeStackNavigator<SettingsStackParamList>();
 
@@ -34,7 +39,16 @@ export type SettingsStackProps = {
 
 export function SettingsStack({ hubPresentation = 'modal' }: SettingsStackProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const pushed = createChromePushedStackScreenOptions(theme);
+
+  const syncTabBar = useCallback(
+    (navigation: Parameters<typeof syncTabBarWithStackDepth>[0]) => {
+      if (hubPresentation !== 'tab') return;
+      syncTabBarWithStackDepth(navigation, insets.bottom);
+    },
+    [hubPresentation, insets.bottom],
+  );
 
   return (
     <SettingsStackPresentationContext.Provider value={hubPresentation}>
@@ -43,6 +57,11 @@ export function SettingsStack({ hubPresentation = 'modal' }: SettingsStackProps)
           ...pushed,
           ...headerOptions(theme),
         }}
+        screenListeners={
+          hubPresentation === 'tab'
+            ? ({ navigation }) => createTabBarStackSyncListeners(() => syncTabBar(navigation))
+            : undefined
+        }
       >
         <Stack.Screen
           name="SettingsHub"

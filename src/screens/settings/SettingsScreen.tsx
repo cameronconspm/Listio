@@ -27,9 +27,9 @@ import { clearPersistedQueryCache } from '../../query/reactQueryPersistence';
 import {
   getRevenueCatIosApiKey,
   isRevenueCatNativeLayerSkipped,
-  presentPaywallForPurchase,
   presentAppleSubscriptionManagement,
 } from '../../services/purchasesService';
+import { useContextualPaywall } from '../../context/ContextualPaywallContext';
 import { restorePurchasesWithUserFeedback } from '../../services/restorePurchasesFlow';
 import { shouldShowQaSettingsTools } from '../../constants/qaSettingsTools';
 import { WelcomeIntroScreen } from '../auth/WelcomeIntroScreen';
@@ -71,6 +71,7 @@ export function SettingsScreen() {
 
   const showQaSettingsTools = shouldShowQaSettingsTools(userEmail);
   const { previewReviewPrompt } = useAppReview();
+  const { presentPaywall } = useContextualPaywall();
 
   useFocusEffect(
     useCallback(() => {
@@ -210,8 +211,17 @@ export function SettingsScreen() {
             : 'Remove all lists, meals, and recipes stored on this device',
           ['delete', 'remove', 'wipe', 'erase']
         ),
+      demoCustomPaywall:
+        showQaSettingsTools &&
+        match('Demo', 'Preview Listio+ paywall', 'Custom paywall mockup with free-trial CTA', [
+          'paywall',
+          'subscribe',
+          'trial',
+          'listio',
+          'mockup',
+        ]),
       buildHealth:
-        (__DEV__ || showQaSettingsTools) &&
+        showQaSettingsTools &&
         match('Demo', 'Build health', 'Supabase project, RevenueCat, and Sentry status', [
           'debug',
           'health',
@@ -320,7 +330,7 @@ export function SettingsScreen() {
 
     setPaywallBusy(true);
     try {
-      await presentPaywallForPurchase();
+      await presentPaywall();
     } catch (e) {
       Alert.alert('Could not present paywall', e instanceof Error ? e.message : 'Please try again.');
     } finally {
@@ -515,6 +525,7 @@ export function SettingsScreen() {
               hubVisibility.demoReplayIntro ||
               hubVisibility.demoReviewPrompt ||
               hubVisibility.demoDeleteData ||
+              hubVisibility.demoCustomPaywall ||
               hubVisibility.buildHealth) ? (
               <ListSection title="Demo" {...settingsRowListSectionProps}>
                 {hubVisibility.demoLoad ? (
@@ -607,10 +618,20 @@ export function SettingsScreen() {
                         : 'Remove all lists, meals, and recipes stored on this device'
                     }
                     onPress={handleDeleteDataPress}
-                    showSeparator={__DEV__}
+                    showSeparator={hubVisibility.demoCustomPaywall || hubVisibility.buildHealth}
                     fullWidthDivider
                     titleStyle={{ color: theme.danger }}
                     subtitleStyle={{ color: theme.danger }}
+                  />
+                ) : null}
+                {hubVisibility.demoCustomPaywall ? (
+                  <ListRow
+                    title="Preview Listio+ paywall"
+                    subtitle="Custom paywall (7-day or 2-week trial)"
+                    onPress={() => void presentPaywall('smart_add')}
+                    rightAccessory={<Chevron />}
+                    showSeparator={hubVisibility.buildHealth}
+                    fullWidthDivider
                   />
                 ) : null}
                 {hubVisibility.buildHealth ? (
@@ -618,11 +639,11 @@ export function SettingsScreen() {
                     title="Build health"
                     subtitle={`Supabase: ${getBuildHealthSnapshot().supabaseProjectRef}`}
                     onPress={handleShowBuildHealth}
-                    showSeparator={__DEV__}
+                    showSeparator
                     fullWidthDivider
                   />
                 ) : null}
-                {__DEV__ ? (
+                {showQaSettingsTools ? (
                   <>
                     <ListRow
                       title="Show perf snapshot"

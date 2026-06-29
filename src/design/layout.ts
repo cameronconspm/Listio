@@ -1,4 +1,7 @@
 import { spacing as baseSpacing } from './spacing';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TAB_BAR_CONTENT_HEIGHT } from '../navigation/tabBarLayout';
 
 /** Same shape as base `spacing` and `theme.spacing` (scaled). */
 export type ThemeSpacing = typeof baseSpacing;
@@ -108,6 +111,17 @@ export function tabRootFloatingControlBottom(
   spacing: ThemeSpacing,
 ): number {
   return tabBarHeight + spacing.sm;
+}
+
+/**
+ * Tab-root screens: keep layout stable when the tab bar is momentarily hidden
+ * during native-stack interactive pop (hook reports 0 until style is restored).
+ */
+export function useTabRootBarHeight(): number {
+  const insets = useSafeAreaInsets();
+  const measured = useBottomTabBarHeight();
+  const fallback = TAB_BAR_CONTENT_HEIGHT + insets.bottom;
+  return measured > 0 ? measured : fallback;
 }
 
 /**
