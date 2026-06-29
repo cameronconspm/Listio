@@ -257,6 +257,16 @@ export function shiftScheduleStartToIncludeDate(
   return toDateString(end);
 }
 
+/** Shift persisted schedule windows so today stays visible after app relaunch. */
+export function normalizeMealScheduleConfigForToday<T extends { startDate: string; length: number }>(
+  config: T
+): T {
+  const today = toDateString(new Date());
+  const startDate = shiftScheduleStartToIncludeDate(config.startDate, config.length, today);
+  if (startDate === config.startDate) return config;
+  return { ...config, startDate };
+}
+
 /** Clamp selectedDate to visibleDates. Prefers today when the selection is outside the window. */
 export function clampSelectedDateToWindow(
   selectedDate: string,

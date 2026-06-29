@@ -2,13 +2,12 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { View, StyleSheet, ScrollView, RefreshControl, Platform, ActivityIndicator } from 'react-native';
 import { useFocusEffect, useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { openPlanScreen } from '../../navigation/openPlanScreen';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useQuery, useQueryClient, useIsRestoring, keepPreviousData } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MealsStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
-import { tabRootScrollPaddingBottom, tabRootScrollPaddingTop } from '../../design/layout';
+import { tabRootScrollPaddingBottom, tabRootScrollPaddingTop, useTabRootBarHeight } from '../../design/layout';
 import { useTabRootScrollOnScroll } from '../../navigation/NavigationChromeScrollContext';
 import { Screen } from '../../components/ui/Screen';
 import { QueryLoadErrorPanel } from '../../components/ui/QueryLoadErrorPanel';
@@ -18,7 +17,6 @@ import {
   formatDayLabel,
   formatScheduleLabel,
   shiftScheduleWindow,
-  clampSelectedDateToWindow,
   shiftScheduleStartToIncludeDate,
 } from '../../utils/dateUtils';
 import { DaySection } from '../../components/meals/DaySection';
@@ -55,7 +53,7 @@ export function MealsScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useTabRootBarHeight();
   /** Tight under header: schedule row sits close to week strip (no extra chrome gap). */
   const scrollContentPaddingTop = tabRootScrollPaddingTop(insets.top, theme.spacing);
   const onScrollChrome = useTabRootScrollOnScroll('MealsStack');
@@ -109,13 +107,6 @@ export function MealsScreen() {
           config.length
         )
       : '';
-
-  useEffect(() => {
-    const clamped = clampSelectedDateToWindow(selectedDateString, visibleDates);
-    if (clamped !== selectedDateString) {
-      setSelectedDateString(clamped);
-    }
-  }, [visibleDates, selectedDateString]);
 
   useEffect(() => {
     if (mealsPrefsHydrated.current) return;
@@ -178,8 +169,8 @@ export function MealsScreen() {
     mealsQuery.data === undefined &&
     (mealsQuery.isPending || isRestoringCache);
 
-  const showInlineSpinner =
-    !isAuthReady || userId === undefined || listInitialLoad || isNotSignedInError(mealsQuery.error);
+  const showAuthBlockingSpinner =
+    !isAuthReady || userId === undefined || isNotSignedInError(mealsQuery.error);
 
   useEffect(() => {
     if (!mealsQuery.isError || isNotSignedInError(mealsQuery.error)) return;
@@ -305,7 +296,7 @@ export function MealsScreen() {
     );
   }
 
-  if (showInlineSpinner) {
+  if (showAuthBlockingSpinner) {
     return (
       <Screen padded={false} safeTop={false} safeBottom={false}>
         <View style={styles.headerOverlay} pointerEvents="box-none">
@@ -365,16 +356,22 @@ export function MealsScreen() {
               showWeekStrip && { paddingTop: RECIPE_CARD_GAP },
             ]}
           >
-            <DaySection
-              dateLabel={dateLabel}
-              dateString={selectedDateString}
-              mealsBySlot={mealsBySlot}
-              ingredientCountByMealId={ingredientCounts}
-              recipeMetaByRecipeId={recipeMetaByRecipeId}
-              onPressMeal={handlePressMeal}
-              onPressAdd={handlePressAdd}
-              onDeleteMeal={handleDeleteMeal}
-            />
+            {listInitialLoad ? (
+              <View style={styles.plannerLoading}>
+                <ActivityIndicator color={theme.accent} />
+              </View>
+            ) : (
+              <DaySection
+                dateLabel={dateLabel}
+                dateString={selectedDateString}
+                mealsBySlot={mealsBySlot}
+                ingredientCountByMealId={ingredientCounts}
+                recipeMetaByRecipeId={recipeMetaByRecipeId}
+                onPressMeal={handlePressMeal}
+                onPressAdd={handlePressAdd}
+                onDeleteMeal={handleDeleteMeal}
+              />
+            )}
           </View>
         </ScrollView>
 
@@ -409,4 +406,9 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, overflow: 'visible' },
   scrollContent: {},
   planner: {},
+  plannerLoading: {
+    minHeight: 200,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

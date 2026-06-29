@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { toDateString } from '../utils/dateUtils';
+import { normalizeMealScheduleConfigForToday, toDateString } from '../utils/dateUtils';
 import type { MealScheduleConfig } from '../types/preferences';
 import { fetchUserPreferences, patchUserPreferencesIfSync } from '../services/userPreferencesService';
 import { getUserId, isSyncEnabled } from '../services/supabaseClient';
@@ -39,8 +39,9 @@ export function useMealScheduleConfig() {
           try {
             const p = await fetchUserPreferences();
             if (p.mealScheduleConfig && isValidConfig(p.mealScheduleConfig)) {
-              setConfigState(p.mealScheduleConfig);
-              await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(p.mealScheduleConfig));
+              const normalized = normalizeMealScheduleConfigForToday(p.mealScheduleConfig);
+              setConfigState(normalized);
+              await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
               return;
             }
           } catch {
@@ -53,7 +54,7 @@ export function useMealScheduleConfig() {
         try {
           const parsed = JSON.parse(raw) as unknown;
           if (isValidConfig(parsed)) {
-            setConfigState(parsed);
+            setConfigState(normalizeMealScheduleConfigForToday(parsed));
             return;
           }
         } catch {

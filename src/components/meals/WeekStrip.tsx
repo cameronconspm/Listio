@@ -36,6 +36,7 @@ export function WeekStrip({ dates, selectedDateString, onSelectDate }: WeekStrip
   );
 
   const selectedIndex = dates.findIndex((d) => toDateString(d) === selectedDateString);
+  const hasScrolledToSelectionRef = useRef(false);
 
   /** Rough chip stride for scroll-to-selected (short weekday + date label). */
   const chipScrollStride = theme.spacing.md * 4 + theme.spacing.sm;
@@ -44,8 +45,9 @@ export function WeekStrip({ dates, selectedDateString, onSelectDate }: WeekStrip
     if (selectedIndex >= 0 && scrollRef.current) {
       scrollRef.current.scrollTo({
         x: Math.max(0, selectedIndex * chipScrollStride - theme.spacing.xl),
-        animated: true,
+        animated: hasScrolledToSelectionRef.current,
       });
+      hasScrolledToSelectionRef.current = true;
     }
   }, [chipScrollStride, selectedIndex, theme.spacing.xl]);
 

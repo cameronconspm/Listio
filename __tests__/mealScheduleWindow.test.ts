@@ -1,6 +1,7 @@
 import {
   clampSelectedDateToWindow,
   getScheduleDates,
+  normalizeMealScheduleConfigForToday,
   scheduleWindowIncludesDate,
   shiftScheduleStartToIncludeDate,
   toDateString,
@@ -19,6 +20,13 @@ describe('meal schedule window', () => {
 
   it('shiftScheduleStartToIncludeDate moves window backward for past dates', () => {
     expect(shiftScheduleStartToIncludeDate('2026-05-11', 7, '2026-05-05')).toBe('2026-05-05');
+  });
+
+  it('normalizeMealScheduleConfigForToday shifts stale persisted windows', () => {
+    const today = toDateString(new Date());
+    const stale = { startDate: '2020-01-01', length: 7 as const };
+    const normalized = normalizeMealScheduleConfigForToday(stale);
+    expect(scheduleWindowIncludesDate(normalized.startDate, normalized.length, today)).toBe(true);
   });
 
   it('clampSelectedDateToWindow prefers today when selection is outside range', () => {
