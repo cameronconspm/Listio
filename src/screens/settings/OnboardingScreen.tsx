@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { Text, StyleSheet, ScrollView } from 'react-native';
 import { useTheme } from '../../design/ThemeContext';
 import { useSettingsScrollHandler } from '../../navigation/NavigationChromeScrollContext';
 import { Screen } from '../../components/ui/Screen';

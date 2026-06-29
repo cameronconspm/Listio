@@ -177,6 +177,7 @@ export function MealDetailsScreen() {
     navigation,
     queryClient,
     isPremium,
+    isPremiumLoading,
   ]);
 
   const resetCopySheetFromMeal = useCallback(() => {

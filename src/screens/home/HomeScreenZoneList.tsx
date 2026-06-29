@@ -327,6 +327,7 @@ export function HomeScreenZoneList({
       styles.listHeader,
       styles.headerInteractiveBlock,
       styles.headerDimmed,
+      styles.modeToggleWrap,
       zoneClearMode,
       reorderMode,
       onExitZoneClearMode,

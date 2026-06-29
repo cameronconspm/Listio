@@ -45,6 +45,7 @@ jest.mock('../src/hooks/useKeyboardFrameLift', () => ({
 }));
 
 jest.mock('listio-keyboard-composer', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- Jest mock factory
   const { View } = require('react-native');
   return {
     KeyboardComposerHost: ({ children, ...props }: { children?: React.ReactNode }) =>

@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { useTheme } from '../../design/ThemeContext';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
 type ListModeToggleBarProps = {
@@ -16,7 +15,6 @@ export function ListModeToggleBar({
   onShoppingModeChange,
   reorderMode = false,
 }: ListModeToggleBarProps) {
-  const theme = useTheme();
   const styles = useMemo(
     () =>
       StyleSheet.create({

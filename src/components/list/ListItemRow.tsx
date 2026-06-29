@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
-import { TouchableOpacity as GHTouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -145,10 +144,6 @@ function ListItemRowInner({
   );
 
   const secondarySegments = getRowSecondarySegments(item, linkedMealLabel, linkedMealAccessibilityLabel);
-
-  const secondaryA11y = secondarySegments
-    .map((s) => (s.kind === 'meal' ? s.accessibilityLabel : s.text))
-    .join(', ');
 
   const showHighPriorityBadge = item.priority === 'high' && !checked;
 

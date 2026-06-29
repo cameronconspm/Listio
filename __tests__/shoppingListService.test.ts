@@ -13,6 +13,7 @@ jest.mock('../src/services/userPreferencesService', () => ({
   fetchUserPreferences: jest.fn(async () => ({})),
 }));
 
+/* eslint-disable import/first -- jest.mock is hoisted */
 import { supabase } from '../src/services/supabaseClient';
 import { invalidateDefaultListIdCache, resolveDefaultListId } from '../src/services/shoppingListService';
 

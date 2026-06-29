@@ -22,7 +22,6 @@ import {
   settingsRowListSectionProps,
   SETTINGS_SECTION_GAP,
 } from '../../design/settingsLayout';
-import { spacing } from '../../design/spacing';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
 import { Mascot } from '../../components/brand/Mascot';
 

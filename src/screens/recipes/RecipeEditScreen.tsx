@@ -281,7 +281,7 @@ export function RecipeEditScreen() {
       if (Object.keys(prev).length !== steps.length) changed = true;
       return changed ? next : prev;
     });
-  }, [stepIdsKey]);
+  }, [stepIdsKey, steps]);
 
   const onStepContentSizeChange = useCallback(
     (stepId: string, text: string) => (e: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {

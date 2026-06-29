@@ -1,11 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  hydrateThemePreference,
-  normalizeThemePreference,
-  readStoredThemePreference,
-  resetSessionThemePreferenceForTests,
-} from '../src/services/themePreferenceService';
-
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn(),
   setItem: jest.fn(),
@@ -22,6 +14,14 @@ jest.mock('../src/services/userPreferencesService', () => ({
   patchUserPreferencesIfSync: jest.fn(),
 }));
 
+/* eslint-disable import/first -- jest.mock is hoisted */
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  hydrateThemePreference,
+  normalizeThemePreference,
+  readStoredThemePreference,
+  resetSessionThemePreferenceForTests,
+} from '../src/services/themePreferenceService';
 import { bootstrapSupabaseAuthSession, isSyncEnabled } from '../src/services/supabaseClient';
 import { fetchUserPreferences } from '../src/services/userPreferencesService';
 

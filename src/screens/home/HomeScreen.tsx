@@ -11,7 +11,6 @@ import { Screen } from '../../components/ui/Screen';
 import { QueryLoadErrorPanel } from '../../components/ui/QueryLoadErrorPanel';
 import {
   AppConfirmationDialog,
-  type AppConfirmationButton,
 } from '../../components/ui/AppConfirmationDialog';
 import { useHaptics } from '../../hooks/useHaptics';
 import { useShoppingMode } from '../../hooks/useShoppingMode';
@@ -26,7 +25,7 @@ import {
 } from '../../services/userPreferencesService';
 import { QuickAddComposer } from '../../components/list/QuickAddComposer';
 import type { QuickAddComposerHandle } from '../../components/list/QuickAddComposer';
-import type { ListItem, ZoneKey, StoreProfile } from '../../types/models';
+import type { ListItem, ZoneKey, ShoppingList } from '../../types/models';
 import {
   BottomQuickAddBar,
   bottomQuickAddClearance,
@@ -57,7 +56,7 @@ import { useListRealtimeSync } from '../../hooks/useListRealtimeSync';
 import { HomeScreenEmptyState } from './HomeScreenEmptyState';
 import { HomeScreenZoneList } from './HomeScreenZoneList';
 import { ShopRunCompleteOverlay } from '../../components/list/ShopRunCompleteOverlay';
-import { markRender, time, timeAsync } from '../../utils/perf';
+import { markRender, timeAsync } from '../../utils/perf';
 import { ensureFreeTierCapacity } from '../../services/freeTierLimits';
 import { maybePromptNotificationsAfterFirstWin } from '../../services/notificationFirstWinPrompt';
 import { shouldEnforceIosSubscriptionGate } from '../../services/purchasesService';
@@ -70,7 +69,6 @@ import { useNavigation, type NavigationProp, type ParamListBase } from '@react-n
 import { openPlanScreen } from '../../navigation/openPlanScreen';
 import { ShoppingListPickerSheet } from '../../components/list/ShoppingListPickerSheet';
 import { fetchShoppingLists } from '../../services/shoppingListService';
-import type { ShoppingList } from '../../types/models';
 import {
   consumePendingInviteToken,
   consumePendingQuickAddItem,
@@ -79,10 +77,6 @@ import { acceptHouseholdInvite } from '../../services/householdService';
 import { logFunnelEvent } from '../../services/funnelAnalyticsService';
 
 const VALID_LIST_ZONES = new Set<ZoneKey>(DEFAULT_ZONE_ORDER);
-
-/** Stable empty array so `listQuery.data?.listItems ?? EMPTY_ITEMS` does not
- *  allocate a fresh reference every render. */
-const EMPTY_ITEMS: readonly ListItem[] = Object.freeze([]);
 
 /** Zone icon overrides keyed to `null` (no store) never change — hoist so the
  *  derived model does not re-allocate on every render. */
@@ -187,7 +181,6 @@ export function HomeScreen() {
     items,
     store,
     effectiveZoneOrder,
-    safeZoneOrder,
     sections,
     derived,
     insertItems,
@@ -722,7 +715,7 @@ export function HomeScreen() {
         // toggleItem's onError rolls back the optimistic cache update
       }
     },
-    [shoppingMode, toggleItem, userId]
+    [shoppingMode, toggleItem, userId, haptics]
   );
 
   const handleDelete = useCallback(

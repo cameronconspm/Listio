@@ -1,4 +1,5 @@
 jest.mock('@react-native-async-storage/async-storage', () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- Jest mock factory
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
@@ -15,6 +16,7 @@ jest.mock('../src/services/sentryService', () => ({
   captureException: jest.fn(),
 }));
 
+/* eslint-disable import/first -- jest.mock is hoisted */
 import {
   logFunnelEvent,
   __resetFunnelAnalyticsForTests,
