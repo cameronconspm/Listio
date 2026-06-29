@@ -8,7 +8,7 @@
     "start:dev:clear": "npx expo start --dev-client --clear",
     "start:tunnel": "npx expo start --tunnel",
     "start:clear": "npx expo start --clear",
-    "postinstall": "node scripts/patch-expo-tunnel.js && patch-package",
+    "postinstall": "node scripts/patch-expo-tunnel.js && node scripts/patch-expo-ios-provisioning.js && patch-package",
     "audit:production": "npm audit --omit=dev",
     "android": "npx expo start --android",
     "ios": "npx expo start --ios",
