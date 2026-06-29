@@ -14,7 +14,7 @@ Run on a **physical iPhone** before App Store submission. Check each path; note 
 | `npm run verify:revenuecat-webhook` | Pass |
 | `supabase functions deploy parse-recipe` | Deployed v10 |
 | `supabase migration list` | 001–034 local = remote |
-| `npm run ci` | **Fail** — 25 ESLint warnings (no errors); fix before `verify:pre-release` |
+| `npm run ci` | Pass |
 | `scripts/smoke-test-legacy-list-insert-api.js` | Not run (requires `.env` + `LISTIO_SMOKE_TEST_PASSWORD`) |
 
 **Unit-test coverage for release features:** `appDeepLinkService`, `shoppingListService`, `useShoppingMode`, `themePreferenceService`, `funnelAnalyticsService`, `normalizeRecipeImportUrl`, `edgeInvocationAuth`.
