@@ -40,6 +40,9 @@
       "ios": {
         "ascAppId": "6761579550"
       }
+    },
+    "app-store-review": {
+      "extends": "production"
     }
   }
 }
