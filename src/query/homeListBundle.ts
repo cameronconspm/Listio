@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { fetchListItems } from '../services/listService';
+import { resolveActiveListId } from '../services/shoppingListService';
 import { getStores } from '../services/storeService';
 import type { ListItem, StoreProfile } from '../types/models';
 import { queryKeys } from './keys';
@@ -17,6 +18,17 @@ export type HomeListBundle = {
   store: StoreProfile | null;
 };
 
+/** First cached home bundle for a user (any active shopping list). */
+export function getCachedHomeListBundle(
+  queryClient: QueryClient,
+  userId: string
+): HomeListBundle | undefined {
+  const entries = queryClient.getQueriesData<HomeListBundle>({
+    queryKey: queryKeys.homeListAll(userId),
+  });
+  return entries.find(([, data]) => data !== undefined)?.[1];
+}
+
 /**
  * Single fetch used by the home list tab query: list rows + store context.
  * When `queryClient` is passed, stores are loaded via `fetchQuery` so the Store tab shares
@@ -26,8 +38,11 @@ export type HomeListBundle = {
  */
 export async function fetchHomeListBundle(
   userId: string,
-  queryClient?: QueryClient
+  queryClient?: QueryClient,
+  listId?: string
 ): Promise<HomeListBundle> {
+  const resolvedListId = listId ?? (await resolveActiveListId());
+
   const storesPromise = queryClient
     ? queryClient.fetchQuery({
         queryKey: queryKeys.stores(userId),
@@ -36,16 +51,37 @@ export async function fetchHomeListBundle(
       })
     : getStores(userId);
 
-  const [listItems, allStores] = await Promise.all([fetchListItems(userId), storesPromise]);
+  const [listItems, allStores] = await Promise.all([
+    fetchListItems(userId, resolvedListId),
+    storesPromise,
+  ]);
   const defaultStore = allStores.find((s) => s.is_default) ?? allStores[0] ?? null;
   return { listItems, stores: allStores, store: defaultStore };
 }
 
 /** Start loading the home bundle as soon as the session is known (before Home tab mounts). */
-export function prefetchHomeListBundle(userId: string, queryClient: QueryClient): void {
-  void queryClient.prefetchQuery({
-    queryKey: queryKeys.homeList(userId),
-    queryFn: () => fetchHomeListBundle(userId, queryClient),
+export async function prefetchHomeListBundle(userId: string, queryClient: QueryClient): Promise<void> {
+  const listId = await resolveActiveListId();
+  await queryClient.prefetchQuery({
+    queryKey: queryKeys.homeList(userId, listId),
+    queryFn: () => fetchHomeListBundle(userId, queryClient, listId),
     staleTime: HOME_LIST_STALE_MS,
   });
+}
+
+/** Warm caches for every shopping list in the household (list switcher). */
+export async function prefetchAllHomeListBundles(
+  userId: string,
+  queryClient: QueryClient,
+  listIds: string[]
+): Promise<void> {
+  await Promise.all(
+    listIds.map((listId) =>
+      queryClient.prefetchQuery({
+        queryKey: queryKeys.homeList(userId, listId),
+        queryFn: () => fetchHomeListBundle(userId, queryClient, listId),
+        staleTime: HOME_LIST_STALE_MS,
+      })
+    )
+  );
 }

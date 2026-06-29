@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useLayoutEffect, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -27,12 +27,11 @@ import {
   rowInsertPreset,
   rowRemovePreset,
 } from '../../ui/motion/lists';
-import { fadeThrough } from '../../ui/motion/navigation';
+import { listModeSwapHalfTiming, listModeSwapMotion, listModeSwapTiming } from '../../ui/motion/controls';
 import { ListStatsHeader } from '../../components/list/ListStatsHeader';
 import { ListModeToggleBar } from '../../components/list/ListModeToggleBar';
 import { ListSummaryStrip } from '../../components/list/ListSummaryStrip';
 import { ShopProgressBar } from '../../components/list/ShopProgressBar';
-import { PlanReadinessStrip } from '../../components/list/PlanReadinessStrip';
 import { ZoneSection } from '../../components/list/ZoneSection';
 import { ReorderSectionRow } from '../../components/list/ReorderSectionRow';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -103,6 +102,8 @@ type Props = {
   listScrollShared: SharedValue<number>;
   onCheckAllZone: (zoneKey: ZoneKey) => void;
   onTapQuantity: (item: ListItem) => void;
+  /** Registers a callback to start list crossfade on the same frame as Plan/Shop tap. */
+  onRegisterModeSwapStarter?: (starter: (() => void) | null) => void;
 };
 
 export function HomeScreenZoneList({
@@ -156,12 +157,21 @@ export function HomeScreenZoneList({
   listScrollShared,
   onCheckAllZone,
   onTapQuantity,
+  onRegisterModeSwapStarter,
 }: Props) {
   const theme = useTheme();
   const haptics = useHaptics();
   const listContentOpacity = useSharedValue(1);
   const contentTransitionMountRef = useRef(true);
+  const suppressRowEnterAnimationRef = useRef(true);
   const flatListRef = useRef<FlatList<HomeSectionItem>>(null);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      suppressRowEnterAnimationRef.current = false;
+    });
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const scrollToNextSection = useCallback(() => {
     if (!nextSectionForSummary) return;
@@ -170,19 +180,31 @@ export function HomeScreenZoneList({
     flatListRef.current?.scrollToIndex({ index, animated: true, viewOffset: 8 });
   }, [nextSectionForSummary, sections]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!onRegisterModeSwapStarter) return;
+    const startModeSwap = () => {
+      if (reduceMotion) return;
+      listContentOpacity.value = listModeSwapMotion.contentFadeMin;
+      listContentOpacity.value = withTiming(1, listModeSwapTiming(reduceMotion));
+    };
+    onRegisterModeSwapStarter(startModeSwap);
+    return () => onRegisterModeSwapStarter(null);
+  }, [onRegisterModeSwapStarter, reduceMotion, listContentOpacity, shoppingMode]);
+
+  useLayoutEffect(() => {
     if (contentTransitionMountRef.current) {
       contentTransitionMountRef.current = false;
       return;
     }
-    const through = fadeThrough(reduceMotion);
-    listContentOpacity.value = withTiming(0.94, through, (finished) => {
+    if (reduceMotion) return;
+    const half = listModeSwapHalfTiming(reduceMotion);
+    listContentOpacity.value = withTiming(listModeSwapMotion.contentFadeMin, half, (finished) => {
       'worklet';
       if (finished) {
-        listContentOpacity.value = withTiming(1, through);
+        listContentOpacity.value = withTiming(1, half);
       }
     });
-  }, [filterZone, shoppingMode, listContentOpacity, reduceMotion]);
+  }, [filterZone, listContentOpacity, reduceMotion]);
 
   const listContentFadeStyle = useAnimatedStyle(() => ({
     opacity: listContentOpacity.value,
@@ -253,12 +275,6 @@ export function HomeScreenZoneList({
     [reorderMode, onReorderCancel, onReorderDone]
   );
 
-  // Count items linked to any meal — used for plan readiness strip
-  const linkedItemCount = useMemo(
-    () => safeItems.filter((i) => i.linked_meal_ids && i.linked_meal_ids.length > 0).length,
-    [safeItems]
-  );
-
   // Shop progress: how many items are checked
   const checkedCount = useMemo(
     () =>
@@ -272,13 +288,14 @@ export function HomeScreenZoneList({
   const listHeader = useMemo(
     () => (
       <View style={styles.listHeader}>
-        <View style={styles.modeToggleWrap}>
-          <ListModeToggleBar
-            shoppingMode={shoppingMode}
-            onShoppingModeChange={onShoppingModeChange}
-            reorderMode={reorderMode}
-          />
-        </View>
+        {!reorderMode ? (
+          <View style={styles.modeToggleWrap}>
+            <ListModeToggleBar
+              shoppingMode={shoppingMode}
+              onShoppingModeChange={onShoppingModeChange}
+            />
+          </View>
+        ) : null}
         <Pressable
           onPress={zoneClearMode && !reorderMode ? onExitZoneClearMode : undefined}
         >
@@ -286,48 +303,42 @@ export function HomeScreenZoneList({
             style={[styles.headerInteractiveBlock, reorderMode && styles.headerDimmed]}
             pointerEvents={reorderMode ? 'none' : 'auto'}
           >
-          <ListStatsHeader
-            totalItems={safeItems.length}
-            zoneCounts={zoneCounts}
-            zoneRemaining={zoneRemaining}
-            hideStatPills
-            filterZone={filterZone}
-            onFilterChange={handleFilterChange}
-            isShopMode={shoppingMode === 'shop'}
-          />
-        </View>
-        <ListSummaryStrip
-          mode={shoppingMode}
-          totalItems={isFiltered ? filteredItems.length : safeItems.length}
-          zoneCount={isFiltered ? filteredZoneCount : populatedZoneCount}
-          itemsLeft={isFiltered ? filteredRemaining : remaining}
-          sectionsLeft={isFiltered ? filteredSectionsLeft : sectionsLeft}
-          nextSection={isFiltered ? null : nextSectionForSummary}
-          onNextSectionPress={isFiltered ? undefined : scrollToNextSection}
-          onListActionsPress={reorderMode ? undefined : openListActionsSheet}
-          reorderToolbar={reorderToolbar}
-        />
-        {shoppingMode === 'shop' && !reorderMode ? (
-          <ShopProgressBar
-            checked={checkedCount}
-            total={progressTotal}
-            reduceMotion={reduceMotion}
-          />
-        ) : null}
-        {shoppingMode === 'plan' && !reorderMode ? (
-          <PlanReadinessStrip
-            totalItems={safeItems.length}
-            linkedItemCount={linkedItemCount}
-          />
-        ) : null}
+            <ListStatsHeader
+              totalItems={safeItems.length}
+              zoneCounts={zoneCounts}
+              zoneRemaining={zoneRemaining}
+              hideStatPills
+              filterZone={filterZone}
+              onFilterChange={handleFilterChange}
+              isShopMode={shoppingMode === 'shop'}
+            />
+            <ListSummaryStrip
+              mode={shoppingMode}
+              totalItems={isFiltered ? filteredItems.length : safeItems.length}
+              zoneCount={isFiltered ? filteredZoneCount : populatedZoneCount}
+              itemsLeft={isFiltered ? filteredRemaining : remaining}
+              sectionsLeft={isFiltered ? filteredSectionsLeft : sectionsLeft}
+              nextSection={isFiltered ? null : nextSectionForSummary}
+              onNextSectionPress={isFiltered ? undefined : scrollToNextSection}
+              onListActionsPress={reorderMode ? undefined : openListActionsSheet}
+              reorderToolbar={reorderToolbar}
+            />
+            {shoppingMode === 'shop' && !reorderMode ? (
+              <ShopProgressBar
+                checked={checkedCount}
+                total={progressTotal}
+                reduceMotion={reduceMotion}
+              />
+            ) : null}
+          </View>
         </Pressable>
       </View>
     ),
     [
       styles.listHeader,
+      styles.modeToggleWrap,
       styles.headerInteractiveBlock,
       styles.headerDimmed,
-      styles.modeToggleWrap,
       zoneClearMode,
       reorderMode,
       onExitZoneClearMode,
@@ -353,7 +364,6 @@ export function HomeScreenZoneList({
       checkedCount,
       progressTotal,
       reduceMotion,
-      linkedItemCount,
     ]
   );
 
@@ -399,6 +409,7 @@ export function HomeScreenZoneList({
         zoneIconOverrides={zoneIconOverrides}
         onCheckAllZone={shoppingMode === 'shop' ? onCheckAllZone : undefined}
         onTapQuantity={onTapQuantity}
+        skipEnterAnimation={suppressRowEnterAnimationRef.current}
       />
     ),
     [
@@ -573,6 +584,7 @@ type RenderZoneSectionProps = {
   zoneIconOverrides: ZoneIconOverrides;
   onCheckAllZone?: (zoneKey: ZoneKey) => void;
   onTapQuantity: (item: ListItem) => void;
+  skipEnterAnimation?: boolean;
 };
 
 /** Binds zone-specific callbacks with `useCallback` so the `ZoneSection` memo
@@ -597,6 +609,7 @@ const RenderZoneSection = React.memo(function RenderZoneSection({
   zoneIconOverrides,
   onCheckAllZone,
   onTapQuantity,
+  skipEnterAnimation = false,
 }: RenderZoneSectionProps) {
   if (__DEV__) markRender('RenderZoneSection');
   const zone = item.zone;
@@ -611,7 +624,7 @@ const RenderZoneSection = React.memo(function RenderZoneSection({
   );
   return (
     <Animated.View
-      entering={reduceMotion ? undefined : rowInsertPreset(reduceMotion)}
+      entering={reduceMotion || skipEnterAnimation ? undefined : rowInsertPreset(reduceMotion)}
       exiting={reduceMotion ? undefined : rowRemovePreset(reduceMotion)}
       layout={reduceMotion ? undefined : itemLayoutTransition}
     >
@@ -636,6 +649,7 @@ const RenderZoneSection = React.memo(function RenderZoneSection({
         zoneIconOverrides={zoneIconOverrides}
         onCheckAllZone={onCheckAllZone ? handleCheckAllZone : undefined}
         onTapQuantity={onTapQuantity}
+        skipEnterAnimation={skipEnterAnimation}
       />
     </Animated.View>
   );

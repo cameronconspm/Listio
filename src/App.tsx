@@ -45,6 +45,9 @@ import { resolveExpoNotificationsApi, unwrapExpoModule } from './utils/unwrapExp
 import { RootErrorBoundary } from './components/RootErrorBoundary';
 import { logger } from './utils/logger';
 import { hydrateCategoryCache } from './services/aiCategoryCache';
+import { hydrateSuggestionIndex } from './services/suggestionIndexStore';
+import { rebuildHouseholdSuggestionIndex } from './services/suggestionCorpusService';
+import { prefetchMascotAssets } from './components/brand/Mascot';
 import { RootNavigator } from './navigation/RootNavigator';
 import { OnboardingFlowScreen } from './screens/onboarding/OnboardingFlowScreen';
 import { SetPasswordAfterRecoveryScreen } from './screens/auth/SetPasswordAfterRecoveryScreen';
@@ -124,6 +127,20 @@ function AppShell() {
   const [linkingOpts, setLinkingOpts] = useState<LinkingOptions<RootStackParamList>>(
     () => buildRootLinkingOptions()
   );
+
+  useEffect(() => {
+    void hydrateCategoryCache();
+    void hydrateSuggestionIndex();
+    prefetchMascotAssets();
+  }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+    const { cancel } = scheduleAfterNativeReady(() => {
+      void rebuildHouseholdSuggestionIndex(userId).catch(() => undefined);
+    });
+    return () => cancel();
+  }, [userId]);
 
   useEffect(() => {
     const { cancel } = scheduleAfterNativeReady(() => {
@@ -501,12 +518,6 @@ function App() {
       });
     }, SPLASH_SAFETY_TIMEOUT_MS);
     return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    // Populate the in-memory AI categorization cache so the composer submit path
-    // can branch synchronously on cache hits (no `await` before inserting).
-    void hydrateCategoryCache();
   }, []);
 
   useEffect(() => {

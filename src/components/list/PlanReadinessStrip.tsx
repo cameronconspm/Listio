@@ -1,17 +1,8 @@
-import React, { useMemo, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { useTheme } from '../../design/ThemeContext';
-import { Mascot, type MascotMood } from '../brand/Mascot';
-import { spacing } from '../../design/spacing';
-import { radius } from '../../design/radius';
+import { useEffect, useRef } from 'react';
+import type { MascotMood } from '../brand/Mascot';
 import { showMascotSuccess } from '../../utils/appToast';
 
-type Props = {
-  totalItems: number;
-  linkedItemCount: number;
-};
-
-type ReadinessState = {
+export type ReadinessState = {
   mood: MascotMood;
   title: string;
   subtitle: string;
@@ -73,67 +64,16 @@ const MOOD_UPGRADE_TOAST: Partial<Record<MascotMood, { title: string; message: s
   },
 };
 
-export function PlanReadinessStrip({ totalItems, linkedItemCount }: Props) {
-  const theme = useTheme();
-  const { mood, title, subtitle } = useMemo(
-    () => getReadinessState(totalItems, linkedItemCount),
-    [totalItems, linkedItemCount]
-  );
-
+/** Toast when list readiness mood improves (formerly tied to the plan readiness card). */
+export function useListReadinessCelebration(mood: MascotMood): void {
   const prevMoodRef = useRef<MascotMood | null>(null);
   useEffect(() => {
     const prev = prevMoodRef.current;
     prevMoodRef.current = mood;
-    if (prev === null) return; // skip initial mount
+    if (prev === null) return;
     if (MOOD_RANK[mood] > MOOD_RANK[prev]) {
       const toast = MOOD_UPGRADE_TOAST[mood];
       if (toast) showMascotSuccess(toast.title, toast.message);
     }
   }, [mood]);
-
-  return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: theme.surfaceRaised,
-          borderColor: theme.divider,
-        },
-      ]}
-      accessible
-      accessibilityLabel={`${title}. ${subtitle}`}
-    >
-      <Mascot mood={mood} size={54} animate skipEntrance />
-      <View style={styles.copy}>
-        <Text
-          style={[theme.typography.subhead, { color: theme.textPrimary, fontWeight: '600' }]}
-          numberOfLines={1}
-        >
-          {title}
-        </Text>
-        <Text
-          style={[theme.typography.footnote, { color: theme.textSecondary, marginTop: 2 }]}
-          numberOfLines={2}
-        >
-          {subtitle}
-        </Text>
-      </View>
-    </View>
-  );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    gap: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  copy: {
-    flex: 1,
-  },
-});

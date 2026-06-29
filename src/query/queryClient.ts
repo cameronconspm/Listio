@@ -22,8 +22,8 @@ export function createAppQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         retry: 1,
-        /** RN: wired to AppState via `subscribeReactQueryAppFocus` in `QueryProvider`. */
-        refetchOnWindowFocus: true,
+        /** Screens refetch on tab focus via targeted hooks — avoid refetching every stale query on AppState active. */
+        refetchOnWindowFocus: false,
         staleTime: 60_000,
         gcTime: 1000 * 60 * 60 * 24 * 7,
       },

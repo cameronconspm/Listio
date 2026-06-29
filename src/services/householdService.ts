@@ -3,12 +3,28 @@ import { mapDbErrorToUserMessage } from '../utils/mapDbError';
 import { resolveDataScopeId, invalidateDataScopeCache, requireAuthenticatedUserId } from './syncInsertScope';
 import { patchUserPreferences } from './userPreferencesService';
 import { invalidateDefaultListIdCache } from './shoppingListService';
+import { notifyHouseholdInvitePush } from './householdInvitePushService';
+import {
+  fetchHouseholdShareScope,
+  updateHouseholdShareSettings,
+  type HouseholdShareSettings,
+} from './householdShareSettings';
+
+export type { HouseholdShareSettings };
+export { fetchHouseholdShareScope, updateHouseholdShareSettings };
 
 export type HouseholdMemberRow = {
   user_id: string;
   role: 'owner' | 'member';
   email: string | null;
   full_name: string | null;
+};
+
+type HouseholdMemberProfileRow = {
+  user_id: string;
+  role: string;
+  full_name: string | null;
+  email: string | null;
 };
 
 export type HouseholdInviteRow = {
@@ -46,20 +62,19 @@ async function verifyHouseholdMembership(householdId: string, userId: string): P
 export async function fetchHouseholdMembers(): Promise<HouseholdMemberRow[]> {
   if (!isSyncEnabled()) return [];
   const householdId = await resolveDataScopeId();
-  const { data, error } = await supabase
-    .from('household_members')
-    .select('user_id, role')
-    .eq('household_id', householdId);
+  const { data, error } = await supabase.rpc('fetch_household_member_profiles', {
+    p_household_id: householdId,
+  });
 
   if (error) {
     throw new Error(mapDbErrorToUserMessage(error, 'Could not load household members.'));
   }
 
-  return (data ?? []).map((row) => ({
+  return ((data ?? []) as HouseholdMemberProfileRow[]).map((row) => ({
     user_id: String(row.user_id),
     role: row.role as 'owner' | 'member',
-    email: null,
-    full_name: null,
+    email: row.email ? String(row.email) : null,
+    full_name: row.full_name ? String(row.full_name) : null,
   }));
 }
 
@@ -122,7 +137,9 @@ export async function createHouseholdInvite(inviteeEmail: string): Promise<House
   if (error) {
     throw new Error(mapDbErrorToUserMessage(error, 'Could not send invite.'));
   }
-  return data as HouseholdInviteRow;
+  const invite = data as HouseholdInviteRow;
+  void notifyHouseholdInvitePush(invite.id);
+  return invite;
 }
 
 export async function revokeHouseholdInvite(inviteId: string): Promise<void> {
@@ -175,4 +192,41 @@ export async function activateSharedHousehold(householdId: string): Promise<void
   await patchUserPreferences({ householdUi: { activeHouseholdId: householdId } });
   invalidateDataScopeCache(uid);
   invalidateDefaultListIdCache();
+}
+
+export async function removeHouseholdMember(memberUserId: string): Promise<void> {
+  if (!isSyncEnabled()) throw new Error('Sign in to manage sharing.');
+  const householdId = await resolveDataScopeId();
+  const { data, error } = await supabase.rpc('remove_household_member', {
+    p_household_id: householdId,
+    p_member_user_id: memberUserId,
+  });
+  if (error) {
+    throw new Error(mapDbErrorToUserMessage(error, 'Could not remove member.'));
+  }
+  const payload = data as { ok?: boolean; error?: string } | null;
+  if (!payload?.ok) {
+    throw new Error(payload?.error ?? 'Could not remove member.');
+  }
+}
+
+export async function leaveSharedHousehold(): Promise<string> {
+  if (!isSyncEnabled()) throw new Error('Sign in to leave a shared list.');
+  const uid = await requireAuthenticatedUserId();
+  const householdId = await resolveDataScopeId();
+  const { data, error } = await supabase.rpc('leave_household', {
+    p_household_id: householdId,
+  });
+  if (error) {
+    throw new Error(mapDbErrorToUserMessage(error, 'Could not leave shared list.'));
+  }
+  const payload = data as { ok?: boolean; error?: string; personal_household_id?: string } | null;
+  if (!payload?.ok || !payload.personal_household_id) {
+    throw new Error(payload?.error ?? 'Could not leave shared list.');
+  }
+  const personalId = String(payload.personal_household_id);
+  await patchUserPreferences({ householdUi: { activeHouseholdId: personalId } });
+  invalidateDataScopeCache(uid);
+  invalidateDefaultListIdCache();
+  return personalId;
 }

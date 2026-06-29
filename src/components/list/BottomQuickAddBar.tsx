@@ -43,10 +43,8 @@ import { UNITS_ALPHABETICAL } from '../ui/unitSelection';
 import type { Unit } from '../../data/units';
 import type { ZoneKey } from '../../types/models';
 import { QuickAddSuggestionStack, quickAddSuggestionStackHeight } from './QuickAddSuggestionStack';
-import {
-  searchItemNameSuggestions,
-  type ItemNameSuggestion,
-} from '../../services/itemNameSuggestions';
+import { useItemNameSuggestions } from '../../hooks/useItemNameSuggestions';
+import type { ItemNameSuggestion } from '../../services/itemNameSuggestions';
 import { loadRecentItemsForSuggestions, type RecentItem } from '../../services/recentItemsStore';
 import { resolveCategoryFast } from '../../services/aiCategoryCache';
 import { categorizeItems } from '../../services/aiService';
@@ -149,17 +147,15 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
   const canSubmit = trimmed.length > 0 && !loading && !disabled;
   /** Keep accent styling while `loading` so the send control stays visible (spinner on green). */
   const sendAccent = trimmed.length > 0 && !disabled;
-  const suggestions = useMemo(
-    () =>
-      disabled || unitMenuOpen || trimmed.length < 1
-        ? []
-        : searchItemNameSuggestions(trimmed, {
-            recentItems,
-            listItemNames,
-          }),
-    [disabled, unitMenuOpen, trimmed, recentItems, listItemNames]
-  );
-  const showSuggestions = suggestions.length > 0 && !unitMenuOpen && !disabled;
+  const suggestionsEnabled = !disabled && !unitMenuOpen && trimmed.length >= 1;
+  const { suggestions } = useItemNameSuggestions({
+    query: text,
+    enabled: suggestionsEnabled,
+    listItemNames,
+    recentItems,
+    includeTypedFallback: trimmed.length > 0,
+  });
+  const showSuggestions = suggestions.length > 0 && suggestionsEnabled;
 
   const prewarmCategorize = useCallback(
     (name: string) => {

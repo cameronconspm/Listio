@@ -62,20 +62,35 @@ export function QuickAddSuggestionStack({
   return (
     <View style={styles.stack} accessibilityRole="list">
       {suggestions.map((item) => (
-        <View key={`${item.source}-${item.normalized_name}`} style={styles.rowShadow}>
+        <View
+          key={`${item.source}-${item.normalized_name}-${item.isTypedFallback ? 'typed' : 'match'}`}
+          style={styles.rowShadow}
+        >
           <GlassInputBar style={styles.rowGlass}>
             <PressableScale
               style={styles.rowInner}
               onPress={() => onSelect(item)}
               accessibilityRole="button"
-              accessibilityLabel={`Use ${item.display_name}`}
+              accessibilityLabel={
+                item.isTypedFallback ? `Add ${item.display_name}` : `Use ${item.display_name}`
+              }
             >
-              <Text
-                style={[theme.typography.body, styles.label, { color: theme.textPrimary }]}
-                numberOfLines={1}
-              >
-                {item.display_name}
-              </Text>
+              {item.isTypedFallback ? (
+                <Text
+                  style={[theme.typography.body, styles.label, { color: theme.textPrimary }]}
+                  numberOfLines={1}
+                >
+                  Add{' '}
+                  <Text style={{ fontWeight: '600' }}>{item.display_name}</Text>
+                </Text>
+              ) : (
+                <Text
+                  style={[theme.typography.body, styles.label, { color: theme.textPrimary }]}
+                  numberOfLines={1}
+                >
+                  {item.display_name}
+                </Text>
+              )}
             </PressableScale>
           </GlassInputBar>
         </View>

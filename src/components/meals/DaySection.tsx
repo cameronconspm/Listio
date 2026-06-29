@@ -48,6 +48,7 @@ function DaySectionInner({
             const rid = m?.recipe_id ?? null;
             const recipeMeta = rid ? recipeMetaByRecipeId[rid] ?? null : null;
             const displayLabel = slotKey.charAt(0).toUpperCase() + slotKey.slice(1);
+            const isLastSlot = customSlots.length === 0 && slotKey === FIXED_SLOTS[FIXED_SLOTS.length - 1];
             return (
               <MealSlotRow
                 key={slotKey}
@@ -61,10 +62,11 @@ function DaySectionInner({
                 }}
                 onPressAdd={() => onPressAdd(dateString, slotKey, displayLabel)}
                 onDeleteMeal={onDeleteMeal}
+                showBottomBorder={!isLastSlot}
               />
             );
           })}
-          {customSlots.map((slotKey) => {
+          {customSlots.map((slotKey, index) => {
             const label = slotKey.replace('custom:', '');
             const meal = mealsBySlot.get(slotKey) ?? null;
             const rid = meal?.recipe_id ?? null;
@@ -82,6 +84,7 @@ function DaySectionInner({
                 }}
                 onPressAdd={() => onPressAdd(dateString, slotKey, label)}
                 onDeleteMeal={onDeleteMeal}
+                showBottomBorder={index < customSlots.length - 1}
               />
             );
           })}

@@ -23,7 +23,9 @@ export type EdgeAuthPurpose =
   | 'categorizeItems'
   | 'parseRecipeFromText'
   | 'parseListItemsFromText'
-  | 'syncSubscriptionEntitlement';
+  | 'syncSubscriptionEntitlement'
+  | 'suggestItems'
+  | 'householdInvitePush';
 
 const MESSAGES: Record<
   EdgeAuthPurpose,
@@ -62,6 +64,20 @@ const MESSAGES: Record<
     noToken: 'Sign in again to refresh your subscription.',
     projectMismatch: 'Sign out and sign in again.',
     expired: 'Sign in again to refresh your subscription.',
+  },
+  suggestItems: {
+    corrupt: 'Sign in again to see item suggestions.',
+    loadFailed: 'Sign in again to see item suggestions.',
+    noToken: 'Sign in again to see item suggestions.',
+    projectMismatch: 'Sign out and sign in again.',
+    expired: 'Sign in again to see item suggestions.',
+  },
+  householdInvitePush: {
+    corrupt: 'Sign in again to send invite notifications.',
+    loadFailed: 'Sign in again to send invite notifications.',
+    noToken: 'Sign in again to send invite notifications.',
+    projectMismatch: 'Sign out and sign in again.',
+    expired: 'Sign in again to send invite notifications.',
   },
 };
 

@@ -50,7 +50,7 @@ import { useInvalidateHomeList } from '../../hooks/useInvalidateHomeList';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../query/keys';
 import { fetchRecipeDetailBundle, RECIPE_DETAIL_STALE_MS } from '../../query/recipeDetailBundle';
-import type { HomeListBundle } from '../../query/homeListBundle';
+import { getCachedHomeListBundle } from '../../query/homeListBundle';
 import { invalidateMealsRange } from '../../query/invalidate';
 import { getZoneOrderFromStore } from '../../utils/storeUtils';
 import { ZONE_LABELS } from '../../data/zone';
@@ -220,7 +220,7 @@ export function RecipeDetailsScreen() {
       const baseServings = recipe?.servings ?? 4;
       const servings = displayServings ?? baseServings;
       const scaleFactor = baseServings > 0 ? servings / baseServings : 1;
-      const bundle = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList(userId));
+      const bundle = getCachedHomeListBundle(queryClient, userId);
       const store = bundle?.store ?? null;
       const zoneKeys = getZoneOrderFromStore(store);
       const zoneLabelsInOrder = zoneKeys.map((k) => ZONE_LABELS[k]);

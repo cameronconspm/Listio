@@ -4,7 +4,7 @@ import { queryKeys } from './keys';
 // Helpers for post–useQuery migration; invalidateQueries no-ops when nothing observes the key.
 
 export function invalidateListData(queryClient: QueryClient, userId: string) {
-  return queryClient.invalidateQueries({ queryKey: queryKeys.homeList(userId) });
+  return queryClient.invalidateQueries({ queryKey: queryKeys.homeListAll(userId) });
 }
 
 export function invalidateStores(queryClient: QueryClient, userId: string) {

@@ -38,7 +38,8 @@ import {
 } from '../../utils/parseItems';
 import { titleCaseWords } from '../../utils/titleCaseWords';
 import { UNITS, type Unit } from '../../data/units';
-import { useRecentSuggestions } from '../../hooks/useRecentSuggestions';
+import { useItemNameSuggestions } from '../../hooks/useItemNameSuggestions';
+import { loadRecentItemsForSuggestions, type RecentItem } from '../../services/recentItemsStore';
 import type { ListItem, ZoneKey } from '../../types/models';
 import { ZONE_LABELS } from '../../data/zone';
 import { ListItemZonePickerPanel } from './ListItemZoneSheet';
@@ -160,6 +161,22 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
    * discards the result if the user kept typing or dismissed before OpenAI returned.
    */
   const prewarmAbortRef = useRef<{ cancelled: boolean } | null>(null);
+  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
+
+  useEffect(() => {
+    if (!visible || editingItem) {
+      setRecentItems([]);
+      return;
+    }
+    void loadRecentItemsForSuggestions().then(setRecentItems);
+  }, [visible, editingItem]);
+
+  const { suggestions: recentSuggestions } = useItemNameSuggestions({
+    query: text,
+    enabled: visible && !editingItem && !smartMode,
+    recentItems,
+    includeTypedFallback: false,
+  });
 
   const draftRef = useRef({
     text: '',
@@ -168,7 +185,6 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
     note: '',
     brandPreference: '',
   });
-  const recentSuggestions = useRecentSuggestions(visible, text, editingItem);
 
   /**
    * Footer uses stable bottom padding (safe area + CTA gutter). Do not tie padding to keyboard

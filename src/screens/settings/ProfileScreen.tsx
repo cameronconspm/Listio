@@ -14,6 +14,7 @@ import { TextField } from '../../components/ui/TextField';
 import { PrimaryButton } from '../../components/ui/PrimaryButton';
 import { Chevron } from './SettingsChevron';
 import { supabase, isSyncEnabled } from '../../services/supabaseClient';
+import { useAuth } from '../../context/AuthContext';
 import {
   settingsFieldLastStyle,
   settingsFieldStyle,
@@ -27,25 +28,23 @@ import { Mascot } from '../../components/brand/Mascot';
 
 export function ProfileScreen() {
   const theme = useTheme();
+  const { userEmail } = useAuth();
   const onScroll = useSettingsScrollHandler();
   const scrollInsets = useSettingsScrollInsets();
   const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
   const [initialFullName, setInitialFullName] = useState('');
   const [saving, setSaving] = useState(false);
 
   const refresh = useCallback(() => {
     if (!isSyncEnabled()) {
       setFullName('');
-      setEmail('');
       setInitialFullName('');
       return;
     }
     supabase.auth.getUser().then(({ data }) => {
       const u = data.user;
       const name = (u?.user_metadata?.full_name as string | undefined) ?? '';
-      setEmail(u?.email ?? '');
       setFullName(name);
       setInitialFullName(name);
     });
@@ -119,8 +118,8 @@ export function ProfileScreen() {
                 />
                 <TextField
                   label="Email address"
-                  value={email}
-                  onChangeText={setEmail}
+                  value={userEmail ?? ''}
+                  onChangeText={() => {}}
                   placeholder="you@example.com"
                   editable={false}
                   containerStyle={settingsFieldLastStyle}

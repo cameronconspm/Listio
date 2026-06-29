@@ -1,37 +1,35 @@
 import React from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
-import * as AppleAuthentication from 'expo-apple-authentication';
+import { Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
+import { AuthProviderButton } from './AuthProviderButton';
 
 type AppleSignInButtonProps = {
   onPress: () => void;
   disabled?: boolean;
+  loading?: boolean;
+  /** Defaults to “Sign in with Apple”. Use “Sign up with Apple” on signup. */
+  title?: string;
 };
 
-/** Native Sign in with Apple button — iOS only. */
-export function AppleSignInButton({ onPress, disabled = false }: AppleSignInButtonProps) {
+/** Sign in with Apple — iOS only; uses app secondary button chrome + Apple logo. */
+export function AppleSignInButton({
+  onPress,
+  disabled = false,
+  loading = false,
+  title = 'Sign in with Apple',
+}: AppleSignInButtonProps) {
   const theme = useTheme();
 
   if (Platform.OS !== 'ios') return null;
 
   return (
-    <View style={[styles.wrap, { marginBottom: theme.spacing.md }]}>
-      <AppleAuthentication.AppleAuthenticationButton
-        buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-        buttonStyle={
-          theme.colorScheme === 'dark'
-            ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
-            : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
-        }
-        cornerRadius={theme.radius.full}
-        style={styles.button}
-        onPress={onPress}
-      />
-    </View>
+    <AuthProviderButton
+      title={title}
+      onPress={onPress}
+      disabled={disabled}
+      loading={loading}
+      icon={<Ionicons name="logo-apple" size={20} color={theme.textPrimary} />}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: { width: '100%' },
-  button: { width: '100%', height: 44 },
-});

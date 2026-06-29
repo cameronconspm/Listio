@@ -3,6 +3,8 @@ import { supabase, isSyncEnabled } from './supabaseClient';
 import { clearAllLocalData } from './localDataService';
 import { clearAllRecentItems } from './recentItemsStore';
 import { clearCategoryCache } from './aiCategoryCache';
+import { clearSuggestionIndex } from './suggestionIndexStore';
+import { clearSuggestItemsCache } from './suggestItemsService';
 
 type DeleteAccountResponse = { ok?: boolean; error?: string };
 
@@ -72,6 +74,8 @@ export async function deleteAuthenticatedAccount(): Promise<{ ok: true } | { ok:
 
   await clearAllRecentItems();
   await clearCategoryCache();
+  await clearSuggestionIndex();
+  await clearSuggestItemsCache();
   await clearAllLocalData();
   await supabase.auth.signOut({ scope: 'local' });
   return { ok: true };

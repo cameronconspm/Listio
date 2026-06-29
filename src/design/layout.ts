@@ -8,6 +8,9 @@ export const TAB_ROOT_HEADER_ROW_HEIGHT = 44;
 /** Extra chrome row when the list tab shows the multi-list switcher above Plan/Shop. */
 export const LIST_TAB_LIST_SWITCHER_ROW_HEIGHT = 44;
 
+/** Fixed Plan/Shop segmented control row (below list switcher). */
+export const LIST_TAB_MODE_TOGGLE_ROW_HEIGHT = 44;
+
 /**
  * Explicit tab-root chrome height. Native-stack custom header measurement can
  * change during first mount; tab roots use this fixed geometry for stable layout.
@@ -27,17 +30,39 @@ export function listTabSwitcherHeaderHeight(
   return safeAreaTop + LIST_TAB_LIST_SWITCHER_ROW_HEIGHT + spacing.xs;
 }
 
+/**
+ * Scroll inset below fixed list-tab chrome (switcher row + optional Plan/Shop toggle).
+ * Plan/Shop is pinned outside the FlatList so toggling does not remeasure list headers.
+ */
+export function listTabFixedHeaderScrollInset(
+  safeAreaTop: number,
+  spacing: ThemeSpacing,
+  options?: { showListSwitcher?: boolean; showModeToggle?: boolean }
+): number {
+  const showSwitcher = options?.showListSwitcher ?? false;
+  const showModeToggle = options?.showModeToggle ?? false;
+
+  let inset = showSwitcher
+    ? listTabSwitcherHeaderHeight(safeAreaTop, spacing)
+    : safeAreaTop + spacing.sm;
+
+  if (showModeToggle) {
+    inset += LIST_TAB_MODE_TOGGLE_ROW_HEIGHT + spacing.sm;
+  }
+
+  return inset + spacing.xxs;
+}
+
 /** Scroll inset below the fixed list switcher header (Plan/Shop toggle scrolls in content). */
 export function listTabScrollPaddingTop(
   safeAreaTop: number,
   spacing: ThemeSpacing,
   options?: { showListSwitcher?: boolean },
 ): number {
-  const show = options?.showListSwitcher ?? false;
-  if (show) {
-    return listTabSwitcherHeaderHeight(safeAreaTop, spacing) + spacing.xxs;
-  }
-  return safeAreaTop + spacing.sm + spacing.xxs;
+  return listTabFixedHeaderScrollInset(safeAreaTop, spacing, {
+    showListSwitcher: options?.showListSwitcher ?? false,
+    showModeToggle: false,
+  });
 }
 
 export function tabRootScrollPaddingTop(

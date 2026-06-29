@@ -13,8 +13,7 @@ import { useAuthUserId } from '../../context/AuthContext';
 import { PRIVACY_POLICY_URL } from '../../constants/legalUrls';
 import { AI_SMART_CATEGORIZATION_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDisclosure';
 import { useHomeListMutations } from '../../hooks/useHomeListMutations';
-import { queryKeys } from '../../query/keys';
-import type { HomeListBundle } from '../../query/homeListBundle';
+import { getCachedHomeListBundle } from '../../query/homeListBundle';
 import type { ZoneKey } from '../../types/models';
 import { DEFAULT_ZONE_ORDER, ZONE_LABELS } from '../../data/zone';
 import { spacing } from '../../design/spacing';
@@ -51,7 +50,7 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
     }
     setLoading(true);
     try {
-      const currentBundle = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList(userId));
+      const currentBundle = getCachedHomeListBundle(queryClient, userId);
       const currentCount = currentBundle?.listItems.length ?? 0;
       const ok = await ensureFreeTierCapacity('list', currentCount, raw.length, isPremium, isPremiumLoading);
       if (!ok) {

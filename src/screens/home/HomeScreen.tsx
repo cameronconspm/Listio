@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { useQueryClient } from '@tanstack/react-query';
+import React, { useState, useCallback, useRef, useEffect, useMemo, startTransition } from 'react';
+import { View, StyleSheet, Keyboard } from 'react-native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import { useNavigationChromeScroll } from '../../navigation/NavigationChromeScrollContext';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
@@ -15,7 +15,6 @@ import {
 import { useHaptics } from '../../hooks/useHaptics';
 import { useShoppingMode } from '../../hooks/useShoppingMode';
 import { useAuthUserId } from '../../context/AuthContext';
-import type { LinkedMealRowMeta } from '../../utils/mealLabel';
 import { getZoneIconOverrides } from '../../utils/storeUtils';
 import { DEFAULT_ZONE_ORDER, ZONE_LABELS } from '../../data/zone';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -31,6 +30,7 @@ import {
   bottomQuickAddClearance,
   type BottomQuickAddBarHandle,
 } from '../../components/list/BottomQuickAddBar';
+import { DuplicateResolutionSheet } from '../../components/list/DuplicateResolutionSheet';
 import { putCachedCategories } from '../../services/aiCategoryCache';
 import { normalize, toBoolean } from '../../utils/normalize';
 import type { ParsedItem } from '../../utils/parseItems';
@@ -43,12 +43,18 @@ import { ListActionsSheet } from '../../components/list/ListActionsSheet';
 import { QuantityEditSheet } from '../../components/list/QuantityEditSheet';
 import { AppActionSheet } from '../../components/ui/AppActionSheet';
 import { ListScreenHeader } from '../../components/list/ListScreenHeader';
+import {
+  getReadinessState,
+  useListReadinessCelebration,
+} from '../../components/list/PlanReadinessStrip';
 import { recordItemAdded } from '../../services/recentItemsStore';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
 import { useFabExpandScrollHandler } from '../../hooks/useFabExpandScrollHandler';
 import { useLazyMount } from '../../hooks/useLazyMount';
 import { queryKeys } from '../../query/keys';
-import { HOME_LIST_STALE_MS } from '../../query/homeListBundle';
+import { HOME_LIST_STALE_MS, prefetchAllHomeListBundles, fetchHomeListBundle } from '../../query/homeListBundle';
+import { warmCachesAfterHouseholdJoin } from '../../query/householdJoinCache';
+import { scheduleAfterNativeReady } from '../../utils/scheduleAfterNativeReady';
 import { safeZoneOrderOrDefault, type HomeSectionItem } from './homeScreenListDerived';
 import { useHomeListScreenState } from './useHomeListScreenState';
 import { useInvalidateHomeList } from '../../hooks/useInvalidateHomeList';
@@ -68,13 +74,19 @@ import { FreeTierUsageBanner } from '../../components/subscription/FreeTierUsage
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { openPlanScreen } from '../../navigation/openPlanScreen';
 import { ShoppingListPickerSheet } from '../../components/list/ShoppingListPickerSheet';
-import { fetchShoppingLists } from '../../services/shoppingListService';
+import { isSyncEnabled } from '../../services/supabaseClient';
+import {
+  fetchShoppingListsBundle,
+  SHOPPING_LISTS_STALE_MS,
+} from '../../query/shoppingListsBundle';
+import { LOCAL_SYNC_SCOPE_ID } from '../../constants/localSyncScope';
 import {
   consumePendingInviteToken,
   consumePendingQuickAddItem,
 } from '../../services/pendingDeepLinkActions';
 import { acceptHouseholdInvite } from '../../services/householdService';
 import { logFunnelEvent } from '../../services/funnelAnalyticsService';
+import { readCachedListTabUiState } from './readCachedListTabUiState';
 
 const VALID_LIST_ZONES = new Set<ZoneKey>(DEFAULT_ZONE_ORDER);
 
@@ -105,6 +117,7 @@ export function HomeScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const userId = useAuthUserId();
   const { isPremium, isPremiumLoading } = usePremiumEntitlement();
   const { maybePromptForReview } = useAppReview();
   const tabNavigation = useNavigation<NavigationProp<ParamListBase>>();
@@ -118,19 +131,29 @@ export function HomeScreen() {
   const bottomAddBarRef = useRef<BottomQuickAddBarHandle>(null);
   const sectionsRef = useRef<HomeSectionItem[]>([]);
   const itemsRef = useRef<ListItem[]>([]);
+  const beginListModeSwapRef = useRef<(() => void) | null>(null);
   const { scrollY: tabScrollY } = useNavigationChromeScroll();
   const listScrollShared = tabScrollY.ListTab;
   const { listScrollHandler } = useFabExpandScrollHandler(listScrollShared);
   const [refreshing, setRefreshing] = useState(false);
-  /** undefined = getUserId not resolved yet; null = not signed in. */
-  const userId = useAuthUserId();
   const invalidateHomeList = useInvalidateHomeList();
-  const [composerVisible, setComposerVisible] = useState(false);
   const [listDeleteDialog, setListDeleteDialog] = useState<ListDeleteDialogState>(null);
   const [editingItem, setEditingItem] = useState<ListItem | null>(null);
-  const [zoneOrder, setZoneOrder] = useState<ZoneKey[]>(DEFAULT_ZONE_ORDER);
-  const [collapsedZones, setCollapsedZones] = useState<Set<ZoneKey>>(new Set());
-  const [filterZone, setFilterZone] = useState<ZoneKey | 'all'>('all');
+  const [duplicateSheetVisible, setDuplicateSheetVisible] = useState(false);
+  const [duplicateResolution, setDuplicateResolution] = useState<{
+    match: DuplicateMatch;
+    incoming: ParsedItem;
+  } | null>(null);
+  const [zoneOrder, setZoneOrder] = useState<ZoneKey[]>(
+    () => readCachedListTabUiState(queryClient, userId).zoneOrder
+  );
+  const [collapsedZones, setCollapsedZones] = useState<Set<ZoneKey>>(() => {
+    const cached = readCachedListTabUiState(queryClient, userId);
+    return new Set(cached.collapsedZones);
+  });
+  const [filterZone, setFilterZone] = useState<ZoneKey | 'all'>(
+    () => readCachedListTabUiState(queryClient, userId).filterZone
+  );
   const [shoppingMode, setShoppingMode] = useShoppingMode();
 
   const [reorderMode, setReorderMode] = useState(false);
@@ -138,8 +161,7 @@ export function HomeScreen() {
   const [reorderSections, setReorderSections] = useState<HomeSectionItem[]>([]);
   const [listActionsVisible, setListActionsVisible] = useState(false);
   const [listPickerVisible, setListPickerVisible] = useState(false);
-  const [activeListId, setActiveListId] = useState<string | null>(null);
-  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([]);
+  const [activeListIdOverride, setActiveListIdOverride] = useState<string | null>(null);
   const funnelFirstItemLoggedRef = useRef(false);
   const funnelFirstShopRunLoggedRef = useRef(false);
   /** Long-press section header: wiggle + delete affordance; cleared by Done/Cancel or after zone delete. */
@@ -161,18 +183,35 @@ export function HomeScreen() {
   const [categorizeFallbackPending, setCategorizeFallbackPending] =
     useState<CategorizeFallbackPending | null>(null);
   /** Lazy-mount gates: sheets/dialogs stay unmounted until first opened to avoid mount cost on screen load. */
-  const composerMounted = useLazyMount(composerVisible);
+  /** Edit-item sheet only — new items use BottomQuickAddBar. */
+  const composerMounted = useLazyMount(!!editingItem);
   const listActionsMounted = useLazyMount(listActionsVisible);
   const reorderSaveSheetMounted = useLazyMount(reorderSaveSheetVisible);
   const listDeleteDialogMounted = useLazyMount(listDeleteDialog != null);
   const categorizeFallbackMounted = useLazyMount(categorizeFallbackPending != null);
-  const [linkedMealLabels, setLinkedMealLabels] = useState<Map<string, LinkedMealRowMeta>>(
-    () => new Map()
-  );
   const lastPlaceholderIndexRef = useRef<number | null>(null);
   const listPrefsLoaded = useRef(false);
   /** Restore section expand/collapse after inline reorder finishes. */
   const collapsedSnapshotRef = useRef<Set<ZoneKey> | null>(null);
+
+  const shoppingListsQueryKey =
+    typeof userId === 'string' && userId.length > 0 ? queryKeys.shoppingLists(userId) : null;
+
+  const shoppingListsQuery = useQuery({
+    queryKey: shoppingListsQueryKey ?? queryKeys.shoppingLists('pending'),
+    queryFn: fetchShoppingListsBundle,
+    enabled: shoppingListsQueryKey != null && isSyncEnabled(),
+    staleTime: SHOPPING_LISTS_STALE_MS,
+  });
+
+  const shoppingLists = useMemo(
+    () => shoppingListsQuery.data?.lists ?? [],
+    [shoppingListsQuery.data?.lists]
+  );
+  const activeListId =
+    activeListIdOverride ??
+    shoppingListsQuery.data?.activeListId ??
+    (typeof userId === 'string' && userId && !isSyncEnabled() ? LOCAL_SYNC_SCOPE_ID : null);
 
   const {
     listQuery,
@@ -183,6 +222,7 @@ export function HomeScreen() {
     effectiveZoneOrder,
     sections,
     derived,
+    linkedMealLabels,
     insertItems,
     updateItem,
     toggleItem,
@@ -193,12 +233,121 @@ export function HomeScreen() {
     checkAllZone,
   } = useHomeListScreenState({
     userId,
+    activeListId,
     shoppingMode,
     filterZone,
     zoneOrder,
     sessionZoneOrder,
-    setLinkedMealLabels,
   });
+
+  const openListPicker = useCallback(() => {
+    setZoneClearMode(null);
+    Keyboard.dismiss();
+    setListPickerVisible(true);
+  }, []);
+
+  useEffect(() => {
+    if (!activeListIdOverride || shoppingLists.length === 0) return;
+    if (!shoppingLists.some((list) => list.id === activeListIdOverride)) {
+      setActiveListIdOverride(null);
+    }
+  }, [shoppingLists, activeListIdOverride]);
+
+  const prefetchedListIdsRef = useRef('');
+
+  useEffect(() => {
+    if (typeof userId !== 'string' || !userId || shoppingLists.length <= 1) return;
+    const listKey = shoppingLists
+      .map((list) => list.id)
+      .sort()
+      .join(',');
+    if (prefetchedListIdsRef.current === listKey) return;
+    prefetchedListIdsRef.current = listKey;
+    const { cancel } = scheduleAfterNativeReady(() => {
+      void prefetchAllHomeListBundles(
+        userId,
+        queryClient,
+        shoppingLists.map((list) => list.id)
+      );
+    });
+    return () => cancel();
+  }, [userId, shoppingLists, queryClient]);
+
+  const handleActiveListChange = useCallback(
+    (listId: string) => {
+      setActiveListIdOverride(listId);
+      if (shoppingListsQueryKey) {
+        queryClient.setQueryData(shoppingListsQueryKey, (current) =>
+          current ? { ...current, activeListId: listId } : current
+        );
+      }
+    },
+    [queryClient, shoppingListsQueryKey]
+  );
+
+  const handleShoppingListsChange = useCallback(
+    (lists: ShoppingList[]) => {
+      if (shoppingListsQueryKey) {
+        queryClient.setQueryData(shoppingListsQueryKey, (current) =>
+          current ? { ...current, lists } : { lists, activeListId: activeListIdOverride }
+        );
+      }
+    },
+    [activeListIdOverride, queryClient, shoppingListsQueryKey]
+  );
+
+  const activeListMeta = useMemo(() => {
+    if (shoppingLists.length === 0) return null;
+    if (activeListId) {
+      return shoppingLists.find((list) => list.id === activeListId) ?? null;
+    }
+    return shoppingLists.find((list) => list.is_default) ?? shoppingLists[0] ?? null;
+  }, [shoppingLists, activeListId]);
+
+  const listSwitcherName = activeListMeta?.name?.trim() || 'Groceries';
+
+  const listUiAwaitingFirstPayload =
+    isSyncEnabled() &&
+    shoppingListsQuery.data === undefined &&
+    (shoppingListsQuery.isPending || shoppingListsQuery.isFetching);
+
+  /** Show switcher as soon as sync is on; bootstrap prefetches list metadata before the tab mounts. */
+  const showListSwitcher =
+    isSyncEnabled() &&
+    (listUiAwaitingFirstPayload || (shoppingLists.length >= 1 && activeListMeta != null));
+
+  const showListTabTopRow = showListSwitcher || items.length > 0;
+
+  const scrollTopBelowTabHeader = useMemo(
+    () =>
+      listTabScrollPaddingTop(insets.top, theme.spacing, {
+        showListSwitcher: showListTabTopRow,
+      }),
+    [insets.top, theme.spacing, showListTabTopRow]
+  );
+
+  const headerListSwitcher = useMemo(() => {
+    if (!showListSwitcher) return null;
+    return { name: listSwitcherName, onPress: openListPicker };
+  }, [showListSwitcher, listSwitcherName, openListPicker]);
+
+  const linkedItemCount = useMemo(
+    () => items.filter((item) => item.linked_meal_ids && item.linked_meal_ids.length > 0).length,
+    [items]
+  );
+
+  const listReadiness = useMemo(
+    () => getReadinessState(items.length, linkedItemCount),
+    [items.length, linkedItemCount]
+  );
+
+  useListReadinessCelebration(listReadiness.mood);
+
+  const headerMascot = useMemo(() => {
+    if (items.length === 0) return null;
+    const { mood, title, subtitle } = listReadiness;
+    return { mood, accessibilityLabel: `${title}. ${subtitle}` };
+  }, [items.length, listReadiness]);
 
   useListRealtimeSync(userId);
 
@@ -212,16 +361,34 @@ export function HomeScreen() {
         lz?.filterZone === 'all' ||
         (lz?.filterZone && VALID_LIST_ZONES.has(lz.filterZone as ZoneKey))
       ) {
-        setFilterZone(lz.filterZone as ZoneKey | 'all');
+        const nextFilter = lz.filterZone as ZoneKey | 'all';
+        setFilterZone((prev) => (prev === nextFilter ? prev : nextFilter));
       }
       if (lz?.collapsedZoneKeys?.length) {
         const collapsed = lz.collapsedZoneKeys.filter((k): k is ZoneKey =>
           VALID_LIST_ZONES.has(k as ZoneKey)
         );
-        if (collapsed.length) setCollapsedZones(new Set(collapsed));
+        if (collapsed.length) {
+          setCollapsedZones((prev) => {
+            if (
+              prev.size === collapsed.length &&
+              collapsed.every((key) => prev.has(key))
+            ) {
+              return prev;
+            }
+            return new Set(collapsed);
+          });
+        }
       }
       const zo = normalizePersistedZoneOrder(lz?.zoneOrder);
-      if (zo) setZoneOrder(zo);
+      if (zo) {
+        setZoneOrder((prev) => {
+          if (prev.length === zo.length && prev.every((key, i) => key === zo[i])) {
+            return prev;
+          }
+          return zo;
+        });
+      }
       listPrefsLoaded.current = true;
     })();
     return () => {
@@ -258,17 +425,21 @@ export function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (typeof userId === 'string' && userId.length > 0) {
-        const state = queryClient.getQueryState(queryKeys.homeList(userId));
+      if (typeof userId === 'string' && userId.length > 0 && activeListId) {
+        const state = queryClient.getQueryState(queryKeys.homeList(userId, activeListId));
         const updatedAt = state?.dataUpdatedAt ?? 0;
         if (Date.now() - updatedAt > HOME_LIST_STALE_MS) {
-          void queryClient.invalidateQueries({ queryKey: queryKeys.homeList(userId) });
+          void queryClient.prefetchQuery({
+            queryKey: queryKeys.homeList(userId, activeListId),
+            queryFn: () => fetchHomeListBundle(userId, queryClient, activeListId),
+            staleTime: HOME_LIST_STALE_MS,
+          });
         }
       }
       return () => {
         setZoneClearMode(null);
       };
-    }, [userId, queryClient])
+    }, [userId, activeListId, queryClient])
   );
 
   const onRefresh = useCallback(() => {
@@ -282,7 +453,6 @@ export function HomeScreen() {
       haptics.light();
       setZoneClearMode(null);
       setEditingItem(item);
-      setComposerVisible(true);
     },
     [haptics]
   );
@@ -417,7 +587,6 @@ export function HomeScreen() {
         } catch {
           // Recent-items cache is non-fatal
         }
-        setComposerVisible(false);
         setEditingItem(null);
         trackFirstItemAdded();
         return;
@@ -502,7 +671,6 @@ export function HomeScreen() {
       } catch {
         // Recent-items cache is non-fatal
       }
-      setComposerVisible(false);
       setEditingItem(null);
       trackFirstItemAdded();
     },
@@ -546,7 +714,6 @@ export function HomeScreen() {
       } catch {
         // Recent-items cache is non-fatal
       }
-      setComposerVisible(false);
       setEditingItem(null);
     },
     [insertItems, items, isPremium, isPremiumLoading, userId]
@@ -580,14 +747,45 @@ export function HomeScreen() {
     [handleComposerSubmit]
   );
 
+  const closeDuplicateSheet = useCallback(() => {
+    setDuplicateSheetVisible(false);
+    setDuplicateResolution(null);
+  }, []);
+
+  const handleDuplicateSheetMerge = useCallback(async () => {
+    if (!duplicateResolution) return;
+    try {
+      await handleDuplicateMerge(duplicateResolution.match, duplicateResolution.incoming);
+      haptics.success();
+      closeDuplicateSheet();
+    } catch (e) {
+      showError(e instanceof Error ? e.message : 'Could not merge items');
+    }
+  }, [duplicateResolution, handleDuplicateMerge, haptics, closeDuplicateSheet]);
+
+  const handleDuplicateSheetAddSeparately = useCallback(async () => {
+    if (!duplicateResolution) return;
+    const incoming = duplicateResolution.incoming;
+    try {
+      await handleDuplicateAddSeparately(incoming);
+      haptics.success();
+      closeDuplicateSheet();
+    } catch (e) {
+      if ((e as { code?: string })?.code !== 'DUPLICATE') {
+        showError(e instanceof Error ? e.message : 'Could not add item');
+      }
+    }
+  }, [duplicateResolution, handleDuplicateAddSeparately, haptics, closeDuplicateSheet]);
+
   useFocusEffect(
     useCallback(() => {
-      void fetchUserPreferences().then((prefs) => {
-        setActiveListId(prefs.listUi?.activeListId ?? null);
-      });
-      void fetchShoppingLists()
-        .then(setShoppingLists)
-        .catch(() => undefined);
+      if (shoppingListsQueryKey) {
+        const state = queryClient.getQueryState(shoppingListsQueryKey);
+        const updatedAt = state?.dataUpdatedAt ?? 0;
+        if (Date.now() - updatedAt > SHOPPING_LISTS_STALE_MS) {
+          void queryClient.invalidateQueries({ queryKey: shoppingListsQueryKey });
+        }
+      }
 
       const quickAdd = consumePendingQuickAddItem();
       if (quickAdd) {
@@ -601,13 +799,14 @@ export function HomeScreen() {
       const inviteToken = consumePendingInviteToken();
       if (inviteToken) {
         void acceptHouseholdInvite(inviteToken).then((result) => {
-          if (result.ok) {
+          if (result.ok && typeof userId === 'string' && userId) {
             invalidateHomeList();
+            void warmCachesAfterHouseholdJoin(userId, queryClient);
             showMascotSuccess('List shared', 'You joined a shared grocery list.');
           }
         });
       }
-    }, [handleComposerSubmit, trackFirstItemAdded, invalidateHomeList])
+    }, [handleComposerSubmit, trackFirstItemAdded, invalidateHomeList, queryClient, shoppingListsQueryKey, userId])
   );
 
   const handleConfirmCategorizeFallback = useCallback(async () => {
@@ -644,7 +843,6 @@ export function HomeScreen() {
         };
       }),
     });
-    setComposerVisible(false);
     setEditingItem(null);
   }, [categorizeFallbackPending, insertItems, userId]);
 
@@ -679,7 +877,6 @@ export function HomeScreen() {
         },
       ]);
       setEditingItem(null);
-      setComposerVisible(false);
     },
     [editingItem, updateItem, userId]
   );
@@ -800,36 +997,6 @@ export function HomeScreen() {
     setListActionsVisible(true);
   }, []);
 
-  const openListPicker = useCallback(() => {
-    setZoneClearMode(null);
-    setListPickerVisible(true);
-  }, []);
-
-  const activeListMeta = useMemo(() => {
-    if (shoppingLists.length === 0) return null;
-    if (activeListId) {
-      return shoppingLists.find((list) => list.id === activeListId) ?? null;
-    }
-    return shoppingLists.find((list) => list.is_default) ?? shoppingLists[0] ?? null;
-  }, [shoppingLists, activeListId]);
-
-  const showListSwitcher = shoppingLists.length > 1;
-
-  const showListSwitcherChrome = showListSwitcher && !!activeListMeta?.name?.trim();
-
-  const scrollTopBelowTabHeader = useMemo(
-    () =>
-      listTabScrollPaddingTop(insets.top, theme.spacing, {
-        showListSwitcher: showListSwitcherChrome,
-      }),
-    [insets.top, theme.spacing, showListSwitcherChrome]
-  );
-
-  const headerListSwitcher = useMemo(() => {
-    if (!showListSwitcher || !activeListMeta?.name?.trim()) return null;
-    return { name: activeListMeta.name.trim(), onPress: openListPicker };
-  }, [showListSwitcher, activeListMeta?.name, openListPicker]);
-
   const handleDeleteEntireListFromMenu = useCallback(() => {
     pendingDeleteEntireListAfterSheetRef.current = true;
     setListActionsVisible(false);
@@ -869,7 +1036,6 @@ export function HomeScreen() {
     } catch {
       /* removeAllItems rolls back + invalidates on error */
     }
-    setComposerVisible(false);
     setEditingItem(null);
   }, [userId, removeAllItems]);
 
@@ -884,7 +1050,6 @@ export function HomeScreen() {
       }
       if (editingItem?.zone_key === zoneKey) {
         setEditingItem(null);
-        setComposerVisible(false);
       }
     },
     [userId, removeZoneItems, editingItem]
@@ -899,7 +1064,6 @@ export function HomeScreen() {
       void handleDelete(d.id);
       if (editingItem?.id === d.id) {
         setEditingItem(null);
-        setComposerVisible(false);
       }
     } else if (d.kind === 'all') {
       void handleDeleteAll();
@@ -918,27 +1082,51 @@ export function HomeScreen() {
     });
   }, []);
 
+  const registerListModeSwapStarter = useCallback((starter: (() => void) | null) => {
+    beginListModeSwapRef.current = starter;
+  }, []);
+
   const handleModeChange = useCallback(
     (mode: 'plan' | 'shop') => {
-      setZoneClearMode(null);
-      setFilterZone('all');
+      if (mode === shoppingMode) return;
+      beginListModeSwapRef.current?.();
       setShoppingMode(mode);
-      const currentItems = itemsRef.current;
-      if (mode === 'shop' && currentItems.length > 0) {
-        const completedZones = (zoneOrder ?? DEFAULT_ZONE_ORDER).filter((zone) => {
-          const zoneItems = currentItems.filter((i) => i.zone_key === zone);
-          return zoneItems.length > 0 && zoneItems.every((i) => toBoolean(i.is_checked));
-        });
-        if (completedZones.length > 0) {
-          setCollapsedZones((prev) => {
-            const next = new Set(prev);
-            completedZones.forEach((z) => next.add(z));
-            return next;
-          });
+      startTransition(() => {
+        if (zoneClearMode != null) setZoneClearMode(null);
+        if (filterZone !== 'all') setFilterZone('all');
+        if (mode !== 'shop') return;
+        const currentItems = itemsRef.current;
+        if (currentItems.length === 0) return;
+        const order = zoneOrder ?? DEFAULT_ZONE_ORDER;
+        const completedZones: ZoneKey[] = [];
+        for (const zone of order) {
+          let hasItems = false;
+          let allChecked = true;
+          for (const item of currentItems) {
+            if (item.zone_key !== zone) continue;
+            hasItems = true;
+            if (!toBoolean(item.is_checked)) {
+              allChecked = false;
+              break;
+            }
+          }
+          if (hasItems && allChecked) completedZones.push(zone);
         }
-      }
+        if (completedZones.length === 0) return;
+        setCollapsedZones((prev) => {
+          const next = new Set(prev);
+          let changed = false;
+          for (const zone of completedZones) {
+            if (!next.has(zone)) {
+              next.add(zone);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      });
     },
-    [zoneOrder, setShoppingMode]
+    [shoppingMode, zoneOrder, setShoppingMode, zoneClearMode, filterZone]
   );
 
   const smartAddStoreType = store?.store_type ?? 'generic';
@@ -977,13 +1165,16 @@ export function HomeScreen() {
         await handleComposerSubmit(parsedItems, zoneOverride, barOpts);
       } catch (e) {
         if ((e as { code?: string })?.code === 'DUPLICATE' && parsedItems.length === 1) {
-          setComposerVisible(true);
-          requestAnimationFrame(() => composerRef.current?.focus());
+          const match = findDuplicate(items, parsedItems[0]);
+          if (match) {
+            setDuplicateResolution({ match, incoming: parsedItems[0] });
+            setDuplicateSheetVisible(true);
+          }
         }
         throw e;
       }
     },
-    [handleComposerSubmit]
+    [handleComposerSubmit, items]
   );
 
   const onViewableItemsChanged = useRef(() => {}).current;
@@ -1195,8 +1386,12 @@ export function HomeScreen() {
     <Screen padded={false} safeTop={false} safeBottom={false}>
       <View style={styles.homeRoot}>
         <View style={styles.headerOverlay} pointerEvents="box-none">
-          {headerListSwitcher ? (
-            <ListScreenHeader listSwitcher={headerListSwitcher} reorderMode={reorderMode} />
+          {showListTabTopRow ? (
+            <ListScreenHeader
+              listSwitcher={headerListSwitcher}
+              mascot={headerMascot}
+              reorderMode={reorderMode}
+            />
           ) : null}
         </View>
         <View style={{ paddingTop: showFreeTierBanner ? scrollTopBelowTabHeader : 0 }}>
@@ -1212,7 +1407,11 @@ export function HomeScreen() {
             scrollContentPaddingBottom={listContentBottomPad}
             shoppingMode={shoppingMode}
             onShoppingModeChange={handleModeChange}
-            reorderMode={reorderMode}
+            showModeToggle={!reorderMode}
+            padTopWhenNoSwitcher={!showListTabTopRow}
+            safeAreaTop={insets.top}
+            reduceMotion={reduceMotion}
+            onRegisterModeSwapStarter={registerListModeSwapStarter}
           />
         ) : (
           <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -1273,11 +1472,12 @@ export function HomeScreen() {
               listScrollShared={listScrollShared}
               onCheckAllZone={handleCheckAllZone}
               onTapQuantity={handleTapQuantity}
+              onRegisterModeSwapStarter={registerListModeSwapStarter}
             />
           </View>
         )}
       </View>
-      {!reorderMode ? (
+      {!reorderMode && !listPickerVisible ? (
         <BottomQuickAddBar
           ref={bottomAddBarRef}
           onSubmit={handleBottomQuickAddSubmit}
@@ -1287,12 +1487,11 @@ export function HomeScreen() {
           zoneLabelsInOrder={smartAddZoneLabels}
         />
       ) : null}
-      {composerMounted ? (
+      {composerMounted && editingItem ? (
         <QuickAddComposer
           ref={composerRef}
-          visible={composerVisible}
+          visible
           onDismiss={() => {
-            setComposerVisible(false);
             setEditingItem(null);
           }}
           onSheetDismissed={handleQuickAddSheetDismissed}
@@ -1308,6 +1507,14 @@ export function HomeScreen() {
           onDuplicateAddSeparately={handleDuplicateAddSeparately}
         />
       ) : null}
+      <DuplicateResolutionSheet
+        visible={duplicateSheetVisible}
+        match={duplicateResolution?.match ?? null}
+        incoming={duplicateResolution?.incoming ?? null}
+        onMerge={() => void handleDuplicateSheetMerge()}
+        onAddSeparately={() => void handleDuplicateSheetAddSeparately()}
+        onCancel={closeDuplicateSheet}
+      />
       {listActionsMounted ? (
         <ListActionsSheet
           visible={listActionsVisible}
@@ -1324,12 +1531,9 @@ export function HomeScreen() {
         visible={listPickerVisible}
         onClose={() => setListPickerVisible(false)}
         activeListId={activeListId}
-        onActiveListChange={(listId) => {
-          setActiveListId(listId);
-          void fetchShoppingLists()
-            .then(setShoppingLists)
-            .catch(() => undefined);
-        }}
+        lists={shoppingLists}
+        onListsChange={handleShoppingListsChange}
+        onActiveListChange={handleActiveListChange}
       />
       <QuantityEditSheet
         item={quantityEditItem}

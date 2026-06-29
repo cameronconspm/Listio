@@ -34,16 +34,39 @@ export type HomeListDerivedModel = {
   sections: HomeSectionItem[];
 };
 
+/** Mode-independent list derivations with both Plan and Shop section orderings precomputed. */
+export type HomeListCoreDerived = Omit<
+  HomeListDerivedModel,
+  'orderedSections' | 'sections'
+> & {
+  planOrderedSections: HomeSectionItem[];
+  shopOrderedSections: HomeSectionItem[];
+  planSections: HomeSectionItem[];
+  shopSections: HomeSectionItem[];
+};
+
+function orderSectionsForShop(
+  rawSections: HomeSectionItem[],
+  zoneRemaining: Record<ZoneKey, number>
+): HomeSectionItem[] {
+  const active: HomeSectionItem[] = [];
+  const done: HomeSectionItem[] = [];
+  for (const section of rawSections) {
+    if ((zoneRemaining[section.zone] ?? 0) > 0) active.push(section);
+    else done.push(section);
+  }
+  return done.length > 0 ? active.concat(done) : active;
+}
+
 /**
  * Pure list/section derivations for the home list tab (Plan/Shop).
  * Items within each section are ordered alphabetically by display name.
  */
-export function deriveHomeListModel(
+export function deriveHomeListCore(
   safeItems: ListItem[],
   effectiveZoneOrder: ZoneKey[],
-  shoppingMode: 'plan' | 'shop',
   filterZone: ZoneKey | 'all'
-): HomeListDerivedModel {
+): HomeListCoreDerived {
   const grouped = Object.create(null) as GroupedItems;
   const zoneCounts = Object.create(null) as Record<ZoneKey, number>;
   const zoneRemaining = Object.create(null) as Record<ZoneKey, number>;
@@ -105,22 +128,14 @@ export function deriveHomeListModel(
     if (bucket.length > 0) rawSections.push({ zone, items: bucket });
   }
 
-  let orderedSections: HomeSectionItem[];
-  if (shoppingMode === 'shop') {
-    orderedSections = [];
-    const done: HomeSectionItem[] = [];
-    for (const s of rawSections) {
-      if ((zoneRemaining[s.zone] ?? 0) > 0) orderedSections.push(s);
-      else done.push(s);
-    }
-    if (done.length > 0) orderedSections = orderedSections.concat(done);
-  } else {
-    orderedSections = rawSections;
-  }
-
-  const sections: HomeSectionItem[] = isFiltered
-    ? orderedSections.filter((s) => s.zone === filterZone)
-    : orderedSections;
+  const planOrderedSections = rawSections;
+  const shopOrderedSections = orderSectionsForShop(rawSections, zoneRemaining);
+  const planSections = isFiltered
+    ? planOrderedSections.filter((s) => s.zone === filterZone)
+    : planOrderedSections;
+  const shopSections = isFiltered
+    ? shopOrderedSections.filter((s) => s.zone === filterZone)
+    : shopOrderedSections;
 
   return {
     grouped,
@@ -136,9 +151,51 @@ export function deriveHomeListModel(
     filteredZoneCount,
     filteredSectionsLeft,
     rawSections,
+    planOrderedSections,
+    shopOrderedSections,
+    planSections,
+    shopSections,
+  };
+}
+
+/** Pick Plan vs Shop section arrays from a precomputed core model (O(1) on mode toggle). */
+export function applyHomeListView(
+  core: HomeListCoreDerived,
+  shoppingMode: 'plan' | 'shop'
+): HomeListDerivedModel {
+  const orderedSections =
+    shoppingMode === 'shop' ? core.shopOrderedSections : core.planOrderedSections;
+  const sections = shoppingMode === 'shop' ? core.shopSections : core.planSections;
+  return {
+    grouped: core.grouped,
+    zoneCounts: core.zoneCounts,
+    remaining: core.remaining,
+    zoneRemaining: core.zoneRemaining,
+    sectionsLeft: core.sectionsLeft,
+    currentSection: core.currentSection,
+    nextSectionForSummary: core.nextSectionForSummary,
+    isFiltered: core.isFiltered,
+    filteredItems: core.filteredItems,
+    filteredRemaining: core.filteredRemaining,
+    filteredZoneCount: core.filteredZoneCount,
+    filteredSectionsLeft: core.filteredSectionsLeft,
+    rawSections: core.rawSections,
     orderedSections,
     sections,
   };
+}
+
+/** @deprecated Prefer `deriveHomeListCore` + `applyHomeListView` for mode toggles. */
+export function deriveHomeListModel(
+  safeItems: ListItem[],
+  effectiveZoneOrder: ZoneKey[],
+  shoppingMode: 'plan' | 'shop',
+  filterZone: ZoneKey | 'all'
+): HomeListDerivedModel {
+  return applyHomeListView(
+    deriveHomeListCore(safeItems, effectiveZoneOrder, filterZone),
+    shoppingMode
+  );
 }
 
 function sameItemReferences(a: ListItem[], b: ListItem[]): boolean {

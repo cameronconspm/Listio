@@ -57,6 +57,8 @@ export function NotificationsScreen() {
   const [mealMode, setMealMode] = useState<MealReminderMode>('planned_only');
   const [weeklyPreview, setWeeklyPreview] = useState(false);
   const [recipeSpotlight, setRecipeSpotlight] = useState(false);
+  const [householdInvites, setHouseholdInvites] = useState(true);
+  const [householdActivity, setHouseholdActivity] = useState(true);
 
   useEffect(() => {
     let mounted = true;
@@ -74,6 +76,8 @@ export function NotificationsScreen() {
         setMealMode(resolveMealReminderMode(n));
         setWeeklyPreview(n.weeklyPreview === true);
         setRecipeSpotlight(n.recipeSpotlight === true);
+        setHouseholdInvites(n.householdInvites !== false);
+        setHouseholdActivity(n.householdActivity !== false && n.sharedUpdates !== false);
       } catch {
         // keep default
       }
@@ -314,6 +318,27 @@ export function NotificationsScreen() {
                   onChangeBucket={onChangeBucket}
                 />
               ) : null}
+            </ListSection>
+
+            <ListSection title="Shared list" {...settingsRowListSectionProps}>
+              <SettingsToggleRow
+                title="List invites"
+                subtitle="When someone invites you to collaborate on a grocery list"
+                value={householdInvites}
+                onValueChange={(v) => {
+                  setHouseholdInvites(v);
+                  void patchNotif({ householdInvites: v });
+                }}
+              />
+              <SettingsToggleRow
+                title="Partner updates"
+                subtitle="When someone adds or changes items on a shared list"
+                value={householdActivity}
+                onValueChange={(v) => {
+                  setHouseholdActivity(v);
+                  void patchNotif({ householdActivity: v, sharedUpdates: v });
+                }}
+              />
             </ListSection>
           </>
         ) : null}

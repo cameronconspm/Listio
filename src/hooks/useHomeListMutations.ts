@@ -61,35 +61,38 @@ function listItemFromInsert(insert: ListItemInsert, id: string): ListItem {
  * path. Consumers derive items from `listQuery.data` and never keep a shadow
  * copy in local state.
  */
-export function useHomeListMutations() {
+export function useHomeListMutations(activeListId?: string | null) {
   const queryClient = useQueryClient();
+
+  const homeListKey = (userId: string) => {
+    if (!activeListId) return queryKeys.homeListAll(userId);
+    return queryKeys.homeList(userId, activeListId);
+  };
 
   const writeCache = (
     userId: string,
     updater: (prev: HomeListBundle) => HomeListBundle
   ) => {
-    queryClient.setQueryData<HomeListBundle>(
-      queryKeys.homeList(userId),
-      (prev) => (prev ? updater(prev) : prev)
+    queryClient.setQueryData<HomeListBundle>(homeListKey(userId), (prev) =>
+      prev ? updater(prev) : prev
     );
   };
 
   const cancelAndSnapshot = async (userId: string): Promise<MutationContext> => {
-    await queryClient.cancelQueries({ queryKey: queryKeys.homeList(userId) });
-    const previous = queryClient.getQueryData<HomeListBundle>(
-      queryKeys.homeList(userId)
-    );
+    const key = homeListKey(userId);
+    await queryClient.cancelQueries({ queryKey: key });
+    const previous = queryClient.getQueryData<HomeListBundle>(key);
     return { previous };
   };
 
   const rollback = (userId: string, ctx: MutationContext | undefined) => {
     if (ctx?.previous) {
-      queryClient.setQueryData(queryKeys.homeList(userId), ctx.previous);
+      queryClient.setQueryData(homeListKey(userId), ctx.previous);
     }
   };
 
   const invalidateList = (userId: string) => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.homeList(userId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.homeListAll(userId) });
   };
 
   const insertItems = useMutation<
@@ -122,7 +125,7 @@ export function useHomeListMutations() {
     onSuccess: (inserted, { userId, items }, ctx) => {
       if (inserted.length === 0) return;
       notifyMeaningfulListOrRecipeAction();
-      const bundle = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList(userId));
+      const bundle = queryClient.getQueryData<HomeListBundle>(homeListKey(userId));
       const count = bundle?.listItems.length ?? inserted.length;
       void notifyFreeTierNearLimitIfNeeded('list', count);
       const optimisticIds = ctx?.optimisticIds ?? [];
@@ -169,7 +172,6 @@ export function useHomeListMutations() {
       return ctx;
     },
     onError: (_e, { userId }, ctx) => rollback(userId, ctx),
-    onSettled: (_d, _e, { userId }) => invalidateList(userId),
   });
 
   const toggleItem = useMutation<
@@ -208,7 +210,6 @@ export function useHomeListMutations() {
       return ctx;
     },
     onError: (_e, { userId }, ctx) => rollback(userId, ctx),
-    onSettled: (_d, _e, { userId }) => invalidateList(userId),
   });
 
   const removeAllItems = useMutation<
@@ -224,7 +225,6 @@ export function useHomeListMutations() {
       return ctx;
     },
     onError: (_e, { userId }, ctx) => rollback(userId, ctx),
-    onSettled: (_d, _e, { userId }) => invalidateList(userId),
   });
 
   const removeZoneItems = useMutation<
@@ -243,7 +243,6 @@ export function useHomeListMutations() {
       return ctx;
     },
     onError: (_e, { userId }, ctx) => rollback(userId, ctx),
-    onSettled: (_d, _e, { userId }) => invalidateList(userId),
   });
 
   const removeCheckedItems = useMutation<
@@ -262,7 +261,6 @@ export function useHomeListMutations() {
       return ctx;
     },
     onError: (_e, { userId }, ctx) => rollback(userId, ctx),
-    onSettled: (_d, _e, { userId }) => invalidateList(userId),
   });
 
   const checkAllZone = useMutation<
@@ -283,7 +281,6 @@ export function useHomeListMutations() {
       return ctx;
     },
     onError: (_e, { userId }, ctx) => rollback(userId, ctx),
-    onSettled: (_d, _e, { userId }) => invalidateList(userId),
   });
 
   return {

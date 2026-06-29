@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
   Platform,
 } from 'react-native';
-import Animated, { FadeIn, FadeOut, ZoomIn, useReducedMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeOut, useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
 import { backdropTiming, motionMs } from '../../ui/motion/presets';
@@ -161,10 +161,7 @@ export function ShopRunCompleteOverlay({
 
   const cardEntering = rm
     ? FadeIn.duration(220)
-    : ZoomIn.springify().damping(17).stiffness(200).mass(0.85);
-  const badgeEntering = rm
-    ? FadeIn.duration(240)
-    : ZoomIn.springify().damping(13).stiffness(170).mass(0.9).delay(60);
+    : FadeInDown.springify().damping(20).stiffness(180).mass(0.9);
   const backdropEntering = FadeIn.duration(backdropTiming(rm).duration ?? 220);
   const backdropExiting = FadeOut.duration(motionMs(180, rm));
 
@@ -208,9 +205,12 @@ export function ShopRunCompleteOverlay({
         </Animated.View>
         <Animated.View entering={cardEntering} style={styles.card}>
           <View style={styles.heroWrap}>
-            <Animated.View entering={badgeEntering}>
-              <Mascot mood="celebrate" size={116} accessibilityLabel="Listio mascot celebrating" />
-            </Animated.View>
+            <Mascot
+              mood="celebrate"
+              size={116}
+              skipEntrance
+              accessibilityLabel="Listio mascot celebrating"
+            />
           </View>
           <Text style={styles.title}>{"That's the whole list!"}</Text>
           {(runLabel || showStreak) ? (

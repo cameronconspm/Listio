@@ -6,20 +6,34 @@ import { useTheme } from '../../design/ThemeContext';
 import { listTabSwitcherHeaderHeight } from '../../design/layout';
 import { NavigationChromeSurface } from '../../ui/chrome/NavigationChromeSurface';
 import { PressableScale } from '../ui/PressableScale';
+import { Mascot, type MascotMood } from '../brand/Mascot';
+
+/** Fits the 44pt header row beside the list switcher without crowding the title. */
+export const LIST_TAB_HEADER_MASCOT_SIZE = 38;
 
 type ListSwitcher = {
   name: string;
   onPress: () => void;
 };
 
+type ListTabMascot = {
+  mood: MascotMood;
+  accessibilityLabel: string;
+};
+
 type ListScreenHeaderProps = {
-  listSwitcher: ListSwitcher;
-  /** While reordering sections, switcher is hidden. */
+  listSwitcher?: ListSwitcher | null;
+  mascot?: ListTabMascot | null;
+  /** While reordering sections, header chrome is hidden. */
   reorderMode?: boolean;
 };
 
-/** List tab header chrome — multi-list switcher only. Plan/Shop lives in `ListModeToggleBar`. */
-export function ListScreenHeader({ listSwitcher, reorderMode = false }: ListScreenHeaderProps) {
+/** List tab header — list switcher (left) and mascot (right). Plan/Shop lives in `ListModeToggleBar`. */
+export function ListScreenHeader({
+  listSwitcher = null,
+  mascot = null,
+  reorderMode = false,
+}: ListScreenHeaderProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -33,13 +47,21 @@ export function ListScreenHeader({ listSwitcher, reorderMode = false }: ListScre
           paddingTop: insets.top,
           paddingBottom: theme.spacing.xs,
         },
+        headerRow: {
+          minHeight: 44,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: theme.spacing.sm,
+        },
         listSwitcherRow: {
           minHeight: 44,
           flexDirection: 'row',
           alignItems: 'center',
           gap: theme.spacing.xs,
-          alignSelf: 'flex-start',
-          maxWidth: '100%',
+          flexShrink: 1,
+          minWidth: 0,
+          maxWidth: '72%',
         },
         listSwitcherTitle: {
           flexDirection: 'row',
@@ -51,38 +73,62 @@ export function ListScreenHeader({ listSwitcher, reorderMode = false }: ListScre
         listSwitcherName: {
           flexShrink: 1,
         },
+        mascotSlot: {
+          flexShrink: 0,
+          overflow: 'visible',
+          alignItems: 'flex-end',
+          justifyContent: 'center',
+        },
       }),
     [insets.top, theme]
   );
 
   if (reorderMode) return null;
+  if (!listSwitcher && !mascot) return null;
 
   return (
     <NavigationChromeSurface tabKey="ListTab">
       <View style={styles.safe}>
-        <PressableScale
-          onPress={listSwitcher.onPress}
-          pressedOpacity={0.94}
-          style={styles.listSwitcherRow}
-          accessibilityRole="button"
-          accessibilityLabel={`Switch list, ${listSwitcher.name}`}
-          accessibilityHint="Opens your lists so you can switch to another list"
-        >
-          <Ionicons name="albums-outline" size={18} color={theme.accent} />
-          <View style={styles.listSwitcherTitle}>
-            <Text
-              style={[
-                theme.typography.subhead,
-                styles.listSwitcherName,
-                { color: theme.textPrimary, fontWeight: '600' },
-              ]}
-              numberOfLines={1}
+        <View style={styles.headerRow}>
+          {listSwitcher ? (
+            <PressableScale
+              onPress={listSwitcher.onPress}
+              pressedOpacity={0.94}
+              style={styles.listSwitcherRow}
+              accessibilityRole="button"
+              accessibilityLabel={`Switch list, ${listSwitcher.name}`}
+              accessibilityHint="Opens your lists so you can switch to another list"
             >
-              {listSwitcher.name}
-            </Text>
-            <Ionicons name="chevron-down" size={14} color={theme.textSecondary} />
-          </View>
-        </PressableScale>
+              <Ionicons name="albums-outline" size={18} color={theme.accent} />
+              <View style={styles.listSwitcherTitle}>
+                <Text
+                  style={[
+                    theme.typography.subhead,
+                    styles.listSwitcherName,
+                    { color: theme.textPrimary, fontWeight: '600' },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {listSwitcher.name}
+                </Text>
+                <Ionicons name="chevron-down" size={14} color={theme.textSecondary} />
+              </View>
+            </PressableScale>
+          ) : (
+            <View style={styles.listSwitcherRow} />
+          )}
+          {mascot ? (
+            <View style={styles.mascotSlot} pointerEvents="none">
+              <Mascot
+                mood={mascot.mood}
+                size={LIST_TAB_HEADER_MASCOT_SIZE}
+                animate
+                skipEntrance
+                accessibilityLabel={mascot.accessibilityLabel}
+              />
+            </View>
+          ) : null}
+        </View>
       </View>
     </NavigationChromeSurface>
   );

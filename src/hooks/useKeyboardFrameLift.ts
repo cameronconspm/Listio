@@ -6,6 +6,9 @@ import { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 /** Gap (pt) between the quick bar and the tab bar / keyboard top. */
 export const COMPOSER_KEYBOARD_EDGE_GAP = 6;
 
+/** Progress above this → pin the bar to live keyboard height (keyboard clearly open). */
+const KEYBOARD_OPEN_PROGRESS = 0.5;
+
 type UseKeyboardFrameLiftOptions = {
   tabBarHeight: number;
   restingBottomOffset?: number;
@@ -15,8 +18,32 @@ type UseKeyboardFrameLiftOptions = {
 };
 
 /**
- * Pure math used by tests and by callers that need a synchronous read of where the bar should
- * sit given the latest keyboard height.
+ * Resolves sticky quick-bar `bottom` inset from keyboard height + progress.
+ *
+ * While the keyboard is open (`progress > 0.5`), the bar tracks keyboard height exactly.
+ * While closing, `Math.max(keyboard, tabBar resting)` prevents a late snap when height
+ * lingers near zero but the tab bar is returning — the common source of drift after many
+ * open/close cycles with a hard `height > 0.5` threshold.
+ */
+export function resolveStickyQuickBarBottomInset(
+  keyboardHeight: number,
+  tabBarHeight: number,
+  keyboardProgress: number,
+  edgeGap = COMPOSER_KEYBOARD_EDGE_GAP,
+  extraLift = 0
+): number {
+  'worklet';
+  const kb = Math.max(0, keyboardHeight);
+  const restingBottom = tabBarHeight + edgeGap + extraLift;
+  const keyboardPinnedBottom = kb + edgeGap + extraLift;
+  return keyboardProgress > KEYBOARD_OPEN_PROGRESS
+    ? keyboardPinnedBottom
+    : Math.max(keyboardPinnedBottom, restingBottom);
+}
+
+/**
+ * @deprecated Prefer {@link resolveStickyQuickBarBottomInset} with explicit progress.
+ * Assumes keyboard is fully open when height > 0 and fully closed when height is 0.
  */
 export function getStickyQuickBarBottomInset(
   keyboardHeight: number,
@@ -24,25 +51,18 @@ export function getStickyQuickBarBottomInset(
   edgeGap = COMPOSER_KEYBOARD_EDGE_GAP,
   extraLift = 0
 ): number {
-  if (keyboardHeight > 0) {
-    return keyboardHeight + edgeGap + extraLift;
-  }
-  return tabBarHeight + edgeGap + extraLift;
+  const progress = keyboardHeight > 0 ? 1 : 0;
+  return resolveStickyQuickBarBottomInset(
+    keyboardHeight,
+    tabBarHeight,
+    progress,
+    edgeGap,
+    extraLift
+  );
 }
 
 /**
- * Sticky quick bar: `bottom = keyboardHeight + 6` while the keyboard is up, `tabBarHeight + 6`
- * at rest.
- *
- * Driven by `react-native-keyboard-controller` so keyboard height is observed natively on every
- * `keyboardWillChangeFrame` callback and written to a Reanimated shared value on the UI thread.
- * This means the bar follows Apple's actual private spring curve frame-by-frame — including
- * during interactive (drag-down) dismissal — instead of approximating it with a JS-thread
- * `withTiming` against a cubic bezier (which can never see per-frame keyboard position and
- * always desyncs during interactive dismissal).
- *
- * Reanimated's own `useAnimatedKeyboard` is deprecated in v4 and the official guidance is to
- * use `react-native-keyboard-controller`; see <https://docs.swmansion.com/react-native-reanimated/docs/device/useAnimatedKeyboard/#migration-guide>.
+ * Sticky quick bar: tracks keyboard height on the UI thread via `react-native-keyboard-controller`.
  */
 export function useKeyboardFrameLift({
   tabBarHeight: tabBarHeightProp,
@@ -54,7 +74,7 @@ export function useKeyboardFrameLift({
   const tabBarHeight =
     tabBarHeightProp ?? (restingBottomOffset != null ? restingBottomOffset - edgeGap : 0);
 
-  const { height: kbTranslateY } = useReanimatedKeyboardAnimation();
+  const { height: kbTranslateY, progress } = useReanimatedKeyboardAnimation();
 
   const tabBarHeightSV = useSharedValue(tabBarHeight);
   const edgeGapSV = useSharedValue(edgeGap);
@@ -76,18 +96,20 @@ export function useKeyboardFrameLift({
 
   useEffect(() => {
     const sub = Keyboard.addListener('keyboardDidHide', () => {
-      requestAnimationFrame(() => onKeyboardHiddenRef.current?.());
+      onKeyboardHiddenRef.current?.();
     });
     return () => sub.remove();
   }, []);
 
   return useAnimatedStyle(() => {
-    // `useReanimatedKeyboardAnimation().height` is negative (translateY-style); flip for absolute px.
-    const kb = -kbTranslateY.value;
-    const gap = edgeGapSV.value;
-    const tabBar = tabBarHeightSV.value;
-    const lift = extraLiftSV.value;
-    const bottom = kb > 0.5 ? kb + gap + lift : tabBar + gap + lift;
+    const kb = Math.max(0, -kbTranslateY.value);
+    const bottom = resolveStickyQuickBarBottomInset(
+      kb,
+      tabBarHeightSV.value,
+      progress.value,
+      edgeGapSV.value,
+      extraLiftSV.value
+    );
 
     return {
       position: 'absolute',

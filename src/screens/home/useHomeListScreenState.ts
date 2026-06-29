@@ -1,16 +1,20 @@
-import React, { useEffect, useMemo, useRef } from 'react';
-import { useQuery, useQueryClient, useIsRestoring, keepPreviousData } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef } from 'react';
+import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query';
 import {
-  deriveHomeListModel,
+  applyHomeListView,
+  deriveHomeListCore,
   shareHomeListDerivedModel,
   safeZoneOrderOrDefault,
+  type HomeListDerivedModel,
 } from './homeScreenListDerived';
 import { fetchHomeListBundle, HOME_LIST_STALE_MS } from '../../query/homeListBundle';
+import {
+  fetchLinkedMealLabelsBundle,
+  labelsMapFromBundle,
+} from '../../query/linkedMealLabelsBundle';
 import { queryKeys } from '../../query/keys';
 import { prefetchRecipesAndDefaultMealsRange } from '../../query/prefetchAdjacentTabs';
 import { useHomeListMutations } from '../../hooks/useHomeListMutations';
-import { getMealsByIds } from '../../services/mealService';
-import { linkedMealRowMeta, type LinkedMealRowMeta } from '../../utils/mealLabel';
 import { seedCategoryCacheFromListItems } from '../../services/aiCategoryCache';
 import { notifyListItemsForMilestones } from '../../firstLaunchTour/milestoneUnlockFlow';
 import { time } from '../../utils/perf';
@@ -20,11 +24,12 @@ const EMPTY_ITEMS: ListItem[] = [];
 
 export type UseHomeListScreenStateParams = {
   userId: string | null | undefined;
+  /** Active shopping list id — included in the React Query cache key for instant switches. */
+  activeListId: string | null;
   shoppingMode: 'plan' | 'shop';
   filterZone: ZoneKey | 'all';
   zoneOrder: ZoneKey[];
   sessionZoneOrder: ZoneKey[] | null;
-  setLinkedMealLabels: React.Dispatch<React.SetStateAction<Map<string, LinkedMealRowMeta>>>;
 };
 
 /**
@@ -32,29 +37,38 @@ export type UseHomeListScreenStateParams = {
  */
 export function useHomeListScreenState({
   userId,
+  activeListId,
   shoppingMode,
   filterZone,
   zoneOrder,
   sessionZoneOrder,
-  setLinkedMealLabels,
 }: UseHomeListScreenStateParams) {
   const queryClient = useQueryClient();
   const isRestoringCache = useIsRestoring();
-  const previousDerivedRef = useRef<ReturnType<typeof deriveHomeListModel> | null>(null);
+  const previousDerivedRef = useRef<HomeListDerivedModel | null>(null);
   const prefetchedForUserRef = useRef<string | null>(null);
 
+  const listQueryKey =
+    typeof userId === 'string' && userId.length > 0 && activeListId
+      ? queryKeys.homeList(userId, activeListId)
+      : null;
+
   const listQuery = useQuery({
-    queryKey: queryKeys.homeList(userId ?? ''),
-    queryFn: () => fetchHomeListBundle(userId!, queryClient),
-    enabled: typeof userId === 'string' && userId.length > 0,
+    queryKey: listQueryKey ?? queryKeys.homeList('', 'pending'),
+    queryFn: () => fetchHomeListBundle(userId!, queryClient, activeListId!),
+    enabled: listQueryKey != null,
     staleTime: HOME_LIST_STALE_MS,
-    placeholderData: keepPreviousData,
   });
+
+  const mutations = useHomeListMutations(activeListId);
 
   const userReady = typeof userId === 'string' && userId.length > 0;
   const listAwaitingFirstPayload =
-    userReady && listQuery.data === undefined && (listQuery.isPending || isRestoringCache);
-  const listBlocking = userId === undefined || listAwaitingFirstPayload;
+    userReady &&
+    activeListId != null &&
+    listQuery.data === undefined &&
+    (listQuery.isPending || isRestoringCache);
+  const listBlocking = userId === undefined || activeListId == null || listAwaitingFirstPayload;
 
   useEffect(() => {
     if (typeof userId !== 'string' || !userId || !listQuery.isSuccess) return;
@@ -62,8 +76,6 @@ export function useHomeListScreenState({
     prefetchedForUserRef.current = userId;
     prefetchRecipesAndDefaultMealsRange(userId, queryClient);
   }, [userId, listQuery.isSuccess, queryClient]);
-
-  const mutations = useHomeListMutations();
 
   const items = (listQuery.data?.listItems ?? EMPTY_ITEMS) as ListItem[];
   const store: StoreProfile | null = listQuery.data?.store ?? null;
@@ -103,25 +115,25 @@ export function useHomeListScreenState({
     return Array.from(ids).sort().join(',');
   }, [listQuery.data?.listItems]);
 
-  useEffect(() => {
-    if (!linkedMealIdsSignature) {
-      setLinkedMealLabels((prev) => (prev.size === 0 ? prev : new Map()));
-      return;
-    }
-    const mealIds = linkedMealIdsSignature.split(',');
-    let cancelled = false;
-    void getMealsByIds(mealIds).then((meals) => {
-      if (cancelled) return;
-      const map = new Map<string, LinkedMealRowMeta>();
-      for (const m of meals) {
-        map.set(m.id, linkedMealRowMeta(m));
-      }
-      setLinkedMealLabels(map);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [linkedMealIdsSignature, setLinkedMealLabels]);
+  const linkedMealLabelsQueryKey =
+    typeof userId === 'string' &&
+    userId.length > 0 &&
+    activeListId &&
+    linkedMealIdsSignature.length > 0
+      ? queryKeys.linkedMealLabels(userId, activeListId, linkedMealIdsSignature)
+      : null;
+
+  const linkedMealLabelsQuery = useQuery({
+    queryKey: linkedMealLabelsQueryKey ?? queryKeys.linkedMealLabels('', 'pending', ''),
+    queryFn: () => fetchLinkedMealLabelsBundle(linkedMealIdsSignature.split(',')),
+    enabled: linkedMealLabelsQueryKey != null,
+    staleTime: HOME_LIST_STALE_MS,
+  });
+
+  const linkedMealLabels = useMemo(
+    () => labelsMapFromBundle(linkedMealLabelsQuery.data),
+    [linkedMealLabelsQuery.data]
+  );
 
   const safeZoneOrder = useMemo(() => safeZoneOrderOrDefault(zoneOrder), [zoneOrder]);
   const effectiveZoneOrder = useMemo(
@@ -129,14 +141,20 @@ export function useHomeListScreenState({
     [sessionZoneOrder, safeZoneOrder]
   );
 
+  const coreDerived = useMemo(
+    () =>
+      time('deriveHomeListCore', () =>
+        deriveHomeListCore(items, effectiveZoneOrder, filterZone)
+      ),
+    [items, effectiveZoneOrder, filterZone]
+  );
+
   const derived = useMemo(() => {
-    const next = time('deriveHomeListModel', () =>
-      deriveHomeListModel(items, effectiveZoneOrder, shoppingMode, filterZone)
-    );
+    const next = applyHomeListView(coreDerived, shoppingMode);
     const shared = shareHomeListDerivedModel(previousDerivedRef.current, next);
     previousDerivedRef.current = shared;
     return shared;
-  }, [items, effectiveZoneOrder, shoppingMode, filterZone]);
+  }, [coreDerived, shoppingMode]);
 
   useEffect(() => {
     notifyListItemsForMilestones(items);
@@ -154,6 +172,7 @@ export function useHomeListScreenState({
     safeZoneOrder,
     sections: derived.sections,
     derived,
+    linkedMealLabels,
     ...mutations,
   };
 }

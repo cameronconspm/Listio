@@ -23,7 +23,7 @@ export function useListRealtimeSync(userId: string | null | undefined): void {
     const invalidate = () => {
       if (debounceId) clearTimeout(debounceId);
       debounceId = setTimeout(() => {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.homeList(userId) });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.homeListAll(userId) });
       }, 300);
     };
 

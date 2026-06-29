@@ -40,6 +40,8 @@ type ListItemRowProps = {
   linkedMealAccessibilityLabel?: string;
   /** When provided, tapping the quantity chip opens inline quantity editing. */
   onTapQuantity?: (item: ListItem) => void;
+  /** Skip row insert fade on the list tab's first paint (avoids pills/rows "settling in"). */
+  skipEnterAnimation?: boolean;
 };
 
 function ListItemRowInner({
@@ -53,6 +55,7 @@ function ListItemRowInner({
   linkedMealLabel,
   linkedMealAccessibilityLabel,
   onTapQuantity,
+  skipEnterAnimation = false,
 }: ListItemRowProps) {
   if (__DEV__) markRender('ListItemRow');
   const theme = useTheme();
@@ -156,7 +159,7 @@ function ListItemRowInner({
 
   return (
     <Animated.View
-      entering={reduceMotion ? undefined : rowInsertPreset(reduceMotion)}
+      entering={reduceMotion || skipEnterAnimation ? undefined : rowInsertPreset(reduceMotion)}
       exiting={reduceMotion ? undefined : rowRemovePreset(reduceMotion)}
       layout={reduceMotion ? undefined : itemLayoutTransition}
       style={styles.swipeableWrapper}

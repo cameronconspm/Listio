@@ -3,6 +3,8 @@ import { clearAllLocalData } from './localDataService';
 import { mapDbErrorToUserMessage } from '../utils/mapDbError';
 import { clearAllRecentItems } from './recentItemsStore';
 import { clearCategoryCache } from './aiCategoryCache';
+import { clearSuggestionIndex } from './suggestionIndexStore';
+import { clearSuggestItemsCache } from './suggestItemsService';
 
 /**
  * Deletes all list items, meals, recipes, and store profiles for a user on Supabase.
@@ -31,6 +33,8 @@ export async function deleteUserSyncedContent(userId: string): Promise<void> {
 export async function deleteAllAppDataPreservingAccount(): Promise<void> {
   await clearAllRecentItems();
   await clearCategoryCache();
+  await clearSuggestionIndex();
+  await clearSuggestItemsCache();
   if (!isSyncEnabled()) {
     await clearAllLocalData();
     return;

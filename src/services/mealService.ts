@@ -1,5 +1,6 @@
 import { supabase, isSyncEnabled } from './supabaseClient';
 import { resolveDataScopeId } from './syncInsertScope';
+import { resolveHouseholdContentFilter } from './householdShareSettings';
 import { fetchListItems, insertListItems } from './listService';
 import * as local from './localDataService';
 import { normalize } from '../utils/normalize';
@@ -10,11 +11,10 @@ import type { Meal, MealIngredient, MealSlot, RecipeCategory, ZoneKey } from '..
 
 export async function getMeals(userId: string): Promise<Meal[]> {
   if (!isSyncEnabled()) return local.getMeals(userId);
-  const { data, error } = await supabase
-    .from('meals')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+  const { householdId, restrictToUserId } = await resolveHouseholdContentFilter(userId, 'meals');
+  let query = supabase.from('meals').select('*').eq('household_id', householdId);
+  if (restrictToUserId) query = query.eq('user_id', restrictToUserId);
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   throwOnSupabaseFetchError(error, 'Could not load meals.');
   return (data ?? []).map(mapMeal);
@@ -66,12 +66,15 @@ export async function getMealsByDateRange(
   endDate: string
 ): Promise<Meal[]> {
   if (!isSyncEnabled()) return local.getMealsByDateRange(userId, startDate, endDate);
-  const { data, error } = await supabase
+  const { householdId, restrictToUserId } = await resolveHouseholdContentFilter(userId, 'meals');
+  let query = supabase
     .from('meals')
     .select('*')
-    .eq('user_id', userId)
+    .eq('household_id', householdId)
     .gte('meal_date', startDate)
-    .lte('meal_date', endDate)
+    .lte('meal_date', endDate);
+  if (restrictToUserId) query = query.eq('user_id', restrictToUserId);
+  const { data, error } = await query
     .order('meal_date', { ascending: true })
     .order('created_at', { ascending: true });
 

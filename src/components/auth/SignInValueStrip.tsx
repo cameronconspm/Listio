@@ -1,20 +1,24 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../design/ThemeContext';
-import { spacing } from '../../design/spacing';
+
 const ITEMS = [
   { icon: 'list' as const, label: 'List' },
   { icon: 'restaurant-outline' as const, label: 'Meals' },
   { icon: 'book-outline' as const, label: 'Recipes' },
 ];
 
+type SignInValueStripProps = {
+  style?: StyleProp<ViewStyle>;
+};
+
 /** Compact sign-in context—distinct from onboarding’s stacked preview cards. */
-export function SignInValueStrip() {
+export function SignInValueStrip({ style }: SignInValueStripProps) {
   const theme = useTheme();
 
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, { paddingVertical: theme.spacing.sm }, style]}>
       {ITEMS.map(({ icon, label }) => (
         <View
           key={label}
@@ -46,8 +50,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: 0,
   },
   cell: {
     flex: 1,

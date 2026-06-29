@@ -114,7 +114,11 @@ export type UserPreferencesPayload = {
     shoppingTimeBucket?: 'morning' | 'midday' | 'evening';
     /** When true and `shoppingWeekdays` is non-empty, use weekly prep + day-of schedules instead of daily shopping time. */
     usePersonalizedShoppingReminders?: boolean;
-    /** Lightweight counters for frequency caps (non-transactional nudges per ISO week). */
+    /** Push when someone invites you to a shared grocery list. Default on when unset. */
+    householdInvites?: boolean;
+    /** Push when a household partner updates the shared list. */
+    householdActivity?: boolean;
+    sharedUpdates?: boolean;
     notificationAnalytics?: {
       lastPermissionPromptAt?: string;
       lastOpenedFromNotificationAt?: string;

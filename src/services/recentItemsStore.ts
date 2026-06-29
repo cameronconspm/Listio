@@ -68,6 +68,15 @@ export async function recordItemAdded(
   const filtered = list.filter((i) => i.normalized_name !== normalizedName);
   const updated = [entry, ...filtered].slice(0, MAX_ITEMS);
   await saveRecent(updated);
+  const { patchSuggestionIndex } = await import('./suggestionIndexStore');
+  patchSuggestionIndex([
+    {
+      display_name: displayName,
+      normalized_name: normalizedName,
+      source: 'recent',
+      last_used_at: now,
+    },
+  ]);
 }
 
 /**

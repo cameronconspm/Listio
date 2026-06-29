@@ -1,12 +1,13 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { StyleSheet, ScrollView, ActivityIndicator, Alert, Linking, Modal, Platform, View, Text } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { SettingsStackParamList } from '../../navigation/types';
 import { useTheme } from '../../design/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 import { tabRootScrollPaddingTop } from '../../design/layout';
 import { Screen } from '../../components/ui/Screen';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -21,6 +22,7 @@ import { deleteAllAppDataPreservingAccount } from '../../services/deleteUserAppD
 import { useInvalidateHomeList } from '../../hooks/useInvalidateHomeList';
 import { leaveSettingsHub } from '../../navigation/settingsHubNavigation';
 import { queryKeys } from '../../query/keys';
+import { prefetchShareList } from '../../query/shareListBundle';
 import { clearPersistedQueryCache } from '../../query/reactQueryPersistence';
 import {
   getRevenueCatIosApiKey,
@@ -29,7 +31,6 @@ import {
   presentAppleSubscriptionManagement,
 } from '../../services/purchasesService';
 import { restorePurchasesWithUserFeedback } from '../../services/restorePurchasesFlow';
-import { resolveAuthAccountEmail } from '../../constants/officialTestAccount';
 import { shouldShowQaSettingsTools } from '../../constants/qaSettingsTools';
 import { WelcomeIntroScreen } from '../auth/WelcomeIntroScreen';
 import { getPerfSnapshot, resetPerfSnapshot } from '../../utils/perf';
@@ -51,6 +52,7 @@ const Chevron = () => {
 
 export function SettingsScreen() {
   const theme = useTheme();
+  const { userId, userEmail, isAuthReady } = useAuth();
   const queryClient = useQueryClient();
   const invalidateHomeList = useInvalidateHomeList();
   const onScroll = useSettingsScrollHandler();
@@ -63,24 +65,32 @@ export function SettingsScreen() {
   const [loadingDemo, setLoadingDemo] = useState(false);
   const [demoError, setDemoError] = useState<string | null>(null);
   const [showDeleteDataConfirm, setShowDeleteDataConfirm] = useState(false);
-  const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [paywallBusy, setPaywallBusy] = useState(false);
   const [introPreviewVisible, setIntroPreviewVisible] = useState(false);
 
-  const showQaSettingsTools = shouldShowQaSettingsTools(accountEmail);
+  const showQaSettingsTools = shouldShowQaSettingsTools(userEmail);
   const { previewReviewPrompt } = useAppReview();
+
+  useFocusEffect(
+    useCallback(() => {
+      if (typeof userId === 'string' && userId.length > 0) {
+        prefetchShareList(userId, queryClient);
+      }
+    }, [userId, queryClient])
+  );
 
   const headerChrome = (
     <SettingsHubHeader searchQuery={searchQuery} onSearchChange={setSearchQuery} />
   );
 
-  const profileSubtitle =
-    !isSyncEnabled()
-      ? 'Sign in to use your account'
-      : accountEmail
-        ? accountEmail
-        : 'Loading…';
+  const profileSubtitle = useMemo(() => {
+    if (!isSyncEnabled()) return 'Sign in to use your account';
+    if (userEmail) return userEmail;
+    if (!isAuthReady) return undefined;
+    if (userId) return undefined;
+    return 'Sign in to use your account';
+  }, [userEmail, isAuthReady, userId]);
 
   const hubVisibility = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -255,29 +265,6 @@ export function SettingsScreen() {
     void Linking.openURL(url).catch(() => {
       Alert.alert('Email not available', `Send a message to ${FEEDBACK_EMAIL} from your email app.`);
     });
-  }, []);
-
-  const loadAccountEmail = useCallback(async () => {
-    if (!isSyncEnabled()) {
-      setAccountEmail(null);
-      return;
-    }
-    const { data } = await supabase.auth.getUser();
-    setAccountEmail(resolveAuthAccountEmail(data.user));
-  }, []);
-
-  useEffect(() => {
-    void loadAccountEmail();
-  }, [loadAccountEmail]);
-
-  useEffect(() => {
-    if (!isSyncEnabled()) return;
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAccountEmail(resolveAuthAccountEmail(session?.user));
-    });
-    return () => subscription.unsubscribe();
   }, []);
 
   const handleLogout = async () => {

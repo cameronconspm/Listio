@@ -79,6 +79,8 @@ const serverInserted: ListItem = {
   updated_at: '2020-01-02T00:00:00.000Z',
 };
 
+const TEST_LIST_ID = 'list-1';
+
 describe('useHomeListMutations insertItems optimistic', () => {
   const insertSpy = jest.spyOn(listService, 'insertListItems');
 
@@ -107,12 +109,12 @@ describe('useHomeListMutations insertItems optimistic', () => {
       stores: [],
       store: null,
     };
-    queryClient.setQueryData(queryKeys.homeList('u1'), initialBundle);
+    queryClient.setQueryData(queryKeys.homeList('u1', TEST_LIST_ID), initialBundle);
 
     const apiRef: { current: ReturnType<typeof useHomeListMutations> | null } = { current: null };
 
     function Harness() {
-      const api = useHomeListMutations();
+      const api = useHomeListMutations(TEST_LIST_ID);
       apiRef.current = api;
       return null;
     }
@@ -148,7 +150,7 @@ describe('useHomeListMutations insertItems optimistic', () => {
       await Promise.resolve();
     });
 
-    const mid = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList('u1'));
+    const mid = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList('u1', TEST_LIST_ID));
     expect(mid?.listItems.length).toBe(2);
     const pending = mid!.listItems.find((i) => i.name === 'Eggs');
     expect(pending).toBeDefined();
@@ -160,7 +162,7 @@ describe('useHomeListMutations insertItems optimistic', () => {
       await Promise.resolve();
     });
 
-    const final = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList('u1'));
+    const final = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList('u1', TEST_LIST_ID));
     expect(final?.listItems.map((i) => i.id)).toEqual([existing.id, serverInserted.id]);
     expect(final?.listItems.every((i) => !isPendingListItemId(i.id))).toBe(true);
   });
@@ -182,12 +184,12 @@ describe('useHomeListMutations insertItems optimistic', () => {
       stores: [],
       store: null,
     };
-    queryClient.setQueryData(queryKeys.homeList('u1'), initialBundle);
+    queryClient.setQueryData(queryKeys.homeList('u1', TEST_LIST_ID), initialBundle);
 
     const apiRef: { current: ReturnType<typeof useHomeListMutations> | null } = { current: null };
 
     function Harness() {
-      const api = useHomeListMutations();
+      const api = useHomeListMutations(TEST_LIST_ID);
       apiRef.current = api;
       return null;
     }
@@ -245,12 +247,12 @@ describe('useHomeListMutations insertItems optimistic', () => {
       stores: [],
       store: null,
     };
-    queryClient.setQueryData(queryKeys.homeList('u1'), initialBundle);
+    queryClient.setQueryData(queryKeys.homeList('u1', TEST_LIST_ID), initialBundle);
 
     const apiRef: { current: ReturnType<typeof useHomeListMutations> | null } = { current: null };
 
     function Harness() {
-      const api = useHomeListMutations();
+      const api = useHomeListMutations(TEST_LIST_ID);
       apiRef.current = api;
       return null;
     }
@@ -287,7 +289,7 @@ describe('useHomeListMutations insertItems optimistic', () => {
       })
     ).rejects.toThrow('network');
 
-    const after = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList('u1'));
+    const after = queryClient.getQueryData<HomeListBundle>(queryKeys.homeList('u1', TEST_LIST_ID));
     expect(after?.listItems).toEqual([existing]);
   });
 });

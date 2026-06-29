@@ -9,7 +9,14 @@ import { Button } from '../../components/ui/Button';
 import { TextField } from '../../components/ui/TextField';
 import { KeyboardSafeForm } from '../../components/ui/KeyboardSafeForm';
 import { supabase } from '../../services/supabaseClient';
-import { spacing } from '../../design/spacing';
+import {
+  AUTH_HERO_TO_CARD_GAP,
+  authCardStyle,
+  authFieldContainerStyle,
+  authFieldBeforeLinkStyle,
+  authFooterLinkStyle,
+} from '../../design/authLayout';
+import { AuthProviderStack } from '../../components/auth/AuthProviderStack';
 import { AppleSignInButton } from '../../components/auth/AppleSignInButton';
 import { signInWithApple } from '../../services/appleSignInService';
 import { logFunnelEvent } from '../../services/funnelAnalyticsService';
@@ -78,24 +85,31 @@ export function SignupScreen(_props: Props) {
   return (
     <KeyboardSafeForm style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.xl }]}
+        contentContainerStyle={[
+          styles.scroll,
+          {
+            paddingTop: insets.top + theme.spacing.lg,
+            paddingHorizontal: theme.spacing.lg,
+            paddingBottom: insets.bottom + theme.spacing.xl,
+          },
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         <Text style={[theme.typography.largeTitle, { color: theme.textPrimary, marginBottom: theme.spacing.lg }]}>
           Create account
         </Text>
-        <Text style={[theme.typography.body, { color: theme.textSecondary, marginBottom: theme.spacing.xl }]}>
+        <Text style={[theme.typography.body, { color: theme.textSecondary, marginBottom: AUTH_HERO_TO_CARD_GAP }]}>
           Start with a beautiful aisle-sorted grocery list. Add meals and recipes anytime.
         </Text>
-        <Card style={styles.card}>
+        <Card style={authCardStyle}>
           <TextField
             label="Display name (optional)"
             value={fullName}
             onChangeText={setFullName}
             placeholder="How we should address you"
             autoCapitalize="words"
-            containerStyle={styles.nameField}
+            containerStyle={authFieldContainerStyle}
           />
           <TextField
             label="Email"
@@ -106,6 +120,7 @@ export function SignupScreen(_props: Props) {
             autoCapitalize="none"
             autoCorrect={false}
             error={error ?? undefined}
+            containerStyle={authFieldContainerStyle}
           />
           <TextField
             label="Password"
@@ -113,13 +128,20 @@ export function SignupScreen(_props: Props) {
             onChangeText={setPassword}
             placeholder="At least 6 characters"
             secureTextEntry
+            containerStyle={authFieldBeforeLinkStyle}
           />
           <Button title="Sign up" onPress={handleSignup} loading={loading} />
-          <AppleSignInButton onPress={() => void handleAppleSignIn()} disabled={loading} />
+          <AuthProviderStack>
+            <AppleSignInButton
+              title="Sign up with Apple"
+              onPress={() => void handleAppleSignIn()}
+              disabled={loading}
+            />
+          </AuthProviderStack>
         </Card>
         <TouchableOpacity
           onPress={() => navigation.navigate('Login')}
-          style={styles.link}
+          style={authFooterLinkStyle}
           activeOpacity={0.7}
         >
           <Text style={[theme.typography.callout, { color: theme.accent }]}>
@@ -133,8 +155,5 @@ export function SignupScreen(_props: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.lg, paddingBottom: spacing.xl },
-  card: { marginBottom: spacing.lg },
-  nameField: { marginBottom: spacing.sm },
-  link: { alignSelf: 'center' },
+  scroll: { flexGrow: 1, justifyContent: 'center' },
 });

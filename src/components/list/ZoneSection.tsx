@@ -73,6 +73,8 @@ type ZoneSectionProps = {
   onCheckAllZone?: () => void;
   /** Tap quantity chip to open inline quantity editor. */
   onTapQuantity?: (item: ListItem) => void;
+  /** Skip row insert fade on the list tab's first paint. */
+  skipEnterAnimation?: boolean;
 };
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -103,6 +105,7 @@ function ZoneSectionInner({
   reduceMotion = false,
   onCheckAllZone,
   onTapQuantity,
+  skipEnterAnimation = false,
 }: ZoneSectionProps) {
   if (__DEV__) markRender('ZoneSection');
   const theme = useTheme();
@@ -347,6 +350,7 @@ function ZoneSectionInner({
                         linkedMealLabel={mealMeta?.display}
                         linkedMealAccessibilityLabel={mealMeta?.accessibilityLabel}
                         onTapQuantity={onTapQuantity}
+                        skipEnterAnimation={skipEnterAnimation}
                       />
                     );
                   }}
@@ -376,6 +380,7 @@ function ZoneSectionInner({
                       linkedMealLabel={mealMeta?.display}
                       linkedMealAccessibilityLabel={mealMeta?.accessibilityLabel}
                       onTapQuantity={onTapQuantity}
+                      skipEnterAnimation={skipEnterAnimation}
                     />
                   </React.Fragment>
                 );
@@ -414,7 +419,8 @@ function areZoneSectionPropsEqual(prev: ZoneSectionProps, next: ZoneSectionProps
     prev.zoneIconOverrides === next.zoneIconOverrides &&
     prev.reduceMotion === next.reduceMotion &&
     prev.onCheckAllZone === next.onCheckAllZone &&
-    prev.onTapQuantity === next.onTapQuantity
+    prev.onTapQuantity === next.onTapQuantity &&
+    prev.skipEnterAnimation === next.skipEnterAnimation
   );
 }
 

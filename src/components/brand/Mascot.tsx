@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { Image, View, type ViewStyle, type StyleProp } from 'react-native';
 import Animated, {
   Easing,
@@ -23,7 +23,7 @@ import Animated, {
  * Animations:
  *  - Idle float: gentle vertical bob every ~3s (disabled when reduceMotion is on)
  *  - Mood transition: spring-bounce scale whenever `mood` changes
- *  - Entrance: spring scale-in on first render (opt-out via `skipEntrance`)
+ *  - Entrance: fade-in after the bitmap decodes (opt-out via `skipEntrance`)
  *  - Periodic wiggle: subtle left-right tilt every ~6s
  */
 const MASCOT_SOURCES = {
@@ -33,6 +33,14 @@ const MASCOT_SOURCES = {
 } as const;
 
 export type MascotMood = keyof typeof MASCOT_SOURCES;
+
+/** Warm mascot PNGs into the image cache so hero moments render sharp on first paint. */
+export function prefetchMascotAssets(): void {
+  for (const source of Object.values(MASCOT_SOURCES)) {
+    const resolved = Image.resolveAssetSource(source);
+    if (resolved?.uri) void Image.prefetch(resolved.uri);
+  }
+}
 
 type MascotProps = {
   mood?: MascotMood;
@@ -66,19 +74,37 @@ export function Mascot({
   const rm = useReducedMotion();
   const shouldAnimate = animate && !rm;
 
-  const scale = useSharedValue(skipEntrance ? 1 : 0.7);
+  const scale = useSharedValue(1);
+  const imageOpacity = useSharedValue(skipEntrance ? 1 : 0);
   const translateY = useSharedValue(0);
   const rotate = useSharedValue(0);
 
   const prevMood = useRef<MascotMood>(mood);
   const mounted = useRef(false);
 
-  // Entrance pop on first mount.
   useEffect(() => {
-    if (skipEntrance) return;
-    scale.value = withSpring(1, { damping: 14, stiffness: 220, mass: 0.8 });
+    if (skipEntrance) {
+      imageOpacity.value = 1;
+      return;
+    }
+    imageOpacity.value = 0;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [mood, skipEntrance]);
+
+  const revealImage = useCallback(() => {
+    if (skipEntrance) {
+      imageOpacity.value = 1;
+      return;
+    }
+    imageOpacity.value = withTiming(1, {
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [imageOpacity, skipEntrance]);
+
+  const handleImageLoad = useCallback(() => {
+    revealImage();
+  }, [revealImage]);
 
   // Mood-change bounce whenever mood prop changes after mount.
   useEffect(() => {
@@ -146,6 +172,7 @@ export function Mascot({
   }, [shouldAnimate]);
 
   const animatedStyle = useAnimatedStyle(() => ({
+    opacity: imageOpacity.value,
     transform: [
       { scale: scale.value },
       { translateY: translateY.value },
@@ -165,8 +192,12 @@ export function Mascot({
     >
       <Animated.View style={animatedStyle}>
         <Image
+          key={mood}
           source={MASCOT_SOURCES[mood]}
           resizeMode="contain"
+          fadeDuration={0}
+          onLoad={handleImageLoad}
+          onLoadEnd={handleImageLoad}
           style={{ width: size, height: size }}
         />
       </Animated.View>

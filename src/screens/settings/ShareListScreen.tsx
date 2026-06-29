@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Text, ScrollView, Alert, Share, StyleSheet } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTheme } from '../../design/ThemeContext';
 import { useAuthUserId } from '../../context/AuthContext';
 import { Screen } from '../../components/ui/Screen';
@@ -9,6 +9,7 @@ import { ListSection } from '../../components/ui/ListSection';
 import { ListRow } from '../../components/ui/ListRow';
 import { TextField } from '../../components/ui/TextField';
 import { PrimaryButton } from '../../components/ui/PrimaryButton';
+import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { QueryLoadErrorPanel } from '../../components/ui/QueryLoadErrorPanel';
 import { SettingsPushedScreenHeader } from './SettingsPushedScreenHeader';
@@ -24,16 +25,23 @@ import {
   acceptHouseholdInvite,
   buildHouseholdInviteUrl,
   createHouseholdInvite,
-  fetchHouseholdMembers,
-  fetchPendingInvitesForEmail,
-  fetchPendingInvitesSent,
+  leaveSharedHousehold,
+  removeHouseholdMember,
   revokeHouseholdInvite,
-  type HouseholdInviteRow,
-  type HouseholdMemberRow,
+  updateHouseholdShareSettings,
+  type HouseholdShareSettings,
 } from '../../services/householdService';
-import { resolveAuthAccountEmail } from '../../constants/officialTestAccount';
-import { supabase } from '../../services/supabaseClient';
+import { SettingsToggleRow } from '../../components/settings/SettingsToggleRow';
 import { useInvalidateHomeList } from '../../hooks/useInvalidateHomeList';
+import { queryKeys } from '../../query/keys';
+import { fetchShareListBundle, SHARE_LIST_STALE_MS } from '../../query/shareListBundle';
+import {
+  optimisticallyRemoveIncomingInvite,
+  restoreShareListBundle,
+  warmCachesAfterHouseholdJoin,
+} from '../../query/householdJoinCache';
+import { showMascotSuccess } from '../../utils/appToast';
+import { householdMemberDisplayName } from '../../utils/householdMemberDisplay';
 
 function inviteErrorMessage(code: string): string {
   switch (code) {
@@ -56,55 +64,65 @@ export function ShareListScreen() {
   const onScroll = useSettingsScrollHandler();
   const scrollInsets = useSettingsScrollInsets();
   const invalidateHomeList = useInvalidateHomeList();
-  const [members, setMembers] = useState<HouseholdMemberRow[]>([]);
-  const [sentInvites, setSentInvites] = useState<HouseholdInviteRow[]>([]);
-  const [incomingInvites, setIncomingInvites] = useState<HouseholdInviteRow[]>([]);
+  const queryClient = useQueryClient();
   const [inviteEmail, setInviteEmail] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [acceptBusy, setAcceptBusy] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [memberRows, pendingSent] = await Promise.all([
-        fetchHouseholdMembers(),
-        fetchPendingInvitesSent(),
-      ]);
-      setMembers(memberRows);
-      setSentInvites(pendingSent);
+  const shareQueryKey =
+    typeof userId === 'string' && userId.length > 0 ? queryKeys.shareList(userId) : null;
 
-      const { data } = await supabase.auth.getUser();
-      const email = resolveAuthAccountEmail(data.user);
-      if (email) {
-        const incoming = await fetchPendingInvitesForEmail(email);
-        setIncomingInvites(incoming);
-      } else {
-        setIncomingInvites([]);
+  const shareQuery = useQuery({
+    queryKey: shareQueryKey ?? queryKeys.shareList('pending'),
+    queryFn: fetchShareListBundle,
+    enabled: shareQueryKey != null,
+    staleTime: SHARE_LIST_STALE_MS,
+  });
+
+  const members = useMemo(
+    () => shareQuery.data?.members ?? [],
+    [shareQuery.data?.members]
+  );
+  const shareSettings = shareQuery.data?.shareSettings ?? null;
+  const isOwner = shareQuery.data?.isOwner ?? false;
+  const isSharedHousehold = shareQuery.data?.isSharedHousehold ?? false;
+  const sentInvites = shareQuery.data?.sentInvites ?? [];
+  const incomingInvites = shareQuery.data?.incomingInvites ?? [];
+  const shareDataReady = shareQuery.data != null;
+  const showEmptyMembers = shareDataReady && members.length === 0;
+
+  const refreshShareList = useCallback(async () => {
+    if (!shareQueryKey) return;
+    await queryClient.invalidateQueries({ queryKey: shareQueryKey });
+  }, [queryClient, shareQueryKey]);
+
+  type SharedTabScope = 'meals' | 'recipes' | 'home' | 'all';
+
+  const invalidateSharedTabs = useCallback(
+    (scope: SharedTabScope = 'all') => {
+      if (!userId) return;
+      if (scope === 'meals' || scope === 'all') {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.meals(userId) });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.mealsRangeRoot(userId) });
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load sharing settings.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load])
+      if (scope === 'recipes' || scope === 'all') {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.recipesScreenRoot(userId) });
+      }
+      if (scope === 'home' || scope === 'all') {
+        invalidateHomeList();
+      }
+    },
+    [invalidateHomeList, queryClient, userId]
   );
 
   const memberLabels = useMemo(
     () =>
       members.map((m) => ({
         ...m,
-        title: m.user_id === userId ? 'You' : m.role === 'owner' ? 'Owner' : 'Member',
+        title: householdMemberDisplayName(m),
         subtitle: m.role === 'owner' ? 'List owner' : 'Shared access',
       })),
-    [members, userId]
+    [members]
   );
 
   const handleInvite = async () => {
@@ -112,7 +130,7 @@ export function ShareListScreen() {
     try {
       const invite = await createHouseholdInvite(inviteEmail);
       setInviteEmail('');
-      await load();
+      await refreshShareList();
       const url = buildHouseholdInviteUrl(invite.token);
       await Share.share({
         message: `Join my Listio grocery list: ${url}`,
@@ -125,23 +143,105 @@ export function ShareListScreen() {
     }
   };
 
-  const handleAccept = async (token: string) => {
-    setAcceptBusy(token);
-    try {
-      const result = await acceptHouseholdInvite(token);
-      if (!result.ok) {
-        Alert.alert('Invite not accepted', inviteErrorMessage(result.error));
-        return;
+  const handleShareToggle = useCallback(
+    async (key: 'shareMeals' | 'shareRecipes', value: boolean) => {
+      if (!shareQueryKey || !shareSettings) return;
+
+      const previous = shareSettings;
+      const optimistic: HouseholdShareSettings = { ...shareSettings, [key]: value };
+
+      queryClient.setQueryData(shareQueryKey, (current) =>
+        current ? { ...current, shareSettings: optimistic } : current
+      );
+
+      try {
+        await updateHouseholdShareSettings({ [key]: value }, { currentSettings: previous });
+        void invalidateSharedTabs(key === 'shareMeals' ? 'meals' : 'recipes');
+      } catch (e) {
+        queryClient.setQueryData(shareQueryKey, (current) =>
+          current ? { ...current, shareSettings: previous } : current
+        );
+        Alert.alert('Could not update sharing', e instanceof Error ? e.message : 'Unknown error');
       }
-      invalidateHomeList();
-      await load();
-      Alert.alert('List shared', 'You now shop from the same list.');
-    } catch (e) {
-      Alert.alert('Could not accept invite', e instanceof Error ? e.message : 'Unknown error');
-    } finally {
-      setAcceptBusy(null);
-    }
+    },
+    [shareQueryKey, shareSettings, queryClient, invalidateSharedTabs]
+  );
+
+  const handleRemoveMember = (memberUserId: string) => {
+    Alert.alert('Remove member?', 'They will lose access to this shared list.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await removeHouseholdMember(memberUserId);
+              invalidateSharedTabs('all');
+              await refreshShareList();
+            } catch (e) {
+              Alert.alert('Could not remove member', e instanceof Error ? e.message : 'Unknown error');
+            }
+          })();
+        },
+      },
+    ]);
   };
+
+  const handleLeaveSharedList = () => {
+    Alert.alert(
+      'Leave shared list?',
+      'You will return to your personal list. The owner keeps their copy.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                await leaveSharedHousehold();
+                invalidateSharedTabs('all');
+                await refreshShareList();
+                Alert.alert('Left shared list', 'You are back on your personal list.');
+              } catch (e) {
+                Alert.alert('Could not leave', e instanceof Error ? e.message : 'Unknown error');
+              }
+            })();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleAccept = useCallback(
+    async (token: string) => {
+      if (typeof userId !== 'string' || !userId) return;
+
+      const shareSnapshot = optimisticallyRemoveIncomingInvite(queryClient, userId, token);
+      setAcceptBusy(token);
+
+      try {
+        const result = await acceptHouseholdInvite(token);
+        if (!result.ok) {
+          restoreShareListBundle(queryClient, userId, shareSnapshot);
+          Alert.alert('Invite not accepted', inviteErrorMessage(result.error));
+          return;
+        }
+
+        invalidateHomeList();
+        void invalidateSharedTabs();
+        void warmCachesAfterHouseholdJoin(userId, queryClient);
+        showMascotSuccess('List shared', 'You now shop from the same list.');
+      } catch (e) {
+        restoreShareListBundle(queryClient, userId, shareSnapshot);
+        Alert.alert('Could not accept invite', e instanceof Error ? e.message : 'Unknown error');
+      } finally {
+        setAcceptBusy(null);
+      }
+    },
+    [userId, queryClient, invalidateHomeList, invalidateSharedTabs]
+  );
 
   const handleRevoke = (inviteId: string) => {
     Alert.alert('Revoke invite?', 'They will no longer be able to use this link.', [
@@ -153,7 +253,7 @@ export function ShareListScreen() {
           void (async () => {
             try {
               await revokeHouseholdInvite(inviteId);
-              await load();
+              await refreshShareList();
             } catch (e) {
               Alert.alert('Could not revoke', e instanceof Error ? e.message : 'Unknown error');
             }
@@ -162,6 +262,13 @@ export function ShareListScreen() {
       },
     ]);
   };
+
+  const loadError =
+    shareQuery.isError && !shareDataReady
+      ? shareQuery.error instanceof Error
+        ? shareQuery.error.message
+        : 'Could not load sharing settings.'
+      : null;
 
   return (
     <Screen padded safeTop={false} safeBottom={false}>
@@ -182,19 +289,43 @@ export function ShareListScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {loading ? (
-            <Text style={[theme.typography.body, { color: theme.textSecondary, textAlign: 'center' }]}>
-              Loading…
-            </Text>
-          ) : error ? (
-            <QueryLoadErrorPanel message={error} onRetry={() => void load()} />
+          {loadError ? (
+            <QueryLoadErrorPanel
+              message={loadError}
+              onRetry={() => void shareQuery.refetch()}
+            />
           ) : (
             <>
               <ListSection title="About sharing" {...settingsListSectionProps}>
                 <Text style={[theme.typography.body, { color: theme.textSecondary, lineHeight: 22 }]}>
-                  Invite one person to shop from the same grocery list, meals, and recipes.
+                  Invite one person to collaborate. The grocery list is always shared; you choose whether meals and
+                  recipes are included.
                 </Text>
               </ListSection>
+
+              {isOwner && shareSettings ? (
+                <ListSection title="What to share" {...settingsRowListSectionProps}>
+                  <SettingsToggleRow
+                    title="Grocery list"
+                    subtitle="Always shared when someone joins"
+                    value
+                    onValueChange={() => undefined}
+                    disabled
+                  />
+                  <SettingsToggleRow
+                    title="Meals"
+                    subtitle="Meal plan and planned slots"
+                    value={shareSettings.shareMeals}
+                    onValueChange={(value) => void handleShareToggle('shareMeals', value)}
+                  />
+                  <SettingsToggleRow
+                    title="Recipes"
+                    subtitle="Saved recipes in the Recipes tab"
+                    value={shareSettings.shareRecipes}
+                    onValueChange={(value) => void handleShareToggle('shareRecipes', value)}
+                  />
+                </ListSection>
+              ) : null}
 
               {incomingInvites.length > 0 ? (
                 <ListSection title="Invites for you" {...settingsRowListSectionProps}>
@@ -219,7 +350,7 @@ export function ShareListScreen() {
               ) : null}
 
               <ListSection title="People on this list" {...settingsRowListSectionProps}>
-                {memberLabels.length === 0 ? (
+                {showEmptyMembers ? (
                   <EmptyState
                     icon="people-outline"
                     mascot="hero"
@@ -227,17 +358,27 @@ export function ShareListScreen() {
                     message="Send an invite to share your list."
                     glass={false}
                   />
-                ) : (
+                ) : memberLabels.length > 0 ? (
                   memberLabels.map((m, index) => (
                     <ListRow
                       key={m.user_id}
                       title={m.title}
                       subtitle={m.subtitle}
+                      rightAccessory={
+                        isOwner && m.user_id !== userId && m.role === 'member' ? (
+                          <Button
+                            title="Remove"
+                            variant="secondary"
+                            onPress={() => handleRemoveMember(m.user_id)}
+                            style={{ minHeight: 36, paddingHorizontal: theme.spacing.sm }}
+                          />
+                        ) : undefined
+                      }
                       showSeparator={index < memberLabels.length - 1}
                       fullWidthDivider
                     />
                   ))
-                )}
+                ) : null}
               </ListSection>
 
               <ListSection title="Invite someone" {...settingsListSectionProps}>
@@ -276,6 +417,16 @@ export function ShareListScreen() {
                       fullWidthDivider
                     />
                   ))}
+                </ListSection>
+              ) : null}
+
+              {!isOwner && isSharedHousehold ? (
+                <ListSection {...settingsListSectionProps}>
+                  <PrimaryButton
+                    title="Leave shared list"
+                    onPress={handleLeaveSharedList}
+                    flat
+                  />
                 </ListSection>
               ) : null}
             </>

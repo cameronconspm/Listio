@@ -12,7 +12,7 @@ export function useInvalidateHomeList() {
   return useCallback(async () => {
     const uid = typeof userId === 'string' ? userId : null;
     if (!uid) return;
-    await queryClient.invalidateQueries({ queryKey: queryKeys.homeList(uid) });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.homeListAll(uid) });
     await queryClient.invalidateQueries({
       predicate: (q) =>
         Array.isArray(q.queryKey) &&

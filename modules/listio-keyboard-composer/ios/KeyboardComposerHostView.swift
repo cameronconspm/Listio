@@ -38,23 +38,30 @@ final class KeyboardComposerHostView: ExpoView {
 
     let center = NotificationCenter.default
 
-    let willShow = center.addObserver(
+    let willShow: NSObjectProtocol
+    let didHide: NSObjectProtocol
+    let willChange: NSObjectProtocol
+
+    willShow = center.addObserver(
       forName: UIResponder.keyboardWillShowNotification,
       object: nil,
       queue: .main
     ) { [weak self] notification in
-      self?.handleKeyboardVisibilityChange(notification, visible: true)
+      self?.handleKeyboardWillShow(notification)
     }
 
-    let willHide = center.addObserver(
-      forName: UIResponder.keyboardWillHideNotification,
+    // Show tab bar only after the keyboard is fully gone — showing on `willHide` races the
+    // composer (still tracking keyboard height) and causes a visible timing gap after repeated
+    // open/close cycles.
+    didHide = center.addObserver(
+      forName: UIResponder.keyboardDidHideNotification,
       object: nil,
       queue: .main
-    ) { [weak self] notification in
-      self?.handleKeyboardVisibilityChange(notification, visible: false)
+    ) { [weak self] _ in
+      self?.setTabBarHidden(false, animated: false)
     }
 
-    let willChange = center.addObserver(
+    willChange = center.addObserver(
       forName: UIResponder.keyboardWillChangeFrameNotification,
       object: nil,
       queue: .main
@@ -62,7 +69,7 @@ final class KeyboardComposerHostView: ExpoView {
       self?.handleKeyboardFrameChangeForTabBar(notification)
     }
 
-    keyboardObservers.append(contentsOf: [willShow, willHide, willChange])
+    keyboardObservers.append(contentsOf: [willShow, didHide, willChange])
   }
 
   private func removeKeyboardObservers() {
@@ -73,14 +80,14 @@ final class KeyboardComposerHostView: ExpoView {
     keyboardObservers.removeAll()
   }
 
-  private func handleKeyboardVisibilityChange(_ notification: Notification, visible: Bool) {
+  private func handleKeyboardWillShow(_ notification: Notification) {
     guard hidesTabBarOnKeyboard, let userInfo = notification.userInfo else { return }
 
     let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
     let curveRaw = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
     let options = UIView.AnimationOptions(rawValue: curveRaw << 16)
 
-    setTabBarHidden(visible, animated: duration > 0, duration: duration, options: options)
+    setTabBarHidden(true, animated: duration > 0, duration: duration, options: options)
   }
 
   private func handleKeyboardFrameChangeForTabBar(_ notification: Notification) {
@@ -89,7 +96,8 @@ final class KeyboardComposerHostView: ExpoView {
           let endFrame = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
 
     let windowHeight = window?.bounds.height ?? UIScreen.main.bounds.height
-    if endFrame.minY < windowHeight - 1 {
+    let keyboardVisible = endFrame.minY < windowHeight - 1
+    if keyboardVisible {
       setTabBarHidden(true, animated: false)
     }
   }

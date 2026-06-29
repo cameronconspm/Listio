@@ -3,8 +3,27 @@ import { navigationRef } from '../navigation/navigationRef';
 import { logNotificationMetric } from './notificationAnalyticsService';
 import { logger } from '../utils/logger';
 
+import { setPendingInviteToken } from './pendingDeepLinkActions';
+
 export function navigateFromPayload(data: Record<string, unknown> | undefined): void {
   const nav = data?.navigateTo;
+  if (nav === 'shareList') {
+    const inviteToken = data?.inviteToken;
+    if (typeof inviteToken === 'string' && inviteToken.trim()) {
+      setPendingInviteToken(inviteToken.trim());
+    }
+    if (!navigationRef.isReady()) return;
+    navigationRef.dispatch(
+      CommonActions.navigate({
+        name: 'AppTabs',
+        params: {
+          screen: 'ListTab',
+          params: { screen: 'List' },
+        },
+      })
+    );
+    return;
+  }
   if (nav !== 'meals' && nav !== 'list' && nav !== 'recipes' && nav !== 'store') return;
   if (!navigationRef.isReady()) return;
 

@@ -264,6 +264,28 @@ export function seedCategoryCacheFromListItems(
   schedulePersist();
 }
 
+function titleCaseCachedName(key: string): string {
+  return key
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/** Display names from the in-memory category cache (excludes `other` zone). */
+export function getCachedCategoryDisplayNames(): { display_name: string; normalized_name: string }[] {
+  const now = Date.now();
+  const rows: { display_name: string; normalized_name: string }[] = [];
+  for (const entry of memory.values()) {
+    if (!isFresh(entry, now) || entry.zone_key === 'other') continue;
+    rows.push({
+      display_name: titleCaseCachedName(entry.normalized_name),
+      normalized_name: entry.normalized_name,
+    });
+  }
+  return rows;
+}
+
 /** Wipe both the in-memory map and the persisted blob. Used on sign-out / delete account. */
 export async function clearCategoryCache(): Promise<void> {
   memory.clear();

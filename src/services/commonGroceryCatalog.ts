@@ -3,6 +3,7 @@ import {
   canonicalGroceryKey as canonicalGroceryKeyCore,
   resolveCommonGroceryCategoryCore,
   resolveFromCategoryEntriesCore,
+  scoreSuggestionMatch as scoreSuggestionMatchCore,
   searchCatalogSuggestions as searchCatalogSuggestionsCore,
   type CatalogSuggestion as CoreCatalogSuggestion,
   type FastCategoryResult as CoreFastCategoryResult,
@@ -13,6 +14,10 @@ export type CatalogSuggestion = CoreCatalogSuggestion;
 
 export function searchCatalogSuggestions(prefix: string, limit?: number): CatalogSuggestion[] {
   return searchCatalogSuggestionsCore(prefix, limit);
+}
+
+export function scoreSuggestionMatch(displayLower: string, key: string, query: string): number | null {
+  return scoreSuggestionMatchCore(displayLower, key, query);
 }
 
 export type GroceryCategoryEntry = Omit<CoreGroceryCategoryEntry, 'zone_key'> & { zone_key: ZoneKey };

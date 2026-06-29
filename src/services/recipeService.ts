@@ -1,5 +1,6 @@
 import { supabase, isSyncEnabled } from './supabaseClient';
 import { resolveDataScopeId } from './syncInsertScope';
+import { resolveHouseholdContentFilter } from './householdShareSettings';
 import { insertListItems } from './listService';
 import { createMeal, setMealIngredients, type MealIngredientInput } from './mealService';
 import * as local from './localDataService';
@@ -30,7 +31,9 @@ export type GetRecipesOptions = {
 
 export async function getRecipes(userId: string, options?: GetRecipesOptions): Promise<Recipe[]> {
   if (!isSyncEnabled()) return local.getRecipes(userId, options);
-  let query = supabase.from('recipes').select('*').eq('user_id', userId);
+  const { householdId, restrictToUserId } = await resolveHouseholdContentFilter(userId, 'recipes');
+  let query = supabase.from('recipes').select('*').eq('household_id', householdId);
+  if (restrictToUserId) query = query.eq('user_id', restrictToUserId);
 
   const filter = options?.filter ?? 'all';
   if (filter === 'favorites') {

@@ -233,6 +233,8 @@ const SESSION_REFRESH_SIGN_IN_MESSAGES: Record<EdgeAuthPurpose, string> = {
   parseRecipeFromText: 'Sign in again to import recipes.',
   parseListItemsFromText: 'Sign in again to use Smart add.',
   syncSubscriptionEntitlement: 'Sign in again to refresh your subscription.',
+  suggestItems: 'Sign in again to see item suggestions.',
+  householdInvitePush: 'Sign in again to send invite notifications.',
 };
 
 /** On 401: refresh session, invalidate edge JWT cache, retry invoke once with a fresh token. */

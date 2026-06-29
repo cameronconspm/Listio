@@ -8,6 +8,13 @@ import { AnimatedStatusLoadingPage } from './AnimatedStatusLoadingPage';
 import { queryKeys } from '../../query/keys';
 import { fetchHomeListBundle, HOME_LIST_STALE_MS } from '../../query/homeListBundle';
 import {
+  fetchShoppingListsBundle,
+  SHOPPING_LISTS_STALE_MS,
+} from '../../query/shoppingListsBundle';
+import { prefetchLinkedMealLabelsForItems } from '../../query/linkedMealLabelsBundle';
+import { isSyncEnabled } from '../../services/supabaseClient';
+import { LOCAL_SYNC_SCOPE_ID } from '../../constants/localSyncScope';
+import {
   ACCOUNT_LOADING_DETAIL,
   ACCOUNT_LOADING_ICONS,
   ACCOUNT_LOADING_STATUS_MESSAGES,
@@ -48,13 +55,30 @@ export function BootstrapLoadingScreen({ homeFetchAllowed }: Props) {
   } = useAccountBootstrap();
 
   const userReady = typeof userId === 'string' && userId.length > 0;
+  const syncEnabled = isSyncEnabled();
   const [cardVisible, setCardVisible] = useState(false);
   const cardShownRef = useRef(false);
 
+  const listsQuery = useQuery({
+    queryKey: queryKeys.shoppingLists(userId ?? ''),
+    queryFn: fetchShoppingListsBundle,
+    enabled: userReady && homeFetchAllowed && syncEnabled,
+    staleTime: SHOPPING_LISTS_STALE_MS,
+  });
+
+  const bootstrapListId = syncEnabled
+    ? listsQuery.data?.activeListId ?? null
+    : userReady
+      ? LOCAL_SYNC_SCOPE_ID
+      : null;
+
   const listQuery = useQuery({
-    queryKey: queryKeys.homeList(userId ?? ''),
-    queryFn: () => fetchHomeListBundle(userId!, queryClient),
-    enabled: userReady && homeFetchAllowed,
+    queryKey:
+      userReady && bootstrapListId
+        ? queryKeys.homeList(userId, bootstrapListId)
+        : queryKeys.homeList('', 'pending'),
+    queryFn: () => fetchHomeListBundle(userId!, queryClient, bootstrapListId!),
+    enabled: userReady && homeFetchAllowed && bootstrapListId != null,
     staleTime: HOME_LIST_STALE_MS,
   });
 
@@ -95,12 +119,22 @@ export function BootstrapLoadingScreen({ homeFetchAllowed }: Props) {
   ]);
 
   const homeReady =
-    userReady && homeFetchAllowed && listQuery.data !== undefined;
+    userReady &&
+    homeFetchAllowed &&
+    listQuery.data !== undefined &&
+    (!syncEnabled || listsQuery.data !== undefined || listsQuery.isError);
   const homeErrored =
     userReady &&
     homeFetchAllowed &&
     listQuery.isError &&
     listQuery.data === undefined;
+
+  useEffect(() => {
+    if (!homeReady || typeof userId !== 'string' || !bootstrapListId) return;
+    const items = listQuery.data?.listItems;
+    if (!items?.length) return;
+    prefetchLinkedMealLabelsForItems(userId, bootstrapListId, items, queryClient);
+  }, [homeReady, userId, bootstrapListId, listQuery.data?.listItems, queryClient]);
 
   useEffect(() => {
     if (!homeReady && !homeErrored) return;

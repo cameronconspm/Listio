@@ -25,13 +25,13 @@ export interface ListItemInsert {
   is_recurring?: boolean;
 }
 
-export async function fetchListItems(userId: string): Promise<ListItem[]> {
+export async function fetchListItems(userId: string, listId?: string): Promise<ListItem[]> {
   if (!isSyncEnabled()) return local.fetchListItems(userId);
-  const listId = await resolveActiveListId();
+  const resolvedListId = listId ?? (await resolveActiveListId());
   const { data, error } = await supabase
     .from('list_items')
     .select('*')
-    .eq('list_id', listId)
+    .eq('list_id', resolvedListId)
     .order('created_at', { ascending: true });
 
   throwOnSupabaseFetchError(error, 'Could not load your list.');

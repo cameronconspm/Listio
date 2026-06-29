@@ -32,6 +32,8 @@ type MealSlotRowProps = {
   onPressMeal: () => void;
   onPressAdd: () => void;
   onDeleteMeal?: (meal: Meal) => void;
+  /** When false, omits the divider under this row (last slot in the day card). */
+  showBottomBorder?: boolean;
 };
 
 function displaySlotLabel(slotKey: string, slotLabel: string): string {
@@ -53,6 +55,7 @@ export function MealSlotRow({
   onPressMeal,
   onPressAdd,
   onDeleteMeal,
+  showBottomBorder = true,
 }: MealSlotRowProps) {
   const theme = useTheme();
   const haptics = useHaptics();
@@ -122,7 +125,13 @@ export function MealSlotRow({
     );
 
     return (
-      <View style={[styles.filledWrap, { borderBottomColor: theme.divider }]}>
+      <View
+        style={[
+          styles.filledWrap,
+          showBottomBorder && styles.rowBorder,
+          { borderBottomColor: theme.divider },
+        ]}
+      >
         <Text style={[...mealTypeLabelStyle, { marginBottom: theme.spacing.xs }]}>{label}</Text>
         {onDeleteMeal ? (
           <View style={styles.swipeClip}>
@@ -143,7 +152,11 @@ export function MealSlotRow({
 
   return (
     <TouchableOpacity
-      style={[styles.emptyRow, { borderBottomColor: theme.divider }]}
+      style={[
+        styles.emptyRow,
+        showBottomBorder && styles.rowBorder,
+        { borderBottomColor: theme.divider },
+      ]}
       onPress={onPressAdd}
       activeOpacity={0.7}
       accessibilityRole="button"
@@ -172,6 +185,8 @@ const styles = StyleSheet.create({
   filledWrap: {
     paddingVertical: spacing.comfort,
     paddingHorizontal: spacing.md,
+  },
+  rowBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   swipeClip: {
@@ -216,7 +231,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
     minHeight: 56,
   },
   emptyLeftCol: {

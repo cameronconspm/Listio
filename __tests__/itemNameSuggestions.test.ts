@@ -1,21 +1,5 @@
-import { searchCatalogSuggestions } from '../shared/groceryResolverCore';
 import { searchItemNameSuggestions } from '../src/services/itemNameSuggestions';
 import type { RecentItem } from '../src/services/recentItemsStore';
-
-describe('searchCatalogSuggestions', () => {
-  it('finds salt and pepper in pantry spices', () => {
-    const salt = searchCatalogSuggestions('sal', 5);
-    expect(salt.some((r) => r.normalized_name === 'salt')).toBe(true);
-
-    const pepper = searchCatalogSuggestions('pep', 8);
-    expect(pepper.some((r) => r.normalized_name === 'black pepper')).toBe(true);
-  });
-
-  it('finds bell pepper in produce', () => {
-    const rows = searchCatalogSuggestions('bell', 5);
-    expect(rows.some((r) => r.display_name.toLowerCase().includes('bell pepper'))).toBe(true);
-  });
-});
 
 describe('searchItemNameSuggestions', () => {
   const recent: RecentItem[] = [
@@ -45,7 +29,27 @@ describe('searchItemNameSuggestions', () => {
     expect(rows[0]?.display_name).toBe('Oat Milk');
   });
 
-  it('returns empty for whitespace-only query', () => {
-    expect(searchItemNameSuggestions('   ', { recentItems: recent })).toEqual([]);
+  it('returns empty when query is empty', () => {
+    const rows = searchItemNameSuggestions('', { recentItems: recent, limit: 3 });
+    expect(rows).toEqual([]);
+  });
+
+  it('excludes dried spices for short "ri" query', () => {
+    const rows = searchItemNameSuggestions('ri', { limit: 8 });
+    const labels = rows.map((r) => r.display_name.toLowerCase());
+    expect(labels.some((n) => n.includes('rib'))).toBe(true);
+    expect(labels.every((n) => !n.includes('dried'))).toBe(true);
+  });
+
+  it('adds typed fallback row when requested', () => {
+    const rows = searchItemNameSuggestions('ribz', {
+      includeTypedFallback: true,
+      limit: 5,
+    });
+    expect(rows.some((r) => r.isTypedFallback)).toBe(true);
+  });
+
+  it('returns empty for whitespace-only query without recents', () => {
+    expect(searchItemNameSuggestions('   ', { recentItems: [] })).toEqual([]);
   });
 });

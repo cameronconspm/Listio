@@ -15,7 +15,7 @@ export const navigationDuration = {
   popEnter: 260,
   popExit: 300,
   tabCrossfade: 200,
-  fadeThrough: 220,
+  fadeThrough: 120,
 } as const;
 
 /** Subtle horizontal feel when building custom transitions (translateX + opacity) */

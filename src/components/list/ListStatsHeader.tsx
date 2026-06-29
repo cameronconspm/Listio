@@ -66,6 +66,7 @@ function useListStatsStyles() {
           flexDirection: 'row',
           gap: theme.spacing.sm,
           paddingTop: theme.spacing.xs,
+          minHeight: 36,
         },
         zoneChipsContentInset: {
           paddingHorizontal: theme.spacing.md,

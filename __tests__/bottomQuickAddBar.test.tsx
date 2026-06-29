@@ -63,6 +63,11 @@ jest.mock('../src/services/aiService', () => ({
 
 jest.mock('../src/services/aiCategoryCache', () => ({
   resolveCategoryFast: jest.fn(() => null),
+  getCachedCategoryDisplayNames: jest.fn(() => []),
+}));
+
+jest.mock('../src/services/suggestionIndexStore', () => ({
+  searchSuggestionIndex: jest.fn(() => []),
 }));
 
 describe('BottomQuickAddBar', () => {

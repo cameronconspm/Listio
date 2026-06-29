@@ -57,6 +57,47 @@ export const COMMON_GROCERY_CATALOG: CommonGroceryCatalogEntry[] = [
   { normalized_name: 'ground beef', category: 'Meat', zone_key: 'meat_seafood', aliases: ['ground beef', 'beef'] },
   { normalized_name: 'salmon', category: 'Seafood', zone_key: 'meat_seafood', aliases: ['salmon'] },
   { normalized_name: 'bacon', category: 'Meat', zone_key: 'meat_seafood', aliases: ['bacon'] },
+  { normalized_name: 'ribs', category: 'Meat', zone_key: 'meat_seafood', aliases: ['ribs', 'baby back ribs', 'short ribs', 'pork ribs'] },
+  { normalized_name: 'ribeye', category: 'Meat', zone_key: 'meat_seafood', aliases: ['ribeye', 'rib eye', 'rib eye steak', 'ribeye steak'] },
+  { normalized_name: 'steak', category: 'Meat', zone_key: 'meat_seafood', aliases: ['steak', 'sirloin steak', 'ny strip', 'strip steak'] },
+  { normalized_name: 'pork chops', category: 'Meat', zone_key: 'meat_seafood', aliases: ['pork chop', 'pork chops', 'boneless pork chops'] },
+  { normalized_name: 'ground pork', category: 'Meat', zone_key: 'meat_seafood', aliases: ['ground pork'] },
+  { normalized_name: 'pork tenderloin', category: 'Meat', zone_key: 'meat_seafood', aliases: ['pork tenderloin'] },
+  { normalized_name: 'turkey', category: 'Meat', zone_key: 'meat_seafood', aliases: ['turkey', 'ground turkey', 'turkey breast'] },
+  { normalized_name: 'sausage', category: 'Meat', zone_key: 'meat_seafood', aliases: ['sausage', 'italian sausage', 'breakfast sausage'] },
+  { normalized_name: 'ham', category: 'Meat', zone_key: 'meat_seafood', aliases: ['ham', 'deli ham', 'honey ham'] },
+  { normalized_name: 'shrimp', category: 'Seafood', zone_key: 'meat_seafood', aliases: ['shrimp', 'raw shrimp', 'peeled shrimp'] },
+  { normalized_name: 'tilapia', category: 'Seafood', zone_key: 'meat_seafood', aliases: ['tilapia'] },
+  { normalized_name: 'cod', category: 'Seafood', zone_key: 'meat_seafood', aliases: ['cod', 'cod fillet'] },
+  { normalized_name: 'tuna', category: 'Seafood', zone_key: 'meat_seafood', aliases: ['tuna', 'tuna steak', 'canned tuna'] },
+  { normalized_name: 'ground turkey', category: 'Meat', zone_key: 'meat_seafood', aliases: ['ground turkey'] },
+  { normalized_name: 'chicken thighs', category: 'Meat', zone_key: 'meat_seafood', aliases: ['chicken thigh', 'chicken thighs', 'boneless chicken thighs'] },
+  { normalized_name: 'chicken wings', category: 'Meat', zone_key: 'meat_seafood', aliases: ['chicken wings', 'wings'] },
+  { normalized_name: 'ground chicken', category: 'Meat', zone_key: 'meat_seafood', aliases: ['ground chicken'] },
+  { normalized_name: 'lamb chops', category: 'Meat', zone_key: 'meat_seafood', aliases: ['lamb chop', 'lamb chops'] },
+  { normalized_name: 'sweet potatoes', category: 'Vegetables', zone_key: 'produce', aliases: ['sweet potato', 'sweet potatoes', 'yams'] },
+  { normalized_name: 'kale', category: 'Vegetables', zone_key: 'produce', aliases: ['kale'] },
+  { normalized_name: 'arugula', category: 'Vegetables', zone_key: 'produce', aliases: ['arugula'] },
+  { normalized_name: 'green beans', category: 'Vegetables', zone_key: 'produce', aliases: ['green beans', 'green bean'] },
+  { normalized_name: 'asparagus', category: 'Vegetables', zone_key: 'produce', aliases: ['asparagus'] },
+  { normalized_name: 'corn', category: 'Vegetables', zone_key: 'produce', aliases: ['corn', 'corn on the cob'] },
+  { normalized_name: 'blueberries', category: 'Fruit', zone_key: 'produce', aliases: ['blueberries', 'blueberry'] },
+  { normalized_name: 'strawberries', category: 'Fruit', zone_key: 'produce', aliases: ['strawberries', 'strawberry'] },
+  { normalized_name: 'grapes', category: 'Fruit', zone_key: 'produce', aliases: ['grapes', 'grape'] },
+  { normalized_name: 'oranges', category: 'Fruit', zone_key: 'produce', aliases: ['orange', 'oranges'] },
+  { normalized_name: 'peaches', category: 'Fruit', zone_key: 'produce', aliases: ['peach', 'peaches'] },
+  { normalized_name: 'pears', category: 'Fruit', zone_key: 'produce', aliases: ['pear', 'pears'] },
+  { normalized_name: 'cherries', category: 'Fruit', zone_key: 'produce', aliases: ['cherries', 'cherry'] },
+  { normalized_name: 'mango', category: 'Fruit', zone_key: 'produce', aliases: ['mango', 'mangoes'] },
+  { normalized_name: 'pineapple', category: 'Fruit', zone_key: 'produce', aliases: ['pineapple'] },
+  { normalized_name: 'watermelon', category: 'Fruit', zone_key: 'produce', aliases: ['watermelon'] },
+  { normalized_name: 'cottage cheese', category: 'Dairy', zone_key: 'dairy_eggs', aliases: ['cottage cheese'] },
+  { normalized_name: 'cream cheese', category: 'Dairy', zone_key: 'dairy_eggs', aliases: ['cream cheese'] },
+  { normalized_name: 'sour cream', category: 'Dairy', zone_key: 'dairy_eggs', aliases: ['sour cream'] },
+  { normalized_name: 'heavy cream', category: 'Dairy', zone_key: 'dairy_eggs', aliases: ['heavy cream', 'heavy whipping cream', 'whipping cream'] },
+  { normalized_name: 'half and half', category: 'Dairy', zone_key: 'dairy_eggs', aliases: ['half and half', 'half & half'] },
+  { normalized_name: 'parmesan cheese', category: 'Cheese', zone_key: 'dairy_eggs', aliases: ['parmesan', 'parmesan cheese', 'grated parmesan'] },
+  { normalized_name: 'feta cheese', category: 'Cheese', zone_key: 'dairy_eggs', aliases: ['feta', 'feta cheese'] },
   { normalized_name: 'bread', category: 'Bread', zone_key: 'bakery_deli', aliases: ['bread', 'sandwich bread', 'wheat bread', 'sourdough bread'] },
   { normalized_name: 'bagels', category: 'Bakery', zone_key: 'bakery_deli', aliases: ['bagel', 'bagels'] },
   { normalized_name: 'tortillas', category: 'Bakery', zone_key: 'bakery_deli', aliases: ['tortilla', 'tortillas'] },
@@ -390,10 +431,37 @@ const CATALOG_SUGGESTION_INDEX: CatalogSuggestion[] = (() => {
   return rows;
 })();
 
-function matchTier(displayLower: string, key: string, query: string): number | null {
-  if (!query) return 2;
+function anyWordStartsWith(text: string, query: string): boolean {
+  return text.split(/\s+/).filter(Boolean).some((word) => word.startsWith(query));
+}
+
+function fuzzySuggestionDistance(candidate: string, query: string): number | null {
+  if (!candidate || query.length < 4) return null;
+  if (Math.abs(candidate.length - query.length) > 2) return null;
+  const distance = levenshtein(candidate, query);
+  const maxDist = maxEditDistance(Math.max(candidate.length, query.length));
+  if (distance > 0 && distance <= maxDist) return distance;
+  return null;
+}
+
+/**
+ * Score a quick-add suggestion match. Lower tier = better. `null` = no match.
+ * Tier 0: display or key starts with query
+ * Tier 1: any word in display/key starts with query
+ * Tier 2: fuzzy Levenshtein when query length >= 4
+ * Tier 3: substring includes (query length >= 4 only)
+ */
+export function scoreSuggestionMatch(displayLower: string, key: string, query: string): number | null {
+  if (!query) return null;
   if (displayLower.startsWith(query) || key.startsWith(query)) return 0;
-  if (displayLower.includes(query) || key.includes(query)) return 1;
+  if (anyWordStartsWith(displayLower, query) || anyWordStartsWith(key, query)) return 1;
+  if (query.length >= 4) {
+    const fuzzyCandidates = [key, displayLower.replace(/\s+/g, '')];
+    for (const candidate of fuzzyCandidates) {
+      if (fuzzySuggestionDistance(candidate, query) != null) return 2;
+    }
+    if (displayLower.includes(query) || key.includes(query)) return 3;
+  }
   return null;
 }
 
@@ -406,7 +474,7 @@ export function searchCatalogSuggestions(prefix: string, limit = 8): CatalogSugg
   for (const row of CATALOG_SUGGESTION_INDEX) {
     const key = row.normalized_name;
     const displayLower = row.display_name.toLowerCase();
-    const tier = matchTier(displayLower, key, query);
+    const tier = scoreSuggestionMatch(displayLower, key, query);
     if (tier === null) continue;
     scored.push({ row, tier });
   }

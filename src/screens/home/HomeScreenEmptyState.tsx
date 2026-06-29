@@ -1,26 +1,57 @@
-import React, { useMemo } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import React, { useLayoutEffect, useMemo } from 'react';
+import { View, StyleSheet } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ListModeToggleBar } from '../../components/list/ListModeToggleBar';
 import { useTheme } from '../../design/ThemeContext';
+import { listModeSwapMotion, listModeSwapTiming } from '../../ui/motion/controls';
 
 type Props = {
   scrollContentPaddingTop: number;
   scrollContentPaddingBottom: number;
   shoppingMode: 'plan' | 'shop';
   onShoppingModeChange: (mode: 'plan' | 'shop') => void;
-  reorderMode?: boolean;
+  showModeToggle: boolean;
+  /** When the list switcher row is hidden, inset toggle below the status bar. */
+  padTopWhenNoSwitcher: boolean;
+  safeAreaTop: number;
+  reduceMotion: boolean;
+  onRegisterModeSwapStarter?: (starter: (() => void) | null) => void;
 };
 
-/** Empty list branch — Plan/Shop toggle scrolls with content like the populated list. */
 export function HomeScreenEmptyState({
   scrollContentPaddingTop,
   scrollContentPaddingBottom,
   shoppingMode,
   onShoppingModeChange,
-  reorderMode = false,
+  showModeToggle,
+  padTopWhenNoSwitcher,
+  safeAreaTop,
+  reduceMotion,
+  onRegisterModeSwapStarter,
 }: Props) {
   const theme = useTheme();
+  const listContentOpacity = useSharedValue(1);
+
+  useLayoutEffect(() => {
+    if (!onRegisterModeSwapStarter) return;
+    const startModeSwap = () => {
+      if (reduceMotion) return;
+      listContentOpacity.value = listModeSwapMotion.contentFadeMin;
+      listContentOpacity.value = withTiming(1, listModeSwapTiming(reduceMotion));
+    };
+    onRegisterModeSwapStarter(startModeSwap);
+    return () => onRegisterModeSwapStarter(null);
+  }, [onRegisterModeSwapStarter, reduceMotion, listContentOpacity, shoppingMode]);
+
+  const listContentFadeStyle = useAnimatedStyle(() => ({
+    opacity: listContentOpacity.value,
+  }));
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -41,22 +72,24 @@ export function HomeScreenEmptyState({
   );
 
   return (
-    <ScrollView
-      style={styles.scroll}
+    <Animated.ScrollView
+      style={[styles.scroll, listContentFadeStyle]}
       contentContainerStyle={[
         styles.content,
         { paddingTop: scrollContentPaddingTop, paddingBottom: scrollContentPaddingBottom },
+        padTopWhenNoSwitcher && { paddingTop: safeAreaTop + theme.spacing.xs },
       ]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={styles.modeToggleWrap}>
-        <ListModeToggleBar
-          shoppingMode={shoppingMode}
-          onShoppingModeChange={onShoppingModeChange}
-          reorderMode={reorderMode}
-        />
-      </View>
+      {showModeToggle ? (
+        <View style={styles.modeToggleWrap}>
+          <ListModeToggleBar
+            shoppingMode={shoppingMode}
+            onShoppingModeChange={onShoppingModeChange}
+          />
+        </View>
+      ) : null}
       <View style={styles.emptyWrap}>
         <EmptyState
           icon="cart-outline"
@@ -66,6 +99,6 @@ export function HomeScreenEmptyState({
           glass={false}
         />
       </View>
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }

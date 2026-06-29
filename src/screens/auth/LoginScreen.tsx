@@ -11,7 +11,15 @@ import { TextField } from '../../components/ui/TextField';
 import { KeyboardSafeForm } from '../../components/ui/KeyboardSafeForm';
 import { supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 import { createOnboardingLayout, onboardingPageGradient } from '../onboarding/onboardingTokens';
+import {
+  authCardAfterHeroStyle,
+  authFieldBeforeLinkStyle,
+  authFieldContainerStyle,
+  authFooterLinkStyle,
+  authForgotLinkStyle,
+} from '../../design/authLayout';
 import { SignInValueStrip } from '../../components/auth/SignInValueStrip';
+import { AuthProviderStack } from '../../components/auth/AuthProviderStack';
 import { AppleSignInButton } from '../../components/auth/AppleSignInButton';
 import { signInWithApple } from '../../services/appleSignInService';
 import { logFunnelEvent } from '../../services/funnelAnalyticsService';
@@ -46,22 +54,8 @@ export function LoginScreen(_props: Props) {
         container: { flex: 1 },
         fadeContent: { flex: 1 },
         scroll: { flexGrow: 1 },
-        card: { marginTop: theme.spacing.md, marginBottom: theme.spacing.lg },
-        forgotRow: {
-          alignSelf: 'flex-end',
-          minHeight: 44,
-          justifyContent: 'center',
-          marginBottom: theme.spacing.md,
-          paddingVertical: 0,
-        },
-        link: {
-          alignSelf: 'center',
-          minHeight: 44,
-          justifyContent: 'center',
-          paddingVertical: theme.spacing.sm,
-        },
       }),
-    [theme],
+    [],
   );
 
   useEffect(() => {
@@ -164,7 +158,7 @@ export function LoginScreen(_props: Props) {
 
             <SignInValueStrip />
 
-            <Card style={styles.card}>
+            <Card style={authCardAfterHeroStyle}>
               <TextField
                 label="Email"
                 value={email}
@@ -174,6 +168,7 @@ export function LoginScreen(_props: Props) {
                 autoCapitalize="none"
                 autoCorrect={false}
                 error={error ?? undefined}
+                containerStyle={authFieldContainerStyle}
               />
               <TextField
                 label="Password"
@@ -181,11 +176,11 @@ export function LoginScreen(_props: Props) {
                 onChangeText={setPassword}
                 placeholder="••••••••"
                 secureTextEntry
-                containerStyle={{ marginBottom: theme.spacing.xs }}
+                containerStyle={authFieldBeforeLinkStyle}
               />
               <TouchableOpacity
                 onPress={() => navigation.navigate('ForgotPassword')}
-                style={styles.forgotRow}
+                style={authForgotLinkStyle}
                 activeOpacity={0.7}
                 accessibilityRole="button"
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -193,11 +188,17 @@ export function LoginScreen(_props: Props) {
                 <Text style={[theme.typography.footnote, { color: theme.accent }]}>Forgot password?</Text>
               </TouchableOpacity>
               <Button title="Log in" onPress={handleLogin} loading={loading} />
-              <AppleSignInButton onPress={() => void handleAppleSignIn()} disabled={loading} />
+              <AuthProviderStack>
+                <AppleSignInButton
+                  title="Sign in with Apple"
+                  onPress={() => void handleAppleSignIn()}
+                  disabled={loading}
+                />
+              </AuthProviderStack>
             </Card>
             <TouchableOpacity
               onPress={() => navigation.navigate('Signup')}
-              style={styles.link}
+              style={authFooterLinkStyle}
               activeOpacity={0.7}
             >
               <Text style={[theme.typography.callout, { color: theme.accent }]}>
