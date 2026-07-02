@@ -25,11 +25,12 @@ import { queryKeys } from '../../query/keys';
 import { prefetchShareList } from '../../query/shareListBundle';
 import { clearPersistedQueryCache } from '../../query/reactQueryPersistence';
 import {
-  getRevenueCatIosApiKey,
-  isRevenueCatNativeLayerSkipped,
+  fetchPremiumEntitlementActive,
   presentAppleSubscriptionManagement,
+  shouldEnforceIosSubscriptionGate,
 } from '../../services/purchasesService';
 import { useContextualPaywall } from '../../context/ContextualPaywallContext';
+import type { ContextualPaywallReason } from '../../context/contextualPaywallReasons';
 import { restorePurchasesWithUserFeedback } from '../../services/restorePurchasesFlow';
 import { shouldShowQaSettingsTools } from '../../constants/qaSettingsTools';
 import { WelcomeIntroScreen } from '../auth/WelcomeIntroScreen';
@@ -68,10 +69,13 @@ export function SettingsScreen() {
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [paywallBusy, setPaywallBusy] = useState(false);
   const [introPreviewVisible, setIntroPreviewVisible] = useState(false);
+  const [subscribed, setSubscribed] = useState<boolean | null>(null);
 
   const showQaSettingsTools = shouldShowQaSettingsTools(userEmail);
+  const showSubscriptionPlanRow =
+    Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate();
   const { previewReviewPrompt } = useAppReview();
-  const { presentPaywall } = useContextualPaywall();
+  const { presentPaywall, presentPaywallPreview } = useContextualPaywall();
 
   useFocusEffect(
     useCallback(() => {
@@ -79,6 +83,22 @@ export function SettingsScreen() {
         prefetchShareList(userId, queryClient);
       }
     }, [userId, queryClient])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!showSubscriptionPlanRow) {
+        setSubscribed(null);
+        return;
+      }
+      let cancelled = false;
+      void fetchPremiumEntitlementActive().then((ok) => {
+        if (!cancelled) setSubscribed(ok);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [showSubscriptionPlanRow])
   );
 
   const headerChrome = (
@@ -92,6 +112,13 @@ export function SettingsScreen() {
     if (userId) return undefined;
     return 'Sign in to use your account';
   }, [userEmail, isAuthReady, userId]);
+
+  const planHubSubtitle = useMemo(() => {
+    if (!showSubscriptionPlanRow) return undefined;
+    if (subscribed === true) return 'Listio+ active · Unlimited items, meals, and recipes';
+    if (subscribed === false) return 'View plans and pricing';
+    return 'Checking your plan…';
+  }, [showSubscriptionPlanRow, subscribed]);
 
   const hubVisibility = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -121,6 +148,16 @@ export function SettingsScreen() {
         'family',
         'invite',
       ]),
+      subscriptionPlan:
+        showSubscriptionPlanRow &&
+        match('Subscription', 'Listio+', planHubSubtitle, [
+          'plan',
+          'subscribe',
+          'pricing',
+          'premium',
+          'listio',
+          'upgrade',
+        ]),
       subscriptionRestore:
         Platform.OS === 'ios' &&
         match('Subscription', 'Restore purchases', 'Get Listio+ back if you already subscribed', [
@@ -231,7 +268,7 @@ export function SettingsScreen() {
         ]),
       session: isSyncEnabled() && match('Session', 'Log out', '', ['sign out', 'signout', 'logout', 'session']),
     };
-  }, [searchQuery, profileSubtitle, showQaSettingsTools]);
+  }, [searchQuery, profileSubtitle, showQaSettingsTools, showSubscriptionPlanRow, planHubSubtitle]);
 
   const hasHubSearchMatches = useMemo(() => {
     const q = searchQuery.trim();
@@ -239,6 +276,7 @@ export function SettingsScreen() {
     const v = hubVisibility;
     return (
       v.account ||
+      v.subscriptionPlan ||
       v.subscriptionRestore ||
       v.subscriptionManage ||
       v.notifications ||
@@ -308,35 +346,35 @@ export function SettingsScreen() {
     })();
   }, []);
 
-  const handleShowPaywall = async () => {
-    if (Platform.OS !== 'ios') {
-      Alert.alert('Not available', 'The paywall is currently iOS-only.');
-      return;
-    }
-    if (isRevenueCatNativeLayerSkipped()) {
-      Alert.alert(
-        'Not available',
-        'Subscriptions aren’t available in this build.'
-      );
-      return;
-    }
-    if (!getRevenueCatIosApiKey()) {
-      Alert.alert(
-        'Not configured',
-        'Subscriptions aren’t set up in this build. Install the App Store version to subscribe.'
-      );
+  const handleShowPaywall = async (options?: {
+    reason?: ContextualPaywallReason | null;
+    preview?: boolean;
+  }) => {
+    if (options?.preview) {
+      setPaywallBusy(true);
+      try {
+        await presentPaywallPreview(options.reason ?? 'smart_add');
+      } catch (e) {
+        Alert.alert('Could not preview paywall', e instanceof Error ? e.message : 'Please try again.');
+      } finally {
+        setPaywallBusy(false);
+      }
       return;
     }
 
     setPaywallBusy(true);
     try {
-      await presentPaywall();
+      await presentPaywall(options?.reason ?? null, { feedbackOnSkip: true });
     } catch (e) {
       Alert.alert('Could not present paywall', e instanceof Error ? e.message : 'Please try again.');
     } finally {
       setPaywallBusy(false);
     }
   };
+
+  const openPlanScreen = useCallback(() => {
+    navigation.navigate('Plan');
+  }, [navigation]);
 
   const handleLoadDemo = async () => {
     const userId = await getUserId();
@@ -431,8 +469,22 @@ export function SettingsScreen() {
             ) : null}
 
             {Platform.OS === 'ios' &&
-            (hubVisibility.subscriptionRestore || hubVisibility.subscriptionManage) ? (
+            (hubVisibility.subscriptionPlan ||
+              hubVisibility.subscriptionRestore ||
+              hubVisibility.subscriptionManage) ? (
               <ListSection title="Subscription" {...settingsRowListSectionProps}>
+                {hubVisibility.subscriptionPlan ? (
+                  <ListRow
+                    title="Listio+"
+                    subtitle={planHubSubtitle}
+                    onPress={openPlanScreen}
+                    rightAccessory={<Chevron />}
+                    showSeparator={
+                      hubVisibility.subscriptionRestore || hubVisibility.subscriptionManage
+                    }
+                    fullWidthDivider
+                  />
+                ) : null}
                 {hubVisibility.subscriptionRestore ? (
                   <ListRow
                     title="Restore purchases"
@@ -445,7 +497,7 @@ export function SettingsScreen() {
                     fullWidthDivider
                   />
                 ) : null}
-                {hubVisibility.subscriptionManage ? (
+                {hubVisibility.subscriptionManage && subscribed === true ? (
                   <ListRow
                     title="Manage subscription"
                     subtitle="Cancel, change plan, or update payment"
@@ -553,7 +605,7 @@ export function SettingsScreen() {
                   <ListRow
                     title="Show paywall"
                     subtitle="See subscription plans and pricing"
-                    onPress={paywallBusy ? undefined : handleShowPaywall}
+                    onPress={paywallBusy ? undefined : () => void handleShowPaywall()}
                     rightAccessory={
                       paywallBusy ? (
                         <ActivityIndicator size="small" color={theme.accent} />
@@ -565,7 +617,8 @@ export function SettingsScreen() {
                       hubVisibility.replayOnboarding ||
                       hubVisibility.demoReplayIntro ||
                       hubVisibility.demoReviewPrompt ||
-                      hubVisibility.demoDeleteData
+                      hubVisibility.demoDeleteData ||
+                      hubVisibility.demoCustomPaywall
                     }
                     fullWidthDivider
                   />
@@ -628,8 +681,18 @@ export function SettingsScreen() {
                   <ListRow
                     title="Preview Listio+ paywall"
                     subtitle="Custom paywall (7-day or 2-week trial)"
-                    onPress={() => void presentPaywall('smart_add')}
-                    rightAccessory={<Chevron />}
+                    onPress={
+                      paywallBusy
+                        ? undefined
+                        : () => void handleShowPaywall({ preview: true, reason: 'smart_add' })
+                    }
+                    rightAccessory={
+                      paywallBusy ? (
+                        <ActivityIndicator size="small" color={theme.accent} />
+                      ) : (
+                        <Chevron />
+                      )
+                    }
                     showSeparator={hubVisibility.buildHealth}
                     fullWidthDivider
                   />

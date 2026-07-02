@@ -47,6 +47,13 @@ export function formatBuildHealthAlert(snapshot: BuildHealthSnapshot): string {
     `RevenueCat iOS API key in build: ${snapshot.revenueCatIosKeyPresent ? 'yes' : 'no'}`,
     `iOS subscription gate enforced: ${snapshot.iosSubscriptionGateEnforced ? 'yes' : 'no'}`,
     `IAP gate disabled via env: ${snapshot.iosSubscriptionGateDisabledViaEnv ? 'yes' : 'no'}`,
+    `Paywall ready (iOS + gate + RC key): ${
+      snapshot.platform === 'ios' &&
+      snapshot.iosSubscriptionGateEnforced &&
+      snapshot.revenueCatIosKeyPresent
+        ? 'yes'
+        : 'no'
+    }`,
     `Sentry DSN in build: ${snapshot.sentryConfigured ? 'yes' : 'no'}`,
     `AI category cache: ${snapshot.aiCategoryCacheEntries} entries (~${snapshot.aiCategoryCacheEstimatedBytes} bytes)`,
   ];
