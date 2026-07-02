@@ -181,3 +181,50 @@ export async function setActiveShoppingListId(listId: string): Promise<void> {
   await patchUserPreferencesIfSync({ listUi: { activeListId: listId } });
   invalidateDefaultListIdCache();
 }
+
+export async function renameShoppingList(listId: string, name: string): Promise<ShoppingList> {
+  if (!isSyncEnabled()) throw new Error('Sign in to rename lists.');
+  const scopeId = await resolveDataScopeId();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Enter a list name.');
+
+  const { data, error } = await supabase
+    .from('shopping_lists')
+    .update({ name: trimmed })
+    .eq('id', listId)
+    .eq('household_id', scopeId)
+    .select('id, household_id, name, is_default, sort_order, created_at, updated_at')
+    .single();
+
+  if (error) {
+    throw new Error(mapDbErrorToUserMessage(error, 'Could not rename list.'));
+  }
+  return data as ShoppingList;
+}
+
+export async function deleteShoppingList(listId: string): Promise<void> {
+  if (!isSyncEnabled()) throw new Error('Sign in to delete lists.');
+  const scopeId = await resolveDataScopeId();
+  const lists = await fetchShoppingLists();
+  if (lists.length <= 1) {
+    throw new Error('You need at least one list.');
+  }
+  const target = lists.find((list) => list.id === listId);
+  if (!target) {
+    throw new Error('List not found.');
+  }
+  if (target.is_default) {
+    throw new Error('Your main list cannot be deleted.');
+  }
+
+  const { error } = await supabase
+    .from('shopping_lists')
+    .delete()
+    .eq('id', listId)
+    .eq('household_id', scopeId);
+
+  if (error) {
+    throw new Error(mapDbErrorToUserMessage(error, 'Could not delete list.'));
+  }
+  invalidateDefaultListIdCache();
+}
