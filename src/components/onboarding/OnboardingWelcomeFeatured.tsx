@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Animated from 'react-native-reanimated';
 import { useTheme } from '../../design/ThemeContext';
 import { spacing } from '../../design/spacing';
 import { radius } from '../../design/radius';

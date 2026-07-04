@@ -1,4 +1,5 @@
 import { PixelRatio } from 'react-native';
+import { computeScrollBottomInset } from '../src/design/layoutMetrics';
 import {
   ACCESSIBILITY_FONT_SCALE_EXTRA_LARGE,
   ACCESSIBILITY_FONT_SCALE_LARGE,
@@ -30,7 +31,6 @@ describe('useAccessibilityFontScale helpers', () => {
 
 describe('computeScrollBottomInset', () => {
   it('sums footer height and extra padding', () => {
-    const { computeScrollBottomInset } = require('../src/design/layoutMetrics');
     expect(computeScrollBottomInset({ footerHeight: 120, extra: 8 })).toBe(128);
   });
 });
