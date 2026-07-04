@@ -2,19 +2,12 @@ import React from 'react';
 import { Alert, Platform, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
-const mockFetchPremium = jest.fn(async () => false);
-const mockShouldEnforceGate = jest.fn(() => true);
-const mockRcSkipped = jest.fn(() => false);
-const mockGetApiKey = jest.fn(() => 'test-rc-key');
-const mockShowInfo = jest.fn();
-const mockLogger = jest.fn();
-
 jest.mock('../src/services/purchasesService', () => ({
-  fetchPremiumEntitlementActive: (...args: unknown[]) => mockFetchPremium(...args),
-  getRevenueCatIosApiKey: () => mockGetApiKey(),
-  isRevenueCatNativeLayerSkipped: () => mockRcSkipped(),
+  fetchPremiumEntitlementActive: jest.fn(async () => false),
+  getRevenueCatIosApiKey: jest.fn(() => 'test-rc-key'),
+  isRevenueCatNativeLayerSkipped: jest.fn(() => false),
   purchaseListioPlusPackage: jest.fn(async () => true),
-  shouldEnforceIosSubscriptionGate: () => mockShouldEnforceGate(),
+  shouldEnforceIosSubscriptionGate: jest.fn(() => true),
 }));
 
 jest.mock('../src/services/listioPaywallOfferings', () => ({
@@ -31,15 +24,17 @@ jest.mock('../src/services/restorePurchasesFlow', () => ({
 }));
 
 jest.mock('../src/utils/appToast', () => ({
-  showInfo: (...args: unknown[]) => mockShowInfo(...args),
+  showInfo: jest.fn(),
 }));
 
 jest.mock('../src/utils/logger', () => ({
-  logger: { warnRelease: (...args: unknown[]) => mockLogger(...args) },
+  logger: { warnRelease: jest.fn() },
 }));
 
 jest.mock('../src/components/paywall/ListioPaywallSheet', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- Jest mock factory
   const ReactActual = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- Jest mock factory
   const { Text: RNText } = require('react-native');
   return {
     ListioPaywallSheet: ({ visible, previewOnly }: { visible: boolean; previewOnly?: boolean }) =>
@@ -73,6 +68,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 jest.mock('react-native-reanimated', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- Jest mock factory
   const RN = require('react-native');
   return {
     default: { View: RN.View },
@@ -88,6 +84,23 @@ import {
   ContextualPaywallProvider,
   useContextualPaywall,
 } from '../src/context/ContextualPaywallContext';
+// eslint-disable-next-line import/first
+import {
+  fetchPremiumEntitlementActive,
+  getRevenueCatIosApiKey,
+  shouldEnforceIosSubscriptionGate,
+} from '../src/services/purchasesService';
+// eslint-disable-next-line import/first
+import { showInfo } from '../src/utils/appToast';
+
+const mockFetchPremium = fetchPremiumEntitlementActive as jest.MockedFunction<
+  typeof fetchPremiumEntitlementActive
+>;
+const mockGetApiKey = getRevenueCatIosApiKey as jest.MockedFunction<typeof getRevenueCatIosApiKey>;
+const mockShouldEnforceGate = shouldEnforceIosSubscriptionGate as jest.MockedFunction<
+  typeof shouldEnforceIosSubscriptionGate
+>;
+const mockShowInfo = showInfo as jest.MockedFunction<typeof showInfo>;
 
 function Probe({ apiRef }: { apiRef: React.MutableRefObject<ReturnType<typeof useContextualPaywall> | null> }) {
   const value = useContextualPaywall();
@@ -104,7 +117,6 @@ describe('ContextualPaywallProvider', () => {
     apiRef.current = null;
     mockFetchPremium.mockResolvedValue(false);
     mockShouldEnforceGate.mockReturnValue(true);
-    mockRcSkipped.mockReturnValue(false);
     mockGetApiKey.mockReturnValue('test-rc-key');
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'ios' });
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
