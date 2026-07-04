@@ -298,6 +298,7 @@ export function HomeScreenZoneList({
         ) : null}
         <Pressable
           onPress={zoneClearMode && !reorderMode ? onExitZoneClearMode : undefined}
+          pointerEvents={reorderMode ? 'box-none' : 'auto'}
         >
           <View
             style={[styles.headerInteractiveBlock, reorderMode && styles.headerDimmed]}
@@ -312,25 +313,25 @@ export function HomeScreenZoneList({
               onFilterChange={handleFilterChange}
               isShopMode={shoppingMode === 'shop'}
             />
-            <ListSummaryStrip
-              mode={shoppingMode}
-              totalItems={isFiltered ? filteredItems.length : safeItems.length}
-              zoneCount={isFiltered ? filteredZoneCount : populatedZoneCount}
-              itemsLeft={isFiltered ? filteredRemaining : remaining}
-              sectionsLeft={isFiltered ? filteredSectionsLeft : sectionsLeft}
-              nextSection={isFiltered ? null : nextSectionForSummary}
-              onNextSectionPress={isFiltered ? undefined : scrollToNextSection}
-              onListActionsPress={reorderMode ? undefined : openListActionsSheet}
-              reorderToolbar={reorderToolbar}
-            />
-            {shoppingMode === 'shop' && !reorderMode ? (
-              <ShopProgressBar
-                checked={checkedCount}
-                total={progressTotal}
-                reduceMotion={reduceMotion}
-              />
-            ) : null}
           </View>
+          <ListSummaryStrip
+            mode={shoppingMode}
+            totalItems={isFiltered ? filteredItems.length : safeItems.length}
+            zoneCount={isFiltered ? filteredZoneCount : populatedZoneCount}
+            itemsLeft={isFiltered ? filteredRemaining : remaining}
+            sectionsLeft={isFiltered ? filteredSectionsLeft : sectionsLeft}
+            nextSection={isFiltered || reorderMode ? null : nextSectionForSummary}
+            onNextSectionPress={isFiltered || reorderMode ? undefined : scrollToNextSection}
+            onListActionsPress={reorderMode ? undefined : openListActionsSheet}
+            reorderToolbar={reorderToolbar}
+          />
+          {shoppingMode === 'shop' && !reorderMode ? (
+            <ShopProgressBar
+              checked={checkedCount}
+              total={progressTotal}
+              reduceMotion={reduceMotion}
+            />
+          ) : null}
         </Pressable>
       </View>
     ),
