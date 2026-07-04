@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useTheme } from '../../design/ThemeContext';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
 import { onboardingItemEnter } from './onboardingMotion';
+import { AppText } from '../ui/AppText';
 
 type Props = {
   eyebrow?: string;
@@ -17,18 +18,23 @@ export function OnboardingStepHeader({ eyebrow, title, subtitle, centered = fals
   const theme = useTheme();
   const reduced = useReduceMotion();
   const align = centered ? 'center' : ('left' as const);
+  const titleStyle = theme.isExtraLargeAccessibilityText
+    ? theme.typography.title3
+    : theme.typography.title2;
 
   return (
     <Animated.View entering={onboardingItemEnter(reduced, 0)} style={styles.wrap}>
       {eyebrow ? (
         <View style={[styles.eyebrowRow, centered && styles.centeredRow]}>
           <View style={[styles.eyebrowDot, { backgroundColor: theme.accent }]} />
-          <Text style={[theme.typography.caption1, styles.eyebrow, { color: theme.accent }]}>{eyebrow}</Text>
+          <AppText variant="decorative" style={[theme.typography.caption1, styles.eyebrow, { color: theme.accent }]}>
+            {eyebrow}
+          </AppText>
         </View>
       ) : null}
-      <Text
+      <AppText
         style={[
-          theme.typography.title2,
+          titleStyle,
           {
             color: theme.textPrimary,
             textAlign: align,
@@ -37,20 +43,19 @@ export function OnboardingStepHeader({ eyebrow, title, subtitle, centered = fals
         ]}
       >
         {title}
-      </Text>
+      </AppText>
       {subtitle ? (
-        <Text
+        <AppText
           style={[
             theme.typography.body,
             {
               color: theme.textSecondary,
-              lineHeight: 24,
               textAlign: align,
             },
           ]}
         >
           {subtitle}
-        </Text>
+        </AppText>
       ) : null}
     </Animated.View>
   );

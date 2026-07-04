@@ -47,7 +47,11 @@ Run on a **physical iPhone** before App Store submission. Check each path; note 
 - [ ] Light mode all main tabs
 - [ ] Dark mode all main tabs
 - [ ] Reduce Motion enabled → animations respect setting
+- [ ] Settings → Accessibility → Display & Text Size → **Large / Extra Large / AX1**
+- [ ] Welcome intro: all copy scrollable; no text under "Create account"
+- [ ] Onboarding steps 0 and 3: preview / "Try first" cards fully readable; "Get started" never covers content
 - [ ] VoiceOver on List item row and Shop mode check
+- [ ] VoiceOver: onboarding CTAs and "Try first" cards reachable
 
 ---
 

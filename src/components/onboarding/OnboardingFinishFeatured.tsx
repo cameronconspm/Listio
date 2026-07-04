@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { useTheme } from '../../design/ThemeContext';
@@ -9,10 +9,11 @@ import { OnboardingStagger } from './OnboardingStagger';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
 import { onboardingCelebrateEnter } from './onboardingMotion';
 import { Mascot } from '../brand/Mascot';
+import { AppText } from '../ui/AppText';
 
 const NEXT_STEPS = [
   { icon: 'list' as const, label: 'List', hint: 'Add your first items in Plan' },
-  { icon: 'restaurant-outline' as const, label: 'Meals', hint: 'Sketch this week’s dinners' },
+  { icon: 'restaurant-outline' as const, label: 'Meals', hint: "Sketch this week's dinners" },
   { icon: 'book-outline' as const, label: 'Recipes', hint: 'Save a dish you cook often' },
 ];
 
@@ -20,6 +21,7 @@ const NEXT_STEPS = [
 export function OnboardingFinishFeatured() {
   const theme = useTheme();
   const reduced = useReduceMotion();
+  const useVerticalSteps = theme.isLargeAccessibilityText;
 
   return (
     <View style={styles.block}>
@@ -34,7 +36,8 @@ export function OnboardingFinishFeatured() {
             theme.shadows.floating,
           ]}
         >
-          <Text
+          <AppText
+            variant="decorative"
             style={[
               theme.typography.caption1,
               {
@@ -47,29 +50,36 @@ export function OnboardingFinishFeatured() {
             ]}
           >
             You are all set
-          </Text>
+          </AppText>
           <Animated.View entering={onboardingCelebrateEnter(reduced)}>
             <Mascot mood="hero" size={104} accessibilityLabel="Listio mascot" />
           </Animated.View>
-          <Text style={[theme.typography.title3, { color: theme.textPrimary, textAlign: 'center', marginTop: theme.spacing.md }]}>
+          <AppText
+            style={[theme.typography.title3, { color: theme.textPrimary, textAlign: 'center', marginTop: theme.spacing.md }]}
+          >
             Ready to plan and shop
-          </Text>
-          <Text style={[theme.typography.subhead, { color: theme.textSecondary, textAlign: 'center', marginTop: theme.spacing.sm, lineHeight: 21 }]}>
+          </AppText>
+          <AppText
+            style={[theme.typography.subhead, { color: theme.textSecondary, textAlign: 'center', marginTop: theme.spacing.sm }]}
+          >
             Your list, meal week, and recipes are connected. Tap Get started to open List.
-          </Text>
+          </AppText>
         </View>
       </OnboardingStagger>
 
       <OnboardingStagger index={2}>
-        <Text style={[theme.typography.footnote, { color: theme.textSecondary, marginTop: theme.spacing.lg, marginBottom: theme.spacing.sm, fontWeight: '600' }]}>
+        <AppText
+          style={[theme.typography.footnote, { color: theme.textSecondary, marginTop: theme.spacing.lg, marginBottom: theme.spacing.sm, fontWeight: '600' }]}
+        >
           Try first
-        </Text>
-        <View style={styles.nextRow}>
+        </AppText>
+        <View style={[styles.nextRow, useVerticalSteps && styles.nextColumn]}>
           {NEXT_STEPS.map((step) => (
             <View
               key={step.label}
               style={[
                 styles.nextCard,
+                useVerticalSteps && styles.nextCardStacked,
                 {
                   backgroundColor: theme.surface,
                   borderColor: theme.divider,
@@ -80,12 +90,18 @@ export function OnboardingFinishFeatured() {
               <View style={[styles.nextIcon, { backgroundColor: theme.accent + '16' }]}>
                 <Ionicons name={step.icon} size={18} color={theme.accent} />
               </View>
-              <Text style={[theme.typography.caption1, { color: theme.textPrimary, fontWeight: '700', marginTop: 8 }]}>
+              <AppText
+                variant="decorative"
+                style={[theme.typography.caption1, { color: theme.textPrimary, fontWeight: '700', marginTop: 8 }]}
+              >
                 {step.label}
-              </Text>
-              <Text style={[theme.typography.caption2, { color: theme.textSecondary, marginTop: 4, lineHeight: 14, textAlign: 'center' }]}>
+              </AppText>
+              <AppText
+                variant="decorative"
+                style={[theme.typography.caption2, { color: theme.textSecondary, marginTop: 4, textAlign: 'center' }]}
+              >
                 {step.hint}
-              </Text>
+              </AppText>
             </View>
           ))}
         </View>
@@ -106,13 +122,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
   },
+  nextColumn: {
+    flexDirection: 'column',
+  },
   nextCard: {
     flex: 1,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.sm,
     alignItems: 'center',
-    minHeight: 100,
+  },
+  nextCardStacked: {
+    flex: 0,
+    width: '100%',
+    padding: spacing.md,
   },
   nextIcon: {
     width: 36,
