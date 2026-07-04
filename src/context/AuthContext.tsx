@@ -73,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         primeDefaultListId(null);
       }
     },
-    [queryClient]
+    []
   );
 
   useEffect(() => {
