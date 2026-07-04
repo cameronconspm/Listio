@@ -13,7 +13,6 @@ import {
   bootstrapSupabaseAuthSession,
 } from '../services/supabaseClient';
 import { clearPersistedQueryCache } from '../query/reactQueryPersistence';
-import { prefetchHomeListBundle } from '../query/homeListBundle';
 import { primeDefaultListId } from '../services/shoppingListService';
 import { primeDataScope } from '../services/syncInsertScope';
 import { flushFunnelAnalyticsQueue } from '../services/funnelAnalyticsService';
@@ -68,14 +67,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         primeDataScope(uid);
         primeDefaultListId(uid);
         void flushFunnelAnalyticsQueue();
-        prefetchHomeListBundle(uid, queryClient);
         void maybeImportLocalDataOnSignInLazy(uid);
       } else {
         primeDataScope(null);
         primeDefaultListId(null);
       }
     },
-    [queryClient]
+    []
   );
 
   useEffect(() => {

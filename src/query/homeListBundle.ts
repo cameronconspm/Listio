@@ -29,6 +29,21 @@ export function getCachedHomeListBundle(
   return entries.find(([, data]) => data !== undefined)?.[1];
 }
 
+/** Merge newly inserted rows into the cached home bundle (e.g. onboarding starter seed). */
+export function mergeItemsIntoHomeListCache(
+  queryClient: QueryClient,
+  userId: string,
+  listId: string,
+  items: ListItem[]
+): void {
+  if (items.length === 0) return;
+  queryClient.setQueryData<HomeListBundle>(queryKeys.homeList(userId, listId), (prev) => ({
+    listItems: [...(prev?.listItems ?? []), ...items],
+    stores: prev?.stores ?? [],
+    store: prev?.store ?? null,
+  }));
+}
+
 /**
  * Single fetch used by the home list tab query: list rows + store context.
  * When `queryClient` is passed, stores are loaded via `fetchQuery` so the Store tab shares

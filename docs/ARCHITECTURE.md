@@ -196,4 +196,5 @@ See also [performance-slos.md](./performance-slos.md).
 
 | Date | Change |
 |------|--------|
+| 2026-07-04 | Defer home-list prefetch until onboarding completes; merge starter items into React Query cache after seed |
 | 2026-06-08 | Initial architecture documentation |

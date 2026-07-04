@@ -41,6 +41,8 @@ import {
   subscribeNotificationOpenHandlers,
 } from './services/notificationNavigationService';
 import { scheduleAfterNativeReady } from './utils/scheduleAfterNativeReady';
+import { useQueryClient } from '@tanstack/react-query';
+import { prefetchHomeListBundle } from './query/homeListBundle';
 import { resolveExpoNotificationsApi, unwrapExpoModule } from './utils/unwrapExpoModule';
 import { RootErrorBoundary } from './components/RootErrorBoundary';
 import { logger } from './utils/logger';
@@ -109,6 +111,7 @@ const misconfigStyles = StyleSheet.create({
 
 function AppShell() {
   const { isAuthenticated, userId, userEmail } = useAuth();
+  const queryClient = useQueryClient();
   const themePreferenceReady = useThemePreferenceReady();
   const misconfigured = isSupabaseSyncRequiredButMisconfigured();
   const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
@@ -250,6 +253,12 @@ function AppShell() {
       clearTimeout(onboardingTimeoutId);
     };
   }, [isAuthenticated, misconfigured]);
+
+  useEffect(() => {
+    if (typeof userId !== 'string' || !userId) return;
+    if (onboardingComplete !== true) return;
+    void prefetchHomeListBundle(userId, queryClient);
+  }, [userId, onboardingComplete, queryClient]);
 
   const resetOnboardingCompletion = useCallback(async () => {
     try {

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, Platform, Pressable } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +28,9 @@ import { OnboardingTabsOrientation } from '../../components/onboarding/Onboardin
 import { OnboardingStagger } from '../../components/onboarding/OnboardingStagger';
 import { useAuth } from '../../context/AuthContext';
 import { insertListItems, type ListItemInsert } from '../../services/listService';
+import { resolveActiveListId } from '../../services/shoppingListService';
+import { mergeItemsIntoHomeListCache } from '../../query/homeListBundle';
+import { invalidateListData } from '../../query/invalidate';
 import { STARTER_GROCERIES } from '../../constants/starterGroceries';
 import { normalize } from '../../utils/normalize';
 import { logger } from '../../utils/logger';
@@ -46,6 +50,7 @@ type Props = {
 export function OnboardingFlowScreen({ onFinished }: Props) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
   const { userId } = useAuth();
   const [step, setStep] = useState(0);
   const [finishBusy, setFinishBusy] = useState(false);
@@ -88,7 +93,10 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
       linked_meal_ids: [],
     }));
     try {
-      await insertListItems(userId, items);
+      const inserted = await insertListItems(userId, items);
+      const listId = await resolveActiveListId();
+      mergeItemsIntoHomeListCache(queryClient, userId, listId, inserted);
+      await invalidateListData(queryClient, userId);
     } catch (e) {
       // Non-fatal: never block onboarding if the seed write fails.
       logger.warn('onboarding: failed to seed starter list', {
