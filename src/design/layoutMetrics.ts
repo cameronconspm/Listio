@@ -143,3 +143,17 @@ export const defaultLayoutMetrics: LayoutMetrics = {
   layoutScale: 1,
   fontScale: 1,
 };
+
+/** Scroll padding below content when a pinned footer is measured via `onLayout`. */
+export function computeScrollBottomInset(options: {
+  footerHeight: number;
+  extra?: number;
+}): number {
+  const { footerHeight, extra = 0 } = options;
+  return roundPx(footerHeight + extra);
+}
+
+/** Fallback footer height before `onLayout` on pinned onboarding CTAs. */
+export function defaultOnboardingFooterHeightEstimate(layoutScale = 1): number {
+  return roundPx(96 * layoutScale);
+}

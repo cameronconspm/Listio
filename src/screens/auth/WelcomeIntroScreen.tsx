@@ -32,7 +32,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme, type AppTheme } from '../../design/ThemeContext';
 import { horizontalScrollInsetBleed } from '../../design/layout';
-import { scaleFontPx, scaleLayoutPx } from '../../design/layoutMetrics';
+import { computeScrollBottomInset, scaleFontPx, scaleLayoutPx } from '../../design/layoutMetrics';
 import { Button } from '../../components/ui/Button';
 import { onboardingPageGradient } from '../onboarding/onboardingTokens';
 import { useReduceMotion } from '../../ui/motion/useReduceMotion';
@@ -194,6 +194,7 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
   const navigatingRef = useRef(false);
 
   const [activePage, setActivePage] = useState(0);
+  const [ctaDockHeight, setCtaDockHeight] = useState(0);
   const scrollRef = useRef<Animated.ScrollView>(null);
   /**
    * Timestamp of the last user-initiated scroll. Auto-advance is suppressed
@@ -293,6 +294,19 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
    */
   const isCompactHeight = windowHeight < 720;
   const horizontalPadding = theme.spacing.lg;
+
+  const scrollBottomPad = useMemo(() => {
+    const fallbackDockHeight = insets.bottom + theme.spacing.md + scaleLayoutPx(theme.layoutScale, 120);
+    const measuredOrFallback = ctaDockHeight > 0 ? ctaDockHeight : fallbackDockHeight;
+    return computeScrollBottomInset({
+      footerHeight: measuredOrFallback,
+      extra: theme.spacing.md,
+    });
+  }, [ctaDockHeight, insets.bottom, theme.layoutScale, theme.spacing.md]);
+
+  const handleCtaDockLayout = useCallback((height: number) => {
+    setCtaDockHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height));
+  }, []);
   const icon = useMemo(
     () => ({
       xs: scaleLayoutPx(theme.layoutScale, 12),
@@ -387,6 +401,7 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
         insets,
         horizontalPadding,
         isCompactHeight,
+        isLargeAccessibilityText: theme.isLargeAccessibilityText,
         windowWidth,
         windowHeight,
       }),
@@ -431,7 +446,7 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
 
         <ScrollView
           style={styles.introScroll}
-          contentContainerStyle={styles.introScrollContent}
+          contentContainerStyle={[styles.introScrollContent, { paddingBottom: scrollBottomPad }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -499,7 +514,16 @@ export function WelcomeIntroScreen({ preview = false, onPreviewDismiss }: Welcom
           </View>
         </ScrollView>
 
-        <View style={[styles.ctaDock, { paddingBottom: insets.bottom + theme.spacing.md }]}>
+        <View
+          style={[styles.ctaDock, { paddingBottom: insets.bottom + theme.spacing.md }]}
+          onLayout={(e) => handleCtaDockLayout(e.nativeEvent.layout.height)}
+        >
+          <LinearGradient
+            colors={[`${theme.background}00`, `${theme.background}F2`, theme.background]}
+            locations={[0, 0.2, 1]}
+            style={styles.ctaScrim}
+            pointerEvents="none"
+          />
           <View style={styles.ctaWrap}>
             <Button title="Create account" onPress={handleCreateAccount} />
             <Pressable
@@ -1156,19 +1180,20 @@ type StyleArgs = {
   insets: { top: number; bottom: number };
   horizontalPadding: number;
   isCompactHeight: boolean;
+  isLargeAccessibilityText: boolean;
   windowWidth: number;
   windowHeight: number;
 };
 
 function createStyles(
   theme: AppTheme,
-  { insets, horizontalPadding, isCompactHeight, windowWidth, windowHeight }: StyleArgs,
+  { insets, horizontalPadding, isCompactHeight, isLargeAccessibilityText, windowWidth, windowHeight }: StyleArgs,
 ) {
   const lx = (v: number) => scaleLayoutPx(theme.layoutScale, v);
   const fx = (v: number) => scaleFontPx(theme.fontScale, v);
-  /** Shorter phones: tighter preview so copy + hero fit above pinned CTAs without crowding. */
-  const introTight = windowHeight < 820;
-  const introVeryTight = windowHeight < 700;
+  /** Shorter phones or larger accessibility text: tighter preview so copy + CTAs fit. */
+  const introTight = windowHeight < 820 || isLargeAccessibilityText;
+  const introVeryTight = windowHeight < 700 || isLargeAccessibilityText;
   /**
    * Density tokens. Cards are intentionally tight — they're a *preview* of the
    * real UI, not the UI itself. Defaults are denser than the screens they
@@ -1205,7 +1230,6 @@ function createStyles(
     },
     introScrollContent: {
       flexGrow: 1,
-      paddingBottom: theme.spacing.md,
     },
     brandRow: {
       flexDirection: 'row',
@@ -1669,6 +1693,11 @@ function createStyles(
     },
     ctaDock: {
       paddingTop: theme.spacing.sm,
+      position: 'relative',
+    },
+    ctaScrim: {
+      ...StyleSheet.absoluteFillObject,
+      top: -theme.spacing.lg,
     },
     ctaWrap: {
       gap: theme.spacing.sm,

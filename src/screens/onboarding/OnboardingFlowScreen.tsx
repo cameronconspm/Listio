@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/ThemeContext';
+import { computeScrollBottomInset } from '../../design/layoutMetrics';
 import { markOnboardingCompleted } from '../../services/onboardingService';
 import { shouldEnforceIosSubscriptionGate } from '../../services/purchasesService';
 import { SubscriptionLegalLinks } from '../../components/subscription/SubscriptionLegalLinks';
@@ -51,6 +52,7 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
   const [seedBusy, setSeedBusy] = useState(false);
   const [selectedStarters, setSelectedStarters] = useState<Set<string>>(new Set());
   const [legalTermsExpanded, setLegalTermsExpanded] = useState(false);
+  const [footerHeight, setFooterHeight] = useState(0);
 
   const isDark = theme.colorScheme === 'dark';
   const gradientColors = isDark ? onboardingPageGradient.dark : onboardingPageGradient.light;
@@ -134,9 +136,18 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
           : 'Next'
         : 'Continue';
 
-  const scrollExtraForFooter =
-    step === FINISH_STEP && Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate() ? 168 : 0;
-  const scrollBottomPad = onboardingLayout.scrollBottomInset + insets.bottom + scrollExtraForFooter;
+  const scrollBottomPad = useMemo(() => {
+    const measuredOrFallback =
+      footerHeight > 0 ? footerHeight : onboardingLayout.scrollBottomInset + insets.bottom;
+    return computeScrollBottomInset({
+      footerHeight: measuredOrFallback,
+      extra: theme.spacing.sm,
+    });
+  }, [footerHeight, onboardingLayout.scrollBottomInset, insets.bottom, theme.spacing.sm]);
+
+  const handleFooterHeightChange = useCallback((height: number) => {
+    setFooterHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height));
+  }, []);
 
   const legalFooter =
     Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate() ? (
@@ -291,6 +302,7 @@ export function OnboardingFlowScreen({ onFinished }: Props) {
         disabled={(finishBusy && step === FINISH_STEP) || (seedBusy && step === STARTER_STEP)}
         secondaryAction={secondaryAction}
         footer={step === FINISH_STEP ? legalFooter : null}
+        onHeightChange={handleFooterHeightChange}
       />
     </View>
   );

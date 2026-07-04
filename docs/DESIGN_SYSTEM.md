@@ -499,11 +499,30 @@ import { recipeListSectionProps } from '../design/recipeLayout';
 - Respect **Reduce Motion** for all custom animations
 - Support **light / dark / system** appearance via `useThemePreference()`
 
+### Dynamic Type (Larger Text)
+
+Listio uses two independent font scaling mechanisms:
+
+| Mechanism | Source | Purpose |
+|-----------|--------|---------|
+| `theme.fontScale` | Device width (`computeLayoutMetrics`) | Responsive type between iPhone SE and Pro Max |
+| `theme.accessibilityFontScale` | iOS Dynamic Type / Android font size (`PixelRatio.getFontScale()`) | User accessibility preference |
+
+**Guidelines:**
+
+- **Primary content** (headlines, body, CTAs, legal copy) — use `AppText` with default `variant="content"` (no cap) so Dynamic Type scales freely.
+- **Decorative preview mockups** (onboarding carousel cards, faux list rows, chips) — use `AppText variant="decorative"` (`maxFontSizeMultiplier={1.2}`) so marketing layouts stay stable.
+- **Layout adaptation** — read `theme.isLargeAccessibilityText` (≥ 1.15) or `theme.isExtraLargeAccessibilityText` (≥ 1.3) to switch stacked cards, tighten hero density, or step down headline styles.
+- **Pinned footers** — always measure footer height via `onLayout` and set scroll `paddingBottom` with `computeScrollBottomInset({ footerHeight, extra })`. Add an opaque bottom scrim so scrolled content never shows through the CTA row.
+
+Hook: `useAccessibilityFontScale()` in `src/ui/accessibility/useAccessibilityFontScale.ts`. Values are also on `useTheme()`.
+
 ---
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
+| 2026-07-04 | Dynamic Type support: `accessibilityFontScale` on theme, `AppText` decorative variant, measured pinned-footer scroll padding for onboarding/welcome intro |
 | 2026-06-08 | Initial design system documentation |
 | 2026-06-28 | Full rewrite: zone/aisle system, domain layout factories, feature patterns, expanded motion tokens, navigation chrome, brand/mascot moods, corrected tab names (Profile not Store), component catalog and re-export notes |

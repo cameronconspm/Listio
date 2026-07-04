@@ -16,6 +16,11 @@ import {
   scaleShadows,
   type LayoutMetrics,
 } from './layoutMetrics';
+import {
+  isExtraLargeAccessibilityText,
+  isLargeAccessibilityText,
+  useAccessibilityFontScale,
+} from '../ui/accessibility/useAccessibilityFontScale';
 import type { SemanticTokenKey } from './tokens';
 import { logger } from '../utils/logger';
 import {
@@ -34,6 +39,10 @@ export type AppTheme = ReturnType<typeof getTheme> &
     typography: ReturnType<typeof scaleTypography>;
     shadows: ReturnType<typeof scaleShadows>;
     colorScheme: ColorScheme;
+    /** System Dynamic Type scale (distinct from width-based `fontScale`). */
+    accessibilityFontScale: number;
+    isLargeAccessibilityText: boolean;
+    isExtraLargeAccessibilityText: boolean;
   };
 
 type Theme = AppTheme;
@@ -63,7 +72,12 @@ function applyThemePreferenceToOs(pref: ThemePreference): ColorScheme {
   return pref;
 }
 
-function buildTheme(scheme: ColorScheme, windowWidth: number): Theme {
+type BaseTheme = Omit<
+  AppTheme,
+  'accessibilityFontScale' | 'isLargeAccessibilityText' | 'isExtraLargeAccessibilityText'
+>;
+
+function buildBaseTheme(scheme: ColorScheme, windowWidth: number): BaseTheme {
   const colors = getTheme(scheme);
   const metrics = computeLayoutMetrics(windowWidth);
   return {
@@ -74,6 +88,19 @@ function buildTheme(scheme: ColorScheme, windowWidth: number): Theme {
     typography: scaleTypography(metrics.fontScale),
     shadows: scaleShadows(metrics.layoutScale),
     colorScheme: scheme,
+  };
+}
+
+function buildTheme(
+  scheme: ColorScheme,
+  windowWidth: number,
+  accessibilityFontScale: number,
+): Theme {
+  return {
+    ...buildBaseTheme(scheme, windowWidth),
+    accessibilityFontScale,
+    isLargeAccessibilityText: isLargeAccessibilityText(accessibilityFontScale),
+    isExtraLargeAccessibilityText: isExtraLargeAccessibilityText(accessibilityFontScale),
   };
 }
 
@@ -89,9 +116,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const colorScheme: ColorScheme =
     selectedTheme === 'system' ? osColorScheme : selectedTheme;
   const { width } = useWindowDimensions();
+  const accessibilityFontScale = useAccessibilityFontScale();
   const theme = useMemo(
-    () => buildTheme(colorScheme, width),
-    [colorScheme, width],
+    () => buildTheme(colorScheme, width, accessibilityFontScale),
+    [colorScheme, width, accessibilityFontScale],
   );
 
   const applyHydratedPreference = useCallback((pref: ThemePreference) => {
@@ -211,7 +239,7 @@ let FALLBACK_THEME: Theme | null = null;
 function getFallbackTheme(): Theme {
   if (!FALLBACK_THEME) {
     const w = Dimensions.get('window').width;
-    FALLBACK_THEME = buildTheme('light', w);
+    FALLBACK_THEME = buildTheme('light', w, 1);
   }
   return FALLBACK_THEME;
 }
