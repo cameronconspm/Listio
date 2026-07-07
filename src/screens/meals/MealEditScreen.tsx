@@ -380,6 +380,24 @@ export function MealEditScreen() {
     clearRecipeSelection();
   }, [clearRecipeSelection]);
 
+  const addMealFromSearch = useCallback(() => {
+    const trimmed = recipeSearchQuery.trim();
+    if (!trimmed) return;
+    Keyboard.dismiss();
+    if (recipeSearchBlurTimerRef.current) {
+      clearTimeout(recipeSearchBlurTimerRef.current);
+      recipeSearchBlurTimerRef.current = null;
+    }
+    userSelectedRecipeThisSessionRef.current = false;
+    setSelectedRecipeId(null);
+    setSelectedRecipePreview(null);
+    lastHydratedRecipeIngredientsRef.current = null;
+    setName(trimmed);
+    setIngredients([{ ...defaultIngredient }]);
+    setRecipeSearchFocused(false);
+    setRecipeSearchQuery('');
+  }, [recipeSearchQuery]);
+
   const applyMealTypeChip = useCallback((chip: MealSlotChip) => {
     if (chip.slot === 'custom' && chip.customPreset) {
       setMealSlot('custom');
@@ -557,6 +575,15 @@ export function MealEditScreen() {
   const selectedRowMeta =
     displayRecipeForRow != null ? formatRecipeMetaLine(displayRecipeForRow) : '';
 
+  const customMealTitle = name.trim() ? titleCaseWords(name.trim()) : '';
+  const searchTerm = debouncedRecipeSearch.trim();
+  const showAddNewMealOption =
+    recipeSearchFocused &&
+    searchTerm.length > 0 &&
+    filteredPickerRecipes.length === 0 &&
+    !recipesPickerQuery.isPending &&
+    !recipesPickerQuery.isError;
+
   return (
     <Screen padded safeTop={false} safeBottom={false}>
       <PushedScreenHeader title={headerTitle} onBack={() => navigation.goBack()} rightAccessory={addPill} />
@@ -614,6 +641,50 @@ export function MealEditScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+            ) : customMealTitle ? (
+              <View
+                style={[
+                  styles.selectedRecipeRow,
+                  {
+                    backgroundColor: theme.accent + '22',
+                    borderColor: theme.accent,
+                  },
+                ]}
+              >
+                <View style={[styles.recipeIconTile, { backgroundColor: theme.accent }]}>
+                  <Ionicons name="restaurant-outline" size={20} color={theme.onAccent} />
+                </View>
+                <View style={styles.selectedRecipeText}>
+                  <Text
+                    style={[theme.typography.body, { color: theme.textPrimary, fontWeight: '700' }]}
+                    numberOfLines={2}
+                  >
+                    {customMealTitle}
+                  </Text>
+                  <Text
+                    style={[theme.typography.footnote, { color: theme.textSecondary, marginTop: 2 }]}
+                    numberOfLines={2}
+                  >
+                    Custom meal · No recipe linked
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={beginRecipeSearch}
+                  style={[
+                    styles.changePill,
+                    {
+                      borderColor: theme.accent,
+                      backgroundColor: theme.surface,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Change meal name"
+                >
+                  <Text style={[theme.typography.caption1, { color: theme.accent, fontWeight: '600' }]}>
+                    Change
+                  </Text>
+                </TouchableOpacity>
+              </View>
             ) : (
               <>
                 <RecipeSearchBar
@@ -622,7 +693,7 @@ export function MealEditScreen() {
                   onChangeText={setRecipeSearchQuery}
                   onFocus={onRecipeSearchFocus}
                   onBlur={onRecipeSearchBlur}
-                  placeholder="Search recipes…"
+                  placeholder="Search recipes or type a meal name…"
                 />
                 {recipeSearchFocused ? (
                   <View
@@ -687,9 +758,39 @@ export function MealEditScreen() {
                             </Text>
                           </TouchableOpacity>
                         ))}
+                        {showAddNewMealOption ? (
+                          <TouchableOpacity
+                            style={[styles.recipeResultRow, styles.addMealResultRow, { borderBottomColor: theme.divider }]}
+                            onPress={addMealFromSearch}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Add ${searchTerm} as new meal`}
+                          >
+                            <Ionicons name="add-circle-outline" size={22} color={theme.accent} />
+                            <View style={styles.addMealResultText}>
+                              <Text
+                                style={[
+                                  theme.typography.body,
+                                  { color: theme.accent, fontWeight: '600' },
+                                ]}
+                                numberOfLines={2}
+                              >
+                                Add “{searchTerm}” as new meal
+                              </Text>
+                              <Text
+                                style={[
+                                  theme.typography.caption1,
+                                  { color: theme.textSecondary, marginTop: 2 },
+                                ]}
+                              >
+                                Use your search as the meal name
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        ) : null}
                         {filteredPickerRecipes.length === 0 &&
                         debouncedRecipeSearch.trim() !== '' &&
-                        (recipesPickerQuery.data?.recipes?.length ?? 0) > 0 ? (
+                        (recipesPickerQuery.data?.recipes?.length ?? 0) > 0 &&
+                        !showAddNewMealOption ? (
                           <Text
                             style={[
                               theme.typography.footnote,
@@ -700,7 +801,8 @@ export function MealEditScreen() {
                           </Text>
                         ) : null}
                         {filteredPickerRecipes.length === 0 &&
-                        (recipesPickerQuery.data?.recipes?.length ?? 0) === 0 ? (
+                        (recipesPickerQuery.data?.recipes?.length ?? 0) === 0 &&
+                        !showAddNewMealOption ? (
                           <Text
                             style={[
                               theme.typography.footnote,
@@ -958,6 +1060,15 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  addMealResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  addMealResultText: {
+    flex: 1,
+    minWidth: 0,
   },
   selectedRecipeRow: {
     flexDirection: 'row',
