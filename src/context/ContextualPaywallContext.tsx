@@ -16,6 +16,7 @@ import {
 } from '../components/paywall/listioPaywallContent';
 import type { ContextualPaywallReason } from './contextualPaywallReasons';
 import { contextualPaywallDismissToast } from './contextualPaywallReasons';
+import { resolveLivePaywallPresentation } from './paywallPresentationLogic';
 import {
   fetchPremiumEntitlementActive,
   getRevenueCatIosApiKey,
@@ -31,11 +32,22 @@ import {
 import { ensureServerSubscriptionMirror } from '../services/subscriptionEntitlementSyncService';
 import { restorePurchasesWithUserFeedback } from '../services/restorePurchasesFlow';
 import { showInfo } from '../utils/appToast';
+import { logger } from '../utils/logger';
 import { setContextualPaywallPresenter } from './contextualPaywallRef';
+
+export type PresentPaywallOptions = {
+  /** Show a toast when the paywall is skipped (gate off or already premium). */
+  feedbackOnSkip?: boolean;
+};
 
 type Ctx = {
   /** Presents the Listio+ paywall. Resolves true when the user subscribed or already has premium. */
-  presentPaywall: (reason?: ContextualPaywallReason | null) => Promise<boolean>;
+  presentPaywall: (
+    reason?: ContextualPaywallReason | null,
+    options?: PresentPaywallOptions
+  ) => Promise<boolean>;
+  /** QA preview — always shows the paywall UI with mock plans; purchases disabled. */
+  presentPaywallPreview: (reason?: ContextualPaywallReason | null) => Promise<void>;
   ensurePremiumOrPresentPaywall: (reason: ContextualPaywallReason) => Promise<boolean>;
 };
 
@@ -47,8 +59,17 @@ type Props = {
   onPremiumStatusKnown?: (isPremium: boolean) => void;
 };
 
+function paywallSkipToast(reason: 'gate_disabled' | 'already_premium'): void {
+  if (reason === 'gate_disabled') {
+    showInfo('Subscriptions are disabled in this build.', 'Paywall skipped');
+    return;
+  }
+  showInfo('You already have Listio+ on this device.', 'Already subscribed');
+}
+
 export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Props) {
   const [visible, setVisible] = useState(false);
+  const [previewOnly, setPreviewOnly] = useState(false);
   const [paywallReason, setPaywallReason] = useState<ContextualPaywallReason | null>(null);
   const [plans, setPlans] = useState<ListioPaywallPlan[]>(MOCK_LISTIO_PAYWALL_PLANS);
   const [plansLoading, setPlansLoading] = useState(false);
@@ -56,6 +77,7 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
   const [restoreBusy, setRestoreBusy] = useState(false);
   const offeringRef = useRef<ListioPaywallOffering | null>(null);
   const resolveRef = useRef<((ok: boolean) => void) | null>(null);
+  const previewResolveRef = useRef<(() => void) | null>(null);
   const dismissReasonRef = useRef<ContextualPaywallReason | null>(null);
 
   const showDismissToast = useCallback((reason: ContextualPaywallReason) => {
@@ -66,17 +88,22 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
   const closePaywall = useCallback(
     (result: boolean, options?: { showDismissToast?: boolean }) => {
       const resolve = resolveRef.current;
+      const previewResolve = previewResolveRef.current;
       const reason = dismissReasonRef.current;
+      const wasPreview = previewOnly;
       resolveRef.current = null;
+      previewResolveRef.current = null;
       dismissReasonRef.current = null;
       setVisible(false);
       setPaywallReason(null);
-      if (!result && options?.showDismissToast !== false && reason) {
+      setPreviewOnly(false);
+      if (!wasPreview && !result && options?.showDismissToast !== false && reason) {
         showDismissToast(reason);
       }
+      previewResolve?.();
       resolve?.(result);
     },
-    [showDismissToast]
+    [previewOnly, showDismissToast]
   );
 
   const loadOfferings = useCallback(async () => {
@@ -95,41 +122,89 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
   }, []);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || previewOnly) return;
     void loadOfferings();
-  }, [visible, loadOfferings]);
+  }, [visible, previewOnly, loadOfferings]);
+
+  const openPaywallSheet = useCallback((reason: ContextualPaywallReason | null) => {
+    return new Promise<boolean>((resolve) => {
+      resolveRef.current = resolve;
+      dismissReasonRef.current = reason;
+      setPaywallReason(reason);
+      setVisible(true);
+    });
+  }, []);
 
   const presentPaywall = useCallback(
-    async (reason?: ContextualPaywallReason | null): Promise<boolean> => {
-      if (!shouldEnforceIosSubscriptionGate()) {
+    async (
+      reason?: ContextualPaywallReason | null,
+      options?: PresentPaywallOptions
+    ): Promise<boolean> => {
+      const decision = resolveLivePaywallPresentation({
+        platformIos: Platform.OS === 'ios',
+        gateEnforced: shouldEnforceIosSubscriptionGate(),
+        rcSkipped: isRevenueCatNativeLayerSkipped(),
+        hasApiKey: getRevenueCatIosApiKey().length > 0,
+        alreadyPremium: false,
+      });
+
+      if (decision.action === 'alert') {
+        if (decision.reason === 'not_ios') {
+          Alert.alert('Not available', 'The paywall is currently iOS-only.');
+        } else if (decision.reason === 'rc_skipped') {
+          Alert.alert('Not available', 'Subscriptions aren’t available in this build.');
+        } else if (decision.reason === 'no_api_key') {
+          Alert.alert(
+            'Not configured',
+            'Subscriptions aren’t set up in this build. Install the App Store version to subscribe.'
+          );
+        }
+        logger.warnRelease(`paywall: blocked (${decision.reason})`);
+        return false;
+      }
+
+      if (decision.action === 'skip' && decision.reason === 'gate_disabled') {
+        logger.warnRelease('paywall: skipped (gate_disabled)');
+        if (options?.feedbackOnSkip) paywallSkipToast('gate_disabled');
         onPremiumStatusKnown?.(true);
         return true;
       }
-      if (isRevenueCatNativeLayerSkipped()) {
-        Alert.alert('Not available', 'Subscriptions aren’t available in this build.');
-        return false;
-      }
-      if (!getRevenueCatIosApiKey()) {
-        Alert.alert(
-          'Not configured',
-          'Subscriptions aren’t set up in this build. Install the App Store version to subscribe.'
-        );
-        return false;
-      }
+
       const already = await fetchPremiumEntitlementActive();
       if (already) {
+        logger.warnRelease('paywall: skipped (already_premium)');
+        if (options?.feedbackOnSkip) paywallSkipToast('already_premium');
         await ensureServerSubscriptionMirror();
         onPremiumStatusKnown?.(true);
         return true;
       }
-      return await new Promise<boolean>((resolve) => {
-        resolveRef.current = resolve;
+
+      offeringRef.current = null;
+      setPreviewOnly(false);
+      return openPaywallSheet(reason ?? null);
+    },
+    [onPremiumStatusKnown, openPaywallSheet]
+  );
+
+  const presentPaywallPreview = useCallback(
+    async (reason?: ContextualPaywallReason | null): Promise<void> => {
+      if (Platform.OS !== 'ios') {
+        Alert.alert('Not available', 'The paywall is currently iOS-only.');
+        return;
+      }
+      logger.warnRelease('paywall: preview mode');
+      offeringRef.current = null;
+      setPlans(MOCK_LISTIO_PAYWALL_PLANS);
+      setPlansLoading(false);
+      setPreviewOnly(true);
+      await new Promise<void>((resolve) => {
+        previewResolveRef.current = resolve;
         dismissReasonRef.current = reason ?? null;
         setPaywallReason(reason ?? null);
         setVisible(true);
       });
     },
-    [onPremiumStatusKnown]
+    []
   );
 
   const ensurePremiumOrPresentPaywall = useCallback(
@@ -146,11 +221,16 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
         resolveRef.current = null;
         resolve(false);
       }
+      previewResolveRef.current = null;
     };
   }, [ensurePremiumOrPresentPaywall]);
 
   const handleStartTrial = useCallback(
     async (planId: ListioPaywallPlanId) => {
+      if (previewOnly) {
+        Alert.alert('Preview only', 'Purchases are disabled in paywall preview mode.');
+        return;
+      }
       if (isRevenueCatNativeLayerSkipped() || !getRevenueCatIosApiKey()) {
         Alert.alert('Not available', 'Subscriptions aren’t set up in this build.');
         return;
@@ -182,10 +262,11 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
         setPurchaseBusy(false);
       }
     },
-    [closePaywall, onPremiumStatusKnown]
+    [closePaywall, onPremiumStatusKnown, previewOnly]
   );
 
   const handleRestorePurchases = useCallback(async () => {
+    if (previewOnly) return;
     setRestoreBusy(true);
     try {
       const ok = await restorePurchasesWithUserFeedback({
@@ -197,13 +278,13 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
     } finally {
       setRestoreBusy(false);
     }
-  }, [closePaywall, onPremiumStatusKnown]);
+  }, [closePaywall, onPremiumStatusKnown, previewOnly]);
 
-  const showRestore = Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate();
+  const showRestore = Platform.OS === 'ios' && shouldEnforceIosSubscriptionGate() && !previewOnly;
 
   const value = useMemo(
-    () => ({ presentPaywall, ensurePremiumOrPresentPaywall }),
-    [presentPaywall, ensurePremiumOrPresentPaywall]
+    () => ({ presentPaywall, presentPaywallPreview, ensurePremiumOrPresentPaywall }),
+    [presentPaywall, presentPaywallPreview, ensurePremiumOrPresentPaywall]
   );
 
   return (
@@ -214,9 +295,10 @@ export function ContextualPaywallProvider({ children, onPremiumStatusKnown }: Pr
         reason={paywallReason}
         plans={plans}
         plansLoading={plansLoading}
+        previewOnly={previewOnly}
         onStartTrial={handleStartTrial}
         onRestore={showRestore ? handleRestorePurchases : undefined}
-        onDismiss={() => closePaywall(false)}
+        onDismiss={() => closePaywall(false, { showDismissToast: !previewOnly })}
         busy={purchaseBusy}
         restoreBusy={restoreBusy}
       />
@@ -234,6 +316,7 @@ export function useContextualPaywall(): Ctx {
         if (ok) await ensureServerSubscriptionMirror();
         return ok;
       },
+      presentPaywallPreview: async () => {},
       ensurePremiumOrPresentPaywall: async (reason: ContextualPaywallReason) => {
         if (!shouldEnforceIosSubscriptionGate()) return true;
         const ok = await fetchPremiumEntitlementActive();

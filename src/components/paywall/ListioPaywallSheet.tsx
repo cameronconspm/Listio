@@ -57,6 +57,8 @@ export type ListioPaywallSheetProps = {
   onDismiss: () => void;
   busy?: boolean;
   restoreBusy?: boolean;
+  /** QA preview — shows UI with mock plans; purchase/restore are disabled. */
+  previewOnly?: boolean;
 };
 
 /**
@@ -74,6 +76,7 @@ export function ListioPaywallSheet({
   onDismiss,
   busy = false,
   restoreBusy = false,
+  previewOnly = false,
 }: ListioPaywallSheetProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -93,7 +96,8 @@ export function ListioPaywallSheet({
     ? listioPaywallTrialFootnote(selectedPlan, selectedPlanId)
     : '';
   const trialPillLabel = listioPaywallTrialShortLabel(selectedTrialDays);
-  const purchaseDisabled = actionsDisabled || plansLoading || plans.length === 0;
+  const purchaseDisabled = previewOnly || actionsDisabled || plansLoading || plans.length === 0;
+  const stickyCtaLabel = previewOnly ? 'Preview only' : ctaLabel;
 
   const mascotSize = layoutTier === 'tight' ? 72 : layoutTier === 'compact' ? 84 : 96;
   const footerPadBottom = Math.max(insets.bottom, theme.spacing.sm);
@@ -464,7 +468,7 @@ export function ListioPaywallSheet({
 
             <View style={styles.scrollFooter}>
               <View style={styles.secondaryActions}>
-                {onRestore ? (
+                {onRestore && !previewOnly ? (
                   <Button
                     title="Restore purchases"
                     variant="tertiary"
@@ -496,14 +500,16 @@ export function ListioPaywallSheet({
 
           <View style={styles.stickyFooter}>
             <PrimaryButton
-              title={ctaLabel}
+              title={stickyCtaLabel}
               onPress={() => void onStartTrial(selectedPlanId)}
-              disabled={purchaseDisabled}
+              disabled={previewOnly ? actionsDisabled : purchaseDisabled}
               loading={busy}
               flat
               style={{ alignSelf: 'stretch' }}
             />
-            <Text style={styles.trialFootnote}>{trialFootnote}</Text>
+            <Text style={styles.trialFootnote}>
+              {previewOnly ? 'Preview mode — purchases are disabled in this build.' : trialFootnote}
+            </Text>
           </View>
         </View>
       </View>

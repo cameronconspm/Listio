@@ -30,6 +30,7 @@ describe('buildHealth', () => {
     const text = formatBuildHealthAlert(getBuildHealthSnapshot());
     expect(text).toContain('Supabase project:');
     expect(text).toContain('RevenueCat iOS API key');
+    expect(text).toContain('Paywall ready');
     expect(text).toContain('AI category cache');
   });
 });
