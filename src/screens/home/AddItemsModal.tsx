@@ -59,8 +59,11 @@ export function AddItemsModal({ visible, onClose, onAdded }: AddItemsModalProps)
       }
       const storeType = currentBundle?.store?.store_type ?? 'generic';
       const zoneLabelsInOrder = DEFAULT_ZONE_ORDER.map((zoneKey) => ZONE_LABELS[zoneKey]);
-      const { categorizeItems, phraseKeyForCategorize } = await import('../../services/aiService');
-      const { results } = await categorizeItems(raw, storeType, zoneLabelsInOrder, {
+      const { resolveItemsForInsert } = await import('../../services/resolveItemsForInsert');
+      const { phraseKeyForCategorize } = await import('../../services/aiService');
+      const { results } = await resolveItemsForInsert(raw, {
+        storeType,
+        zoneLabelsInOrder,
         premiumHint: { isPremium, isLoading: isPremiumLoading },
       });
       await insertItems.mutateAsync({

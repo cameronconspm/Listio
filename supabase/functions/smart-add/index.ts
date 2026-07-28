@@ -29,15 +29,16 @@ import {
   fetchUserPremiumActive,
   premiumRequiredResponse,
 } from '../_shared/premiumEntitlement.ts';
+import {
+  assertOpenAiUsageAllowed,
+  logOpenAiUsage,
+} from '../_shared/openAiUsageRateLimit.ts';
 
 const MAX_INPUT_CHARS = 12000;
 const MAX_STORE_TYPE = 80;
 const MAX_ZONE_LABEL = 120;
 const MAX_ZONE_LABELS = 30;
 const MAX_ITEMS_OUT = 150;
-/** Per-user OpenAI HTTP calls (shared with `categorize-items`). */
-const MAX_OPENAI_CALLS_PER_HOUR = 35;
-const MAX_OPENAI_CALLS_PER_DAY = 200;
 
 const RequestSchema = z.object({
   text: z.string().min(1).max(MAX_INPUT_CHARS),
@@ -144,40 +145,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Share the categorize_openai_usage limiter — one merged call is charged as one classify call.
-    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-    const [hourRes, dayRes] = await Promise.all([
-      supabaseAdmin
-        .from('categorize_openai_usage')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('called_at', hourAgo),
-      supabaseAdmin
-        .from('categorize_openai_usage')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('called_at', dayAgo),
-    ]);
-
-    if (hourRes.error || dayRes.error) {
-      console.error('smart-add: rate limit count failed', hourRes.error ?? dayRes.error);
-      return new Response(JSON.stringify({ error: 'Parsing service unavailable' }), {
-        status: 503,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (
-      (hourRes.count ?? 0) >= MAX_OPENAI_CALLS_PER_HOUR ||
-      (dayRes.count ?? 0) >= MAX_OPENAI_CALLS_PER_DAY
-    ) {
-      return new Response(
-        JSON.stringify({ error: 'Too many requests', code: 'rate_limited' }),
-        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const rateLimitResponse = await assertOpenAiUsageAllowed(supabaseAdmin, user.id, 'smart_add');
+    if (rateLimitResponse) return rateLimitResponse;
 
     const storePath =
       zoneLabelsInOrder && zoneLabelsInOrder.length > 0
@@ -321,20 +290,17 @@ ${text}`;
     // Flush cache population + usage log concurrently with response assembly.
     // Errors are logged but never block the response — cache / limiter accuracy is
     // not user-visible and a missed write is acceptable.
-    const [upsertRes, logRes] = await Promise.all([
+    const [upsertRes] = await Promise.all([
       cachePayloads.length > 0
         ? supabaseAdmin
             .from('ai_item_cache')
             .upsert(cachePayloads, { onConflict: 'input_text' })
         : Promise.resolve({ error: null as null | { message?: string } }),
-      supabaseAdmin.from('categorize_openai_usage').insert({ user_id: user.id }),
+      logOpenAiUsage(supabaseAdmin, user.id, 'smart_add'),
     ]);
 
     if (upsertRes.error) {
       console.error('smart-add: cache upsert failed', upsertRes.error);
-    }
-    if (logRes.error) {
-      console.error('smart-add: failed to log OpenAI usage', logRes.error);
     }
 
     return new Response(JSON.stringify({ items }), {

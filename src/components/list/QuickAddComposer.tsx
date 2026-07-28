@@ -47,6 +47,7 @@ import { createQuickAddComposerStyles } from './quickAddComposerStyles';
 import { UnitSelectionList } from '../ui/UnitSelectionList';
 import { duration } from '../../ui/motion/tokens';
 import { parseListItemsFromText, categorizeItems } from '../../services/aiService';
+import { isAiQuotaPaused } from '../../services/aiQuotaSession';
 import { resolveCategoryFast } from '../../services/aiCategoryCache';
 import type { ParsedListItem } from '../../types/api';
 import { AI_SMART_CATEGORIZATION_DISCLOSURE_LEAD } from '../../constants/aiPrivacyDisclosure';
@@ -291,7 +292,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
    *   - only fire in add mode (not edit, not smart mode)
    *   - skip inputs shorter than 3 chars (avoids wasting rate-limit budget on "ap")
    *   - skip multi-item expressions ("milk, eggs") — multi-item path categorizes in one batch
-   *   - debounce 600ms so each keystroke doesn't fire a call
+   *   - debounce 900ms so each keystroke doesn't fire a call
    *   - abort (discard result + ignore stale response) if the user keeps typing
    *   - abort on composer dismiss via prewarmAbortRef in the visibility reset effect
    *
@@ -301,6 +302,7 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
   useEffect(() => {
     if (!visible) return;
     if (smartMode || editingItem) return;
+    if (isAiQuotaPaused()) return;
     const trimmed = text.trim();
     if (trimmed.length < 3) return;
     // Avoid pre-warming when the user typed a comma-separated multi-item entry —
@@ -322,12 +324,15 @@ export const QuickAddComposer = forwardRef(function QuickAddComposer(
       if (token.cancelled) return;
       void (async () => {
         try {
-          await categorizeItems([name], storeType, zoneLabelsInOrder, categorizeOpts);
+          await categorizeItems([name], storeType, zoneLabelsInOrder, {
+            ...categorizeOpts,
+            callKind: 'background',
+          });
         } catch {
           // Background only — submit can still categorize before inserting.
         }
       })();
-    }, 600);
+    }, 900);
 
     return () => {
       clearTimeout(timeoutId);

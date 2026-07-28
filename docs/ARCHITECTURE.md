@@ -161,7 +161,7 @@ See [SUPABASE.md](./SUPABASE.md) (when added) or `README.md` for deploy steps.
 - **RLS** on all user tables — access via the user's private data scope (`household_id` matched to `auth.uid()`).
 - **Service role** — Edge Functions only; used for AI cache writes, webhooks, entitlement mirror.
 - **Entitlements table** — clients SELECT own row; writes via webhook / sync function only.
-- **Rate limits** — per-user buckets for OpenAI, Places, and parse-recipe (Postgres + Edge logic).
+- **Rate limits** — per-user buckets for OpenAI, Places, and parse-recipe (Postgres + Edge logic). OpenAI classify usage is tiered by `call_kind` (`categorize_submit` / `categorize_background` / `suggest` / `smart_add`); list adds fall back to Other + info toast when submit-tier categorize is unavailable.
 
 Details: [DATA_MODEL.md](./DATA_MODEL.md).
 
@@ -196,5 +196,6 @@ See also [performance-slos.md](./performance-slos.md).
 
 | Date | Change |
 |------|--------|
+| 2026-07-28 | Tiered OpenAI rate limits by `call_kind`; submit-time categorize fallback adds to Other with toast instead of blocking quick-add |
 | 2026-07-04 | Defer home-list prefetch until onboarding completes; merge starter items into React Query cache after seed |
 | 2026-06-08 | Initial architecture documentation |

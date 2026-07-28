@@ -48,6 +48,9 @@ describe('grocery resolver parity and catalog invariants', () => {
       'bell pepper',
       'garlic powder',
       'soy sauce',
+      'olives',
+      'nonfat plain yogurt',
+      'pasta sauce',
     ];
     for (const input of inputs) {
       const a = resolveCommonGroceryCategory(input);
@@ -76,5 +79,12 @@ describe('grocery resolver parity and catalog invariants', () => {
     const t = tokensForFuzzyCacheLookup(['large banana', 'baby spinach'], 5);
     expect(t.length).toBeLessThanOrEqual(5);
     expect(new Set(t)).toEqual(new Set(['banana', 'baby', 'spinach']));
+  });
+
+  it('resolves newly added high-frequency catalog items', () => {
+    expect(resolveCommonGroceryCategory('olives')?.zone_key).toBe('pantry');
+    expect(resolveCommonGroceryCategory('nonfat plain yogurt')?.zone_key).toBe('dairy_eggs');
+    expect(resolveCommonGroceryCategory('pasta sauce')?.zone_key).toBe('pantry');
+    expect(resolveCommonGroceryCategory('frozen pizza')?.zone_key).toBe('frozen');
   });
 });

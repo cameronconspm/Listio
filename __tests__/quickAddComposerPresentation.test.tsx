@@ -258,7 +258,7 @@ describe('QuickAddComposer presentation behavior', () => {
       jest.useRealTimers();
     });
 
-    it('fires categorizeItems once after 600ms pause on a plausible item name', async () => {
+    it('fires categorizeItems once after 900ms pause on a plausible item name', async () => {
       const uncachedName = 'zz obscure prewarm token xyz789';
       let tree!: ReactTestRenderer;
       act(() => {
@@ -278,7 +278,7 @@ describe('QuickAddComposer presentation behavior', () => {
       });
 
       act(() => {
-        jest.advanceTimersByTime(599);
+        jest.advanceTimersByTime(899);
       });
       expect(getCategorizeMock()).not.toHaveBeenCalled();
 
@@ -290,6 +290,7 @@ describe('QuickAddComposer presentation behavior', () => {
       expect(getCategorizeMock()).toHaveBeenCalledTimes(1);
       expect(getCategorizeMock()).toHaveBeenCalledWith([uncachedName], 'generic', ['Produce'], {
         premiumHint: { isPremium: true, isLoading: false },
+        callKind: 'background',
       });
     });
 
@@ -342,13 +343,14 @@ describe('QuickAddComposer presentation behavior', () => {
       });
 
       await act(async () => {
-        jest.advanceTimersByTime(700);
+        jest.advanceTimersByTime(900);
         await flushMicrotasks();
       });
 
       expect(getCategorizeMock()).toHaveBeenCalledTimes(1);
       expect(getCategorizeMock()).toHaveBeenCalledWith(['milkshake'], undefined, undefined, {
         premiumHint: { isPremium: true, isLoading: false },
+        callKind: 'background',
       });
     });
 

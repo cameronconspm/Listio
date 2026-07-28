@@ -48,6 +48,7 @@ import type { ItemNameSuggestion } from '../../services/itemNameSuggestions';
 import { loadRecentItemsForSuggestions, type RecentItem } from '../../services/recentItemsStore';
 import { resolveCategoryFast } from '../../services/aiCategoryCache';
 import { categorizeItems } from '../../services/aiService';
+import { isAiQuotaPaused } from '../../services/aiQuotaSession';
 
 export interface BottomQuickAddBarHandle {
   focus: () => void;
@@ -159,8 +160,11 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
 
   const prewarmCategorize = useCallback(
     (name: string) => {
+      if (isAiQuotaPaused()) return;
       if (resolveCategoryFast(name)) return;
-      void categorizeItems([name], storeType, zoneLabelsInOrder).catch(() => undefined);
+      void categorizeItems([name], storeType, zoneLabelsInOrder, { callKind: 'background' }).catch(
+        () => undefined
+      );
     },
     [storeType, zoneLabelsInOrder]
   );
@@ -425,6 +429,7 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
 
   useEffect(() => {
     if (disabled || unitMenuOpen) return;
+    if (isAiQuotaPaused()) return;
     if (trimmed.length < 3) return;
     if (parseItems(text).length > 1) return;
     const parsed = parseSingleEntry(text);
@@ -440,8 +445,10 @@ export const BottomQuickAddBar = forwardRef(function BottomQuickAddBar(
 
     const timeoutId = setTimeout(() => {
       if (token.cancelled) return;
-      void categorizeItems([name], storeType, zoneLabelsInOrder).catch(() => undefined);
-    }, 600);
+      void categorizeItems([name], storeType, zoneLabelsInOrder, { callKind: 'background' }).catch(
+        () => undefined
+      );
+    }, 900);
 
     return () => {
       clearTimeout(timeoutId);
