@@ -19,19 +19,23 @@ import {
   OpenAiUpstreamTimeoutError,
   openAiTimeoutResponse,
 } from '../_shared/openaiFetch.ts';
+import {
+  assertOpenAiUsageAllowed,
+  logOpenAiUsage,
+  mapCategorizeCallKind,
+} from '../_shared/openAiUsageRateLimit.ts';
 
 const MAX_ITEMS = 50;
 const MAX_STORE_TYPE = 80;
 const MAX_ZONE_LABEL = 120;
-/** Per-user OpenAI HTTP calls (not cache hits). */
-const MAX_OPENAI_CALLS_PER_HOUR = 35;
-const MAX_OPENAI_CALLS_PER_DAY = 200;
 
 const RequestSchema = z.object({
   items: z.array(z.string().max(MAX_ITEM_STRING)).max(MAX_ITEMS),
   storeType: z.string().max(MAX_STORE_TYPE).optional(),
   /** Human-readable section names in walking order for this store (from the app). */
   zoneLabelsInOrder: z.array(z.string().max(MAX_ZONE_LABEL)).max(30).optional(),
+  /** Submit-time adds use `submit`; typing pre-warm uses `background`. */
+  callKind: z.enum(['submit', 'background']).optional(),
 });
 
 type Result = { input: string; normalized_name: string; category: string; zone_key: string; confidence: number };
@@ -116,7 +120,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { items: rawItems, zoneLabelsInOrder } = parsed.data;
+    const { items: rawItems, zoneLabelsInOrder, callKind: rawCallKind } = parsed.data;
+    const usageKind = mapCategorizeCallKind(rawCallKind);
     const normalizedInputs = rawItems.map((s) => normalize(s));
     const seen = new Map<string, string>();
     const uniqueInputs: string[] = [];
@@ -327,35 +332,8 @@ Deno.serve(async (req) => {
         });
       }
 
-      const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-      const { count: hourCount, error: hourErr } = await supabaseAdmin
-        .from('categorize_openai_usage')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('called_at', hourAgo);
-
-      const { count: dayCount, error: dayErr } = await supabaseAdmin
-        .from('categorize_openai_usage')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('called_at', dayAgo);
-
-      if (hourErr || dayErr) {
-        console.error('categorize-items: rate limit count failed', hourErr ?? dayErr);
-        return new Response(JSON.stringify({ error: 'Classification service unavailable' }), {
-          status: 503,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      if ((hourCount ?? 0) >= MAX_OPENAI_CALLS_PER_HOUR || (dayCount ?? 0) >= MAX_OPENAI_CALLS_PER_DAY) {
-        return new Response(
-          JSON.stringify({ error: 'Too many requests', code: 'rate_limited' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+      const rateLimitResponse = await assertOpenAiUsageAllowed(supabaseAdmin, user.id, usageKind);
+      if (rateLimitResponse) return rateLimitResponse;
 
       const storePath =
         zoneLabelsInOrder && zoneLabelsInOrder.length > 0
@@ -462,20 +440,17 @@ ${cacheMissInputs.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
         incrementSourceCount(sourceCounts, 'openai');
       }
 
-      const [upsertRes, logRes] = await Promise.all([
+      const [upsertRes] = await Promise.all([
         cachePayloads.length > 0
           ? supabaseAdmin
               .from('ai_item_cache')
               .upsert(cachePayloads, { onConflict: 'input_text' })
           : Promise.resolve({ error: null as null | { message?: string } }),
-        supabaseAdmin.from('categorize_openai_usage').insert({ user_id: user.id }),
+        logOpenAiUsage(supabaseAdmin, user.id, usageKind),
       ]);
 
       if (upsertRes.error) {
         console.error('categorize-items: cache upsert failed', upsertRes.error);
-      }
-      if (logRes.error) {
-        console.error('categorize-items: failed to log OpenAI usage', logRes.error);
       }
       }
     }

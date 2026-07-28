@@ -202,8 +202,7 @@ Run in numeric order via `supabase db push` or SQL Editor.
 | 029 | `recipe_ingredient_count_and_search` | ingredient_count, search_tsv, RPC |
 | 030 | `place_photo_rate_limit` | Place photo rate limits |
 | 031 | `shopping_lists` | shopping_lists; list_items.list_id |
-
----
+| 038 | `openai_usage_call_kind` | `call_kind` column on `categorize_openai_usage` for tiered OpenAI rate limits |
 
 ## TypeScript alignment
 
@@ -223,4 +222,5 @@ When adding columns, update both migration and `src/types/models.ts`.
 
 | Date | Change |
 |------|--------|
+| 2026-07-28 | Migration 038: `call_kind` on `categorize_openai_usage` for submit/background/suggest/smart_add tiers |
 | 2026-06-08 | Initial data model documentation (includes shopping_lists) |

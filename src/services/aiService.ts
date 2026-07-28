@@ -20,6 +20,7 @@ import {
   resolveCategoryFast,
   type FastCategoryEntry,
 } from './aiCategoryCache';
+import { markAiQuotaRateLimited } from './aiQuotaSession';
 import { canonicalGroceryKey } from './commonGroceryCatalog';
 import { subscriptionPlatformEnforced } from '../constants/subscription';
 import {
@@ -32,11 +33,38 @@ export type PremiumHint = {
   isLoading: boolean;
 };
 
+export type CategorizeCallKind = 'submit' | 'background';
+
 export type CategorizeItemsOptions = {
   premiumHint?: PremiumHint;
   /** When true (or known non-premium), assign `other` locally without edge RTT. */
   freeTierLocalOnly?: boolean;
+  /** Submit-time adds use `submit`; typing pre-warm uses `background` (server quota tier). */
+  callKind?: CategorizeCallKind;
 };
+
+const RATE_LIMIT_USER_MESSAGE =
+  'Too many requests right now. Try again in a little while.';
+
+export function isAiRateLimitError(error: unknown): boolean {
+  if (error instanceof AiRateLimitError) return true;
+  if (error instanceof Error) {
+    return (
+      error.message === RATE_LIMIT_USER_MESSAGE ||
+      /temporarily rate-limited/i.test(error.message)
+    );
+  }
+  return false;
+}
+
+export class AiRateLimitError extends Error {
+  readonly code = 'rate_limited' as const;
+
+  constructor(message = RATE_LIMIT_USER_MESSAGE) {
+    super(message);
+    this.name = 'AiRateLimitError';
+  }
+}
 
 const EDGE_INVOKE_TIMEOUT_MS = 55_000;
 
@@ -139,9 +167,16 @@ async function invokeEdgeWithTimeoutAnd429Retry<T extends { data: unknown; error
   if (result.error) {
     const details = await readFunctionsHttpErrorDetails(result.error);
     if (details?.status === 429) {
+      markAiQuotaRateLimited();
       await new Promise((r) => setTimeout(r, 1500 + Math.random() * 400));
       throwIfAborted(signal);
       result = await invokeEdgeWithTimeout(invoke, timeoutMessage, EDGE_INVOKE_TIMEOUT_MS, signal);
+      if (result.error) {
+        const retryDetails = await readFunctionsHttpErrorDetails(result.error);
+        if (retryDetails?.status === 429) {
+          markAiQuotaRateLimited();
+        }
+      }
     }
   }
   return result;
@@ -176,7 +211,7 @@ async function readFunctionsHttpErrorDetails(
 function userFacingCategorizeMessage(details: { status: number; bodySnippet: string } | null): string {
   const status = details?.status;
   if (status === 429) {
-    return 'Too many requests right now. Try again in a little while.';
+    return RATE_LIMIT_USER_MESSAGE;
   }
   if (status === 401) {
     return 'Sign in again to sort items into sections.';
@@ -506,9 +541,11 @@ async function categorizeItemsInner(
     };
   }
 
+  const callKind = options?.callKind ?? 'submit';
   const invokeBody = {
     items: missInputs,
     storeType: _storeType,
+    callKind,
     ...(zoneLabelsInOrder?.length ? { zoneLabelsInOrder } : {}),
   };
 
@@ -542,7 +579,11 @@ async function categorizeItemsInner(
     if (__DEV__ && details) {
       logger.warn('categorize-items', details.status, details.bodySnippet.slice(0, 200));
     }
-    throw new Error(userFacingCategorizeMessage(details));
+    const message = userFacingCategorizeMessage(details);
+    if (details?.status === 429) {
+      throw new AiRateLimitError(message);
+    }
+    throw new Error(message);
   }
 
   const networkResults: CategorizeItemResult[] = Array.isArray(data?.results) ? data.results : [];

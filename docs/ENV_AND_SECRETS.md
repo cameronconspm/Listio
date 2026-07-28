@@ -129,7 +129,13 @@ supabase secrets set PARSE_RECIPE_PER_HOUR_LIMIT=10
 supabase secrets set PARSE_RECIPE_PER_DAY_LIMIT=40
 supabase secrets set PARSE_RECIPE_GLOBAL_PER_HOUR_LIMIT=5000
 supabase secrets set PARSE_RECIPE_CACHE_TTL_SECONDS=1209600
+supabase secrets set OPENAI_CATEGORIZE_SUBMIT_PER_HOUR=40
+supabase secrets set OPENAI_CATEGORIZE_BACKGROUND_PER_HOUR=8
+supabase secrets set OPENAI_SUGGEST_PER_HOUR=8
+supabase secrets set OPENAI_CALLS_PER_DAY=200
 ```
+
+Requires migration `038_openai_usage_call_kind.sql` (`call_kind` on `categorize_openai_usage`).
 
 ### Google Cloud (same server key)
 
@@ -188,4 +194,5 @@ Production builds must use `production` or `app-store-review` for App Store subm
 
 | Date | Change |
 |------|--------|
+| 2026-07-28 | Document optional OpenAI tier rate-limit secrets (`OPENAI_CATEGORIZE_*`, `OPENAI_SUGGEST_PER_HOUR`, `OPENAI_CALLS_PER_DAY`) |
 | 2026-06-08 | Initial env and secrets documentation |

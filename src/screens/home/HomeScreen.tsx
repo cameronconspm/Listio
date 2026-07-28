@@ -35,7 +35,7 @@ import { putCachedCategories } from '../../services/aiCategoryCache';
 import { normalize, toBoolean } from '../../utils/normalize';
 import type { ParsedItem } from '../../utils/parseItems';
 import { findDuplicate, mergeMetadata, type DuplicateMatch } from '../../utils/duplicateDetection';
-import type { CategorizeItemResult, ParsedListItem } from '../../types/api';
+import type { ParsedListItem } from '../../types/api';
 import { normalizePersistedZoneOrder } from '../../utils/zoneOrderPrefs';
 import { showError, showMascotSuccess } from '../../utils/appToast';
 import { isPendingListItemId } from '../../utils/listItemPending';
@@ -106,12 +106,6 @@ type ComposerSubmitOptions = {
   skipDuplicateCheck?: boolean;
 };
 
-type CategorizeFallbackPending = {
-  parsedItems: ParsedItem[];
-  zoneOverride: ZoneKey | null;
-  fallbackResults: CategorizeItemResult[];
-};
-
 export function HomeScreen() {
   if (__DEV__) markRender('HomeScreen');
   const theme = useTheme();
@@ -180,15 +174,12 @@ export function HomeScreen() {
   const pendingSwitchListAfterSheetRef = useRef(false);
   const [reorderSaveSheetVisible, setReorderSaveSheetVisible] = useState(false);
   const [reorderSaveOrder, setReorderSaveOrder] = useState<ZoneKey[] | null>(null);
-  const [categorizeFallbackPending, setCategorizeFallbackPending] =
-    useState<CategorizeFallbackPending | null>(null);
   /** Lazy-mount gates: sheets/dialogs stay unmounted until first opened to avoid mount cost on screen load. */
   /** Edit-item sheet only — new items use BottomQuickAddBar. */
   const composerMounted = useLazyMount(!!editingItem);
   const listActionsMounted = useLazyMount(listActionsVisible);
   const reorderSaveSheetMounted = useLazyMount(reorderSaveSheetVisible);
   const listDeleteDialogMounted = useLazyMount(listDeleteDialog != null);
-  const categorizeFallbackMounted = useLazyMount(categorizeFallbackPending != null);
   const lastPlaceholderIndexRef = useRef<number | null>(null);
   const listPrefsLoaded = useRef(false);
   /** Restore section expand/collapse after inline reorder finishes. */
@@ -477,25 +468,19 @@ export function HomeScreen() {
       // so repeat items keep the fast path without sacrificing correct placement.
       if (parsedItems.length === 1) {
         const p = parsedItems[0];
-        const { categorizeItems, phraseKeyForCategorize } = await import('../../services/aiService');
+        const { resolveItemsForInsert } = await import('../../services/resolveItemsForInsert');
+        const { phraseKeyForCategorize } = await import('../../services/aiService');
         const displayName = p.name.trim();
         const stableKey = phraseKeyForCategorize(p.name);
-        let categorized: { normalized_name: string; category: string; zone_key: string };
-        if (zoneOverride == null) {
-          const res = await categorizeItems([p.name], storeType, zoneLabelsInOrder, {
-            premiumHint: { isPremium, isLoading: isPremiumLoading },
-          });
-          const first = res.results[0];
-          if (!first) {
-            throw new Error('Couldn’t place that item in a section. Try again.');
-          }
-          categorized = first;
-        } else {
-          categorized = {
-            normalized_name: stableKey,
-            category: 'uncategorized',
-            zone_key: zoneOverride,
-          };
+        const { results } = await resolveItemsForInsert([p.name], {
+          storeType,
+          zoneLabelsInOrder,
+          zoneOverride,
+          premiumHint: { isPremium, isLoading: isPremiumLoading },
+        });
+        const categorized = results[0];
+        if (!categorized) {
+          throw new Error('Couldn’t place that item in a section. Try again.');
         }
         const resolvedZone: ZoneKey = zoneOverride ?? (categorized.zone_key as ZoneKey);
         const resolvedCategory = categorized.category;
@@ -600,37 +585,14 @@ export function HomeScreen() {
         return;
       }
       const rawNames = parsedItems.map((p) => p.name);
-      const { categorizeItems, phraseKeyForCategorize } = await import('../../services/aiService');
-      let results: CategorizeItemResult[];
-      try {
-        const res = await categorizeItems(rawNames, storeType, zoneLabelsInOrder, {
-          premiumHint: { isPremium, isLoading: isPremiumLoading },
-        });
-        results = res.results;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        const fallbackResults = rawNames.map((name) => ({
-          input: name,
-          normalized_name: normalize(name) || name,
-          category: 'other',
-          zone_key: 'other' as const,
-          confidence: 0,
-        }));
-        setCategorizeFallbackPending({
-          parsedItems,
-          zoneOverride,
-          fallbackResults,
-        });
-        showError(msg.length > 140 ? `${msg.slice(0, 140)}…` : msg, 'Couldn’t sort into sections');
-        return;
-      }
-
-      if (zoneOverride !== null) {
-        results = results.map((r) => ({
-          ...r,
-          zone_key: zoneOverride,
-        }));
-      }
+      const { resolveItemsForInsert } = await import('../../services/resolveItemsForInsert');
+      const { phraseKeyForCategorize } = await import('../../services/aiService');
+      const { results } = await resolveItemsForInsert(rawNames, {
+        storeType,
+        zoneLabelsInOrder,
+        zoneOverride,
+        premiumHint: { isPremium, isLoading: isPremiumLoading },
+      });
 
       await timeAsync('homeInsertMultipleItems', () =>
         insertItems.mutateAsync({
@@ -808,43 +770,6 @@ export function HomeScreen() {
       }
     }, [handleComposerSubmit, trackFirstItemAdded, invalidateHomeList, queryClient, shoppingListsQueryKey, userId])
   );
-
-  const handleConfirmCategorizeFallback = useCallback(async () => {
-    const pending = categorizeFallbackPending;
-    if (!pending) return;
-    setCategorizeFallbackPending(null);
-    if (typeof userId !== 'string' || !userId) return;
-    let results = pending.fallbackResults;
-    if (pending.zoneOverride !== null) {
-      results = results.map((r) => ({ ...r, zone_key: pending.zoneOverride! }));
-    }
-    const { phraseKeyForCategorize } = await import('../../services/aiService');
-    await insertItems.mutateAsync({
-      userId,
-      items: results.map((r, i) => {
-        const p = pending.parsedItems[i];
-        const displayName = (p?.name ?? r.input).trim();
-        const stableKey = phraseKeyForCategorize(p?.name ?? r.input);
-        return {
-          user_id: userId,
-          name: displayName || stableKey,
-          normalized_name: stableKey,
-          category: r.category,
-          zone_key: r.zone_key as ZoneKey,
-          quantity_value: p?.quantity ?? null,
-          quantity_unit: p?.unit ?? null,
-          notes: p?.note ?? null,
-          is_checked: false,
-          linked_meal_ids: [],
-          brand_preference: p?.brand_preference ?? null,
-          substitute_allowed: p?.substitute_allowed ?? true,
-          priority: p?.priority ?? 'normal',
-          is_recurring: p?.is_recurring ?? false,
-        };
-      }),
-    });
-    setEditingItem(null);
-  }, [categorizeFallbackPending, insertItems, userId]);
 
   const handleComposerEdit = useCallback(
     async (id: string, parsed: ParsedItem, zoneKey: ZoneKey) => {
@@ -1595,24 +1520,6 @@ export function HomeScreen() {
             { label: 'Cancel', onPress: () => {}, cancel: true },
             { label: 'Delete', onPress: handleListDeleteConfirm, destructive: true },
           ]}
-        />
-      ) : null}
-      {categorizeFallbackMounted ? (
-        <AppConfirmationDialog
-          visible={categorizeFallbackPending != null}
-          onClose={() => setCategorizeFallbackPending(null)}
-          title="Couldn't sort into sections"
-          message="We couldn't place these items in store sections. You can add them to Other, or cancel and try again."
-          buttons={[
-            { label: 'Cancel', onPress: () => setCategorizeFallbackPending(null), cancel: true },
-            {
-              label: 'Add to Other',
-              onPress: () => {
-                void handleConfirmCategorizeFallback();
-              },
-            },
-          ]}
-          allowBackdropDismiss
         />
       ) : null}
       <ShopRunCompleteOverlay

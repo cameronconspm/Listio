@@ -15,13 +15,15 @@ import {
   scoreSuggestionMatch,
   canonicalGroceryKey,
 } from '../_shared/groceryResolverCore.ts';
+import {
+  assertOpenAiUsageAllowed,
+  logOpenAiUsage,
+} from '../_shared/openAiUsageRateLimit.ts';
 
 const MAX_QUERY = 80;
 const MAX_LIMIT = 8;
 const MIN_OPENAI_QUERY_LEN = 2;
 const OPENAI_TRIGGER_MAX = 3;
-const MAX_OPENAI_CALLS_PER_HOUR = 35;
-const MAX_OPENAI_CALLS_PER_DAY = 200;
 
 const RequestSchema = z.object({
   query: z.string().min(1).max(MAX_QUERY),
@@ -147,24 +149,9 @@ Deno.serve(async (req) => {
     let source: 'catalog' | 'cache' | 'openai' | 'mixed' = ranked.length > 0 ? 'catalog' : 'catalog';
 
     if (ranked.length < OPENAI_TRIGGER_MAX && query.length >= MIN_OPENAI_QUERY_LEN) {
-      const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-      const { count: hourCount } = await supabaseAdmin
-        .from('categorize_openai_usage')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('called_at', hourAgo);
-
-      const { count: dayCount } = await supabaseAdmin
-        .from('categorize_openai_usage')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('called_at', dayAgo);
-
-      if ((hourCount ?? 0) < MAX_OPENAI_CALLS_PER_HOUR && (dayCount ?? 0) < MAX_OPENAI_CALLS_PER_DAY) {
-        const openaiKey = Deno.env.get('OPENAI_API_KEY');
-        if (openaiKey) {
+      const rateLimitResponse = await assertOpenAiUsageAllowed(supabaseAdmin, user.id, 'suggest');
+      const openaiKey = Deno.env.get('OPENAI_API_KEY');
+      if (!rateLimitResponse && openaiKey) {
           const prompt = `Return a JSON object with key "suggestions": an array of up to ${limit} common US grocery item names that start with or closely match the partial input "${query}". Each item: display_name (title case), normalized_name (lowercase). Grocery items only. No explanation.`;
 
           try {
@@ -209,14 +196,13 @@ Deno.serve(async (req) => {
                 source = ranked.length > 0 ? 'mixed' : 'openai';
               }
 
-              await supabaseAdmin.from('categorize_openai_usage').insert({ user_id: user.id });
+              await logOpenAiUsage(supabaseAdmin, user.id, 'suggest');
             }
           } catch (e) {
             if (e instanceof OpenAiUpstreamTimeoutError) {
               return openAiTimeoutResponse(corsHeaders);
             }
           }
-        }
       }
     }
 

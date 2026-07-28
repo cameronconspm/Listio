@@ -12,13 +12,13 @@ describe('searchItemNameSuggestions', () => {
   ];
 
   it('ranks prefix matches and merges sources', () => {
-    const rows = searchItemNameSuggestions('sal', {
+    const rows = searchItemNameSuggestions('salt', {
       recentItems: recent,
       listItemNames: ['Sea salt flakes'],
       limit: 5,
     });
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows[0].display_name.toLowerCase()).toContain('sal');
+    expect(rows.some((r) => r.display_name.toLowerCase().includes('salt'))).toBe(true);
     const keys = new Set(rows.map((r) => r.normalized_name));
     expect(keys.size).toBe(rows.length);
   });

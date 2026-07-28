@@ -1,7 +1,7 @@
 import type { ListItemInsert } from '../services/listService';
 import type { ZoneKey } from '../types/models';
 import { ZONE_KEYS } from '../data/zone';
-import { normalize } from './normalize';
+import { resolveItemsForInsert } from '../services/resolveItemsForInsert';
 
 const VALID_ZONES = new Set<string>(ZONE_KEYS);
 
@@ -22,7 +22,7 @@ export type RecipeListCategorizeContext = {
 };
 
 /**
- * Build list rows from recipe ingredients, using the same categorize-items path as quick-add.
+ * Build list rows from recipe ingredients, using the same categorize path as quick-add.
  */
 export async function buildListInsertsFromRecipeIngredients(
   rows: RecipeIngredientForList[],
@@ -38,26 +38,13 @@ export async function buildListInsertsFromRecipeIngredients(
   const storeType = categorize?.storeType ?? 'generic';
   const zoneLabelsInOrder = categorize?.zoneLabelsInOrder;
 
-  let results: { normalized_name: string; category: string; zone_key: string }[];
-  const { categorizeItems, phraseKeyForCategorize } = await import('../services/aiService');
-  try {
-    const res = await categorizeItems(names, storeType, zoneLabelsInOrder);
-    results = res.results;
-  } catch {
-    results = names.map((name) => ({
-      normalized_name: normalize(name),
-      category: 'other',
-      zone_key: 'other',
-    }));
-  }
+  const { results } = await resolveItemsForInsert(names, {
+    storeType,
+    zoneLabelsInOrder,
+    showFallbackToast: false,
+  });
 
-  if (results.length !== names.length) {
-    results = names.map((name) => ({
-      normalized_name: normalize(name),
-      category: 'other',
-      zone_key: 'other',
-    }));
-  }
+  const { phraseKeyForCategorize } = await import('../services/aiService');
 
   const mealLinks = linkedMealIds?.length ? [...new Set(linkedMealIds)] : [];
 
@@ -73,8 +60,8 @@ export async function buildListInsertsFromRecipeIngredients(
       user_id: userId,
       name: displayName || stableKey,
       normalized_name: stableKey,
-      category: r.category ?? 'other',
-      zone_key: coerceZoneKey(r.zone_key),
+      category: r?.category ?? 'other',
+      zone_key: coerceZoneKey(r?.zone_key),
       quantity_value: qty,
       quantity_unit: row.quantity_unit,
       notes: null,

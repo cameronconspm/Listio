@@ -6,10 +6,11 @@ import {
 import { getCachedCategoryDisplayNames } from '../services/aiCategoryCache';
 import { searchSuggestionIndex } from '../services/suggestionIndexStore';
 import { fetchRemoteItemSuggestions } from '../services/suggestItemsService';
+import { isAiQuotaPaused } from '../services/aiQuotaSession';
 import type { RecentItem } from '../services/recentItemsStore';
 
-const REMOTE_DEBOUNCE_MS = 350;
-const REMOTE_MIN_QUERY_LEN = 2;
+const REMOTE_DEBOUNCE_MS = 800;
+const REMOTE_MIN_QUERY_LEN = 3;
 const REMOTE_TRIGGER_MAX_LOCAL = 3;
 
 export type UseItemNameSuggestionsOptions = {
@@ -73,6 +74,11 @@ export function useItemNameSuggestions({
       return;
     }
     if (trimmed.length < REMOTE_MIN_QUERY_LEN) {
+      setRemoteNames([]);
+      setIsRemoteLoading(false);
+      return;
+    }
+    if (isAiQuotaPaused()) {
       setRemoteNames([]);
       setIsRemoteLoading(false);
       return;
